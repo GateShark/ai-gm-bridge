@@ -23,6 +23,7 @@ import { cleanupContextJournals } from "./gmstore.mjs";
 import { turnText } from "./lib/turns.mjs";
 import { combatEvent, startedNow } from "./lib/combatevents.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
+import { PushToTalk, speechLang } from "./lib/ptt.mjs";
 
 const ID = "ai-gm-bridge"; const SOCKET = `module.${ID}`;
 const S = { leader: null, dedupe: null, outbox: null, timers: [], lastBatch: null, batcher: null, voice: null, metrics: new Metrics(), ackedCtx: null, sent: new Map() };
@@ -37,6 +38,15 @@ function thinkingOn() { if (!get("thinkingIndicator")) return; const ms = get("t
 function thinkingOff({ broadcast = false } = {}) { thinking.hide(); if (broadcast) game.socket.emit(SOCKET, { type: "thinking", on: false }); }
 const log = (...a) => console.log(`${ID} |`, ...a);
 
+let pttInst = null;
+function setupPtt() {
+  pttInst?.uninstall(); pttInst = null; if (!game.settings.get(ID, "pushToTalk")) return;
+  pttInst = new PushToTalk({ win: window, doc: document, t: (k) => game.i18n.localize(k), lang: speechLang(game.i18n.lang, navigator.language), key: game.settings.get(ID, "pushToTalkKey"),
+    notify: (m) => ui.notifications?.info(m),
+    onceNotice: () => { if (game.settings.get(ID, "pushToTalkNoticeShown")) return false; game.settings.set(ID, "pushToTalkNoticeShown", true); return true; },
+    post: (text) => ChatMessage.create({ content: text, speaker: ChatMessage.getSpeaker() }) });
+  pttInst.install();
+}
 Hooks.once("init", () => {
   const reg = (k, type, def, extra = {}) => game.settings.register(ID, k, { scope: "world", config: true, restricted: true, type, default: def,
     name: `AIGM.settings.${k}.name`, hint: `AIGM.settings.${k}.hint`, ...extra });
@@ -67,6 +77,11 @@ Hooks.once("init", () => {
   // v0.8.2 #14 "GM is thinking…" indicator
   // v0.8.3 immediate combat start/end events (turnWake = also send each turn/round change)
   reg("combatEvents", Boolean, true);
+  // v0.8.5 push-to-talk: per-browser (client scope), off by default; every player enables it for themselves.
+  const ptt = () => setupPtt();
+  game.settings.register(ID, "pushToTalk", { scope: "client", config: true, type: Boolean, default: false, name: "AIGM.settings.pushToTalk.name", hint: "AIGM.settings.pushToTalk.hint", onChange: ptt });
+  game.settings.register(ID, "pushToTalkKey", { scope: "client", config: true, type: String, default: "Backquote", name: "AIGM.settings.pushToTalkKey.name", hint: "AIGM.settings.pushToTalkKey.hint", onChange: ptt });
+  game.settings.register(ID, "pushToTalkNoticeShown", { scope: "client", config: false, type: Boolean, default: false });
   reg("thinkingIndicator", Boolean, true); reg("thinkingTimeoutMs", Number, 90000);
   // v0.7 (GM-only: world setting, config menu is GM-only)
   // v0.7.0 stored the context journal list here. Kept hidden (config:false) only so v0.7.2 can clear it; never written otherwise.
@@ -77,6 +92,7 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
+  try { setupPtt(); } catch (e) { console.warn(`${ID} | push-to-talk`, e); }
   const mod = game.modules.get(ID);
   mod.api = {
     version: mod.version, commands: Object.keys(COMMANDS),

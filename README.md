@@ -29,6 +29,8 @@ Local commands (no bot call): `!roll 2d6`, `!music <playlist>` or `!music <playl
 
 - Pirate Borg morale checks and ship combat helpers (system rules, no dialogs), see docs/BOT-API.md.
 
+- **Push-to-talk (v0.8.5, per player, off by default):** each player enables **Push-to-talk (this browser)** (`pushToTalk`, client setting) and holds the key (`pushToTalkKey`, default `Backquote`, the ` key) or the 🎤 button bottom-left. The browser's Web Speech API transcribes (language from Foundry's language setting) with a "Listening…" indicator showing live text; on release the transcript is posted as that player's normal chat message. The key is ignored while typing in a text field. Chrome/Edge only (no Firefox: one-time notice, no button); needs mic permission, which browsers allow only on HTTPS or localhost. Speech goes to the browser's own speech service (Chrome/Edge send audio to Google/Microsoft), nothing to this module's servers.
+
 ## API (bot GM user, on the leader client)
 `api.run({name, args, commandId?})`, `api.ack(eventIds)`, `api.status()`, `api.metrics()`, `api.clearDead()`.
 See `docs/BOT-API.md`.

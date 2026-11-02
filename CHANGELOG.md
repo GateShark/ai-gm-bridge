@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.8.5
+- Optional push-to-talk: client settings `pushToTalk` (default off) and `pushToTalkKey` (default `Backquote`), plus a hold-to-talk mic button. Web Speech API transcript with a live "Listening…" indicator, posted on release as the player's own chat message. Ignored while typing; one-time notice when the API is missing (Firefox).
+
 ## 0.8.4
 - #15: `requestRoll` takes `formula` (any Foundry formula, e.g. `1d6`, `2d4+1`, `1d20+@abilities.agility.value`) with `label`; `stat`/`dr` optional then. Same clickable card button; `rollResult` adds `formula`/`label`, `success` null without `dr`. d20 stat tests unchanged.
 

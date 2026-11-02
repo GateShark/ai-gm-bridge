@@ -148,11 +148,25 @@
       "combatEvents": {
         "name": "Send combat start/end",
         "hint": "Send the bot an immediate event when combat starts or ends, so it can stay awake during fights."
+      },
+      "pushToTalk": {
+        "name": "Push-to-talk (this browser)",
+        "hint": "Hold the key or the mic button to speak; your words are posted as your chat message. Uses your browser's speech recognition (Chrome/Edge)."
+      },
+      "pushToTalkKey": {
+        "name": "Push-to-talk key",
+        "hint": "KeyboardEvent code or key, e.g. Backquote, KeyV, F2. Ignored while typing in a text box."
       }
     },
     "audio": {
       "unlock": "Click to enable audio"
     },
-    "thinking": "GM is thinking…"
+    "thinking": "GM is thinking…",
+    "ptt": {
+      "listening": "Listening…",
+      "button": "Hold to talk",
+      "unavailable": "Push-to-talk needs a browser with speech recognition (Chrome or Edge). It is turned off here.",
+      "denied": "Microphone access was blocked. Allow the mic for this site to use push-to-talk."
+    }
   }
 }

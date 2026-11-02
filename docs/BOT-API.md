@@ -189,3 +189,7 @@ When Foundry combat starts (`combatStart`, or `updateCombat` reaching round 1) o
 `state` is `"start"` or `"end"` (`round` is the last round on end). Only the leader client (bot user, else the active GM) sends it, and the eventId is deduped, so each combat gives at most one start and one end. A combat deleted before it started sends no end.
 Use it to keep the bot awake during fights and let it sleep otherwise. Setting `combatEvents` (default on).
 Optional per-turn events: `turnWake` (default off) sends `{type:"turn", combat:{id,round,turn}, combatant, isNPC}` on every round/turn change, now also without debounce.
+
+
+## Push-to-talk (v0.8.5)
+No new command or event. Push-to-talk (v0.8.5, per player, off by default): each player enables **Push-to-talk (this browser)** (`pushToTalk`, client setting) and holds the key (`pushToTalkKey`, default `Backquote`, the ` key) or the 🎤 button bottom-left. The browser's Web Speech API transcribes (language from Foundry's language setting) with a "Listening…" indicator showing live text; on release the transcript is posted as that player's normal chat message. The key is ignored while typing in a text field. Chrome/Edge only (no Firefox: one-time notice, no button); needs mic permission, which browsers allow only on HTTPS or localhost. Speech goes to the browser's own speech service (Chrome/Edge send audio to Google/Microsoft), nothing to this module's servers. For the bot it arrives exactly like typed chat (normal `chat` event from that user).
