@@ -1,0 +1,33 @@
+{
+  "id": "ai-gm-bridge",
+  "title": "AI GM Bridge",
+  "description": "Connect any AI game-master bot to Foundry VTT: filtered, batched chat events to your webhook (relay or direct), typed JSON commands back, leader election and exactly-once handling. Disabled by default per world.",
+  "version": "0.8.0",
+  "authors": [
+    {
+      "name": "Gate (GateShark)",
+      "url": "https://github.com/GateShark"
+    }
+  ],
+  "compatibility": {
+    "minimum": "13",
+    "verified": "14.369",
+    "maximum": "14"
+  },
+  "esmodules": [
+    "scripts/main.mjs"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "socket": true,
+  "url": "https://github.com/GateShark/ai-gm-bridge",
+  "manifest": "https://github.com/GateShark/ai-gm-bridge/releases/latest/download/module.json",
+  "download": "https://github.com/GateShark/ai-gm-bridge/releases/latest/download/module.zip",
+  "license": "MIT",
+  "bugs": "https://github.com/GateShark/ai-gm-bridge/issues"
+}

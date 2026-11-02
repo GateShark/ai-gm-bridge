@@ -1,0 +1,131 @@
+# AI GM Bridge: bot API
+
+Your bot is a webhook. The bridge POSTs **event batches** to it. The bot answers with **commands**, which run inside Foundry.
+There are two ways to deliver:
+
+- **relay** (recommended): an external process (`relay/`, configured by env only) logs in as the bot GM user and POSTs batches.
+- **direct**: the bot GM user's browser POSTs batches. Configure it in *Configure AI GM*. The webhook must allow CORS.
+
+Every request has the headers `content-type: application/json`, `<auth header>: <secret>` and `idempotency-key: <batchId>`.
+Answer `2xx` once you have the batch. Until the bridge sees a 2xx it retries (2 s, 5 s, 15 s, then 60 s), and every retry
+carries the same `batchId` and exactly the same events. Most `4xx` answers are final; `408` and `429` are retried.
+
+## Webhook payload (request body)
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["batchId", "world", "events"],
+  "properties": {
+    "batchId": { "type": "string", "description": "world:hash of the exact event set; same id = same events" },
+    "world":   { "type": "string" },
+    "seq":     { "type": "integer" },
+    "attempt": { "type": "integer", "description": "present on retries (2, 3, ...)" },
+    "ctx":     { "type": "object", "description": "only keys that changed since the last acked batch",
+                 "properties": { "scene": { "type": ["string", "null"] }, "paused": { "type": "boolean" },
+                   "combat": { "type": ["object", "null"], "properties": { "id": {}, "round": {}, "turn": {}, "who": {} } } } },
+    "hints":   { "type": "object", "properties": { "ttsMinChars": { "type": "integer" } } },
+    "events":  { "type": "array", "items": { "oneOf": [
+      { "type": "object", "required": ["eventId", "type"], "properties": {
+          "eventId": { "type": "string", "pattern": "^chat:" }, "type": { "const": "chat" },
+          "author": { "type": "string" }, "speaker": { "type": "string" }, "text": { "type": "string", "description": "plain text, trimmed" },
+          "whisper": { "type": "array", "items": { "type": "string" } }, "rolls": { "type": "array" },
+          "ic": { "type": "boolean" }, "alwaysVoice": { "type": "boolean" },
+          "why": { "enum": ["mention", "whisper", "keyword", "question", "ic", "roll"] } } },
+      { "type": "object", "required": ["eventId", "type"], "properties": {
+          "eventId": { "type": "string", "pattern": "^combat:" }, "type": { "const": "turn" },
+          "combat": { "type": "object" }, "combatant": { "type": ["string", "null"] }, "isNPC": { "type": ["boolean", "null"] } } },
+      { "type": "object", "required": ["eventId", "type", "requestId"], "description": "v0.6: answer to requestRoll (urgent, sent once)", "properties": {
+          "eventId": { "type": "string", "pattern": "^rollreq:" }, "type": { "const": "rollResult" }, "requestId": { "type": "string" },
+          "actor": { "type": "string" }, "user": { "type": "string" }, "by": { "type": "string", "description": "who rolled (player or GM fallback)" },
+          "stat": { "type": "string" }, "dr": { "type": "integer" }, "total": { "type": "integer" }, "natural": { "type": ["integer", "null"] },
+          "success": { "type": "boolean" }, "crit": { "type": "boolean" }, "fumble": { "type": "boolean" } } },
+      { "type": "object", "required": ["eventId", "type", "requestId"], "description": "v0.6: requestRoll timed out; the card now shows a GM-only fallback button (not urgent)", "properties": {
+          "eventId": { "type": "string", "pattern": "^rollreq:.*:timeout$" }, "type": { "const": "rollTimeout" }, "requestId": { "type": "string" },
+          "actor": { "type": "string" }, "user": { "type": "string" } } } ] } }
+  }
+}
+```
+Fields that are empty, false or null are left out.
+
+Since v0.6, `turn` events are only sent when the `turnWake` setting is on (default off): turn prompts are handled in Foundry with no wake.
+Batching: one wake per chat burst, flushed after `debounceMs` (1200) of quiet or at most `maxWaitMs` (default 3500, configurable) after the first event.
+
+## Response body (optional)
+```json
+{ "commands": [ { "name": "post", "args": { "content": "Arr!", "replyTo": "chat:abc" }, "commandId": "optional-unique-id" } ] }
+```
+You can send up to 20 commands. Each one runs once: if you leave out `commandId`, the bridge uses `batchId:index`, and a repeated
+id returns 409 `{alreadyDone, prior}` instead of running again. The bridge acks the events after the commands have run.
+
+## Commands
+Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-like>,"error":"..."}`.
+
+| name | args |
+|---|---|
+| getState | none |
+| post | content, replyTo?, speakerAlias?, allowMultiple?, ackEventIds? |
+| whisper | content, to: [user names or ids], replyTo?, ackEventIds? |
+| postVoice | content, audioPath? (uploaded mp3), voice?, replyTo?, ackEventIds?; falls back to text |
+| voiceLookup | content, voice?; returns {skipTts, cached}. Call it before TTS to reuse a clip or skip short replies |
+| playAudio | path, id?, volume?, wait? |
+| roll | formula, flavor?, toChat? |
+| move | tokenId or tokenName, sceneId?, x, y; returns the final position, or 504 if the token didn't get there |
+| tokenUpdate | tokenId or tokenName, hidden?, elevation?, rotation?, alpha? |
+| setHP | actorId or actorName, value or delta, path? |
+| getResources / setResource | actorId or actorName, resource (hp, luck, rituals, prayers, hull, crew, ...), value or delta |
+| nextTurn / endCombat | expect: {combatId, round, turn}; 409 if stale |
+| scene | sceneId or sceneName, activate? |
+| music | playlist, sound?, action: play or stop |
+| unpause | none |
+| lockToken | tokenId or tokenName, sceneId?, locked, scope?: "move" (default; blocks player x/y/elevation/rotation) or "all" (blocks every player edit). GMs are never blocked |
+| upload | name (e.g. map.png), data (base64 or data: URL), kind?: images/audio/text. GM-only. Saved as `ai-gm-uploads/<kind>/<hash>-<name>`; the same bytes return the same path with existed:true and no re-upload. Limits come from settings: size (default 8 MB) and types (png, jpg, jpeg, webp, gif, mp3, ogg, wav, webm, txt, md, json). The content must match its extension. Errors: 403, 413, 415 |
+| spawnAndVision | actorId or actorName, sceneId?, x, y, name?, hidden?, elevation?, disposition?, vision? {enabled, range 0-1000, angle 1-360, visionMode: basic, darkvision, monochromatic, tremorsense, lightAmplification}, light? {dim, bright, color "#rrggbb", angle, alpha, animation {type, speed, intensity}}, locked?, lockScope?, spawnKey? (idempotent: returns the existing token with duplicate:true) |
+| setVision | tokenId or tokenName, sceneId?, vision?, light? (same shapes as spawnAndVision) |
+| requestRoll | user (name or id), actorId? or actorName? (default: the user's character), stat (strength/agility/presence/toughness/spirit, or str/agi/pre/tou/spi), dr, label?, requestId?, timeoutMs? (default setting, 120000). Posts a card with a Roll button only that player or a GM can use. Any d20 roll by that player after the card (button, sheet, or Pixels dice) answers it. Returns {requestId, messageId, status}; the same requestId returns the existing card and result with duplicate:true. You get one `rollResult` event. On timeout you get `rollTimeout` and a GM-only "roll for them" button appears |
+| turnStatus | none; returns {active, round, turn, name, ownerNames, next, isNPC} |
+| recap | since? (ms epoch or ISO), max? (40); returns {count, counts, summary, lines} from the GM-only "AI GM Session Log" journal |
+| rest | actorId or actorName, length?: short or long (default long), food?: eat, starve or donteat (default eat), infected?. Pirate Borg rules (see below); returns before, after, report and rolls, and posts a summary card |
+| speakBubble | tokenId or tokenName, sceneId?, text (plain, max 300), emote?. Shows a chat bubble over the token on every client (one socket message, no chat message) |
+
+### v0.6 local features (no bot wake)
+- Turn prompts (`turnPrompts`, on): each turn change posts "Round N: X is up (Player). Next: Y." and notifies the owning player. Players listed in `turnVoiceUsers` also hear it on their own client: a cached voice clip if the bot ever voiced the exact text "X, you're up." (use `postVoice`, or `voiceLookup` to check), otherwise the browser's speech synthesis.
+- Chat: `!turn` (who is up), `!rest <actor> [short|long] [starve|donteat] [infected]` (owner or GM).
+- Session log (`sessionLog`, on): HP changes, 0 HP, items gained, Devil's Luck/rituals/extra resource changes, combat start/end and rests are written as timestamped lines to a GM-only journal "AI GM Session Log", one page per day, at most one write per 4 s.
+- Pirate Borg rest, mirrored from the system's rest action (pirateborg 1.9.0): short = heal d4 if eating and not infected, grog hours -1 (when grog is on). Long = starving d4 damage, infected d6 damage, heal d8 if eating and not infected, rituals = max(d4+Spirit, 0), the class extra resource (e.g. Prayers) re-rolled from the class formula, Devil's Luck re-rolled from the luck die only if it is 0, grog effects cleared. The system's own per-day and grog functions are used when they load; otherwise the same formulas run in the module.
+
+Usage tip: upload a file once, then refer to its returned `path` (for example in `playAudio` or `postVoice`). Pass a `spawnKey` so a retried command never places a second token.
+
+`replyTo` stops duplicate replies: a second `post` with the same `replyTo` returns the first message.
+
+## Example
+`examples/echo-gm.mjs` is a working bot of about 50 lines: `AIGM_WEBHOOK_AUTH=change-me node examples/echo-gm.mjs`.
+
+## Debug: timing harness (GM, browser console)
+```js
+await game.modules.get("ai-gm-bridge").api.debug.burstTest({ count: 9, gapMs: [1100, 2300] })
+// -> { batches: [3, 4, 2], sentAtMs: [...], maxHoldMs: 3998, holdsMs: [...] }
+```
+This posts no chat messages and wakes no bot. It uses the world's debounce and cap settings.
+
+## v0.6.1 notes
+- `setHP {actorName, delta: -3}` or `{value: "+2"}` or `{value: 5}`.
+- Roll cards match sheet rolls, Pixels rolls and button rolls. With several open cards: same actor → same ability → oldest. `rollResult.via` = button | sheet roll | roll.
+- Card states: pending → timeout (GM button, rollTimeout event) → expired (no longer answerable).
+
+## v0.7.0: GM-only context (no spoilers to players)
+`{"name":"getContext","args":{"maxChars":4000,"since":"<last hash>"}}`, or `game.modules.get("ai-gm-bridge").api.context({...})` on a GM client.
+- Args: `scene` (id/name, default active scene), `journals` ("Entry" or "Entry/Page", comma list or array), `maxChars` (200–20000, default 4000), `since` (hash you hold), `full` (force full text).
+- Result: `{hash, unchanged:true}` or `{hash, unchanged:false, full, text, changed?, removed?, sectionHashes}`. Sections: scene, combat, tokens (visible + hidden), journals.
+- The text contains secrets (hidden tokens, GM notes). It is returned only to the caller: never chat, whispers, socket or UI. Non-GM → 403. Don't paste it into player-facing replies.
+- Which journals: pass `journals` on each call (entry names, "Entry/Page", or folder names, which include subfolders). With the relay, set `AIGM_CONTEXT_JOURNALS` and omit `journals`. Since v0.7.2 nothing about this list is stored in the Foundry world (Foundry sends all journals and settings to players' browsers).
+- Sections: `scene`, `combat`, `tokens`, `journal:<name>`; `changed` lists sections that are new or different (their text is in `text`), `removed` lists sections that are gone (since v0.8 never also in `changed`), and `sectionHashes` has one hash per section.
+- rollResult: `success`, `crit`, `fumble` are always booleans.
+
+## v0.8.0: morale and ships (Pirate Borg)
+Uses the pirateborg system's own outcome builders and chat card, without its crew-action dialog. Every command takes `toChat` (default true: post the system card; false: result only). Cards posted this way never wake the bot.
+- `moraleCheck {actorId|actorName?, morale?}`: system morale rule (2d6 ≤ morale stands, else 1d6: 1-3 flees, 4-6 surrenders). Morale comes from `morale` or the creature's sheet. → `{morale, total, second, result: "stands"|"flees"|"surrenders"}`
+- `shipAction {actorId|actorName, action, crewActorId|crewActorName?, dr?, armor?, targetTokenId|targetTokenName?, movement?}`; action is one of broadsides, smallArms, ram, repair, fullSail, comeAbout, dropAnchor, weighAnchor, shanty, sink (aliases ok: "broadside", "full sail", "sing"). `crew` adds that PC's ability like the sheet's PC action. `armor` defaults to the target's own armor die (ship hull tier). Ram rolls ram die + movement (scaled by size). By default it matches the pirateborg system exactly: the target's armor is rolled and shown on the card but not subtracted. The GM world setting `ramUsesArmor` (house rule, default off) subtracts the armor roll. Shanty spends one use (409 when none). → `{action, title, total, dr, success, crit, fumble, damageFormula?, damage?, sinkResult?, shantiesLeft?}`
+- `shipDamage {actorId|actorName, amount | formula, armor?}`: subtracts the ship's hull armor die roll (unless `armor:false`), sets HP with the system's `updateHp`, never below 0. → `{rolled, armorDie, reduction, damage, before, after, sinking}`
+- `getShip {actorId|actorName}` → hp, hull + armorDie, agility, skill, speed, crew, shanties, cargo, weapons dice, captain, crewActors, sinking.
+- Local (no wake): `!morale <actor> [n]`, `!ship <ship>`, `!broadsides|!smallarms|!ram|!repair|!fullsail|!comeabout|!shanty|!sink <ship> [dr N]`. Players may use them on actors they own.

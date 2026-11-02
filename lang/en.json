@@ -1,0 +1,142 @@
+{
+  "AIGM": {
+    "settings": {
+      "enabled": {
+        "name": "Enabled",
+        "hint": "Master switch. Off = no events emitted, all commands refused."
+      },
+      "botUserId": {
+        "name": "Bot user ID",
+        "hint": "Foundry user id of the AI GM bot account (preferred leader). Set it in Configure AI GM."
+      },
+      "botUserName": {
+        "name": "Bot user name prefix",
+        "hint": "Fallback if no bot user is picked: first GM whose name starts with this. Blank = off."
+      },
+      "heartbeatMs": {
+        "name": "Leader heartbeat (ms)",
+        "hint": "Default 10000."
+      },
+      "heartbeatTimeoutMs": {
+        "name": "Leader timeout (ms)",
+        "hint": "Default 45000; a human GM takes over only after this."
+      },
+      "batchMs": {
+        "name": "Batch interval (ms)",
+        "hint": "Default 3500."
+      },
+      "keywords": {
+        "name": "Wake keywords",
+        "hint": "Comma-separated words that wake the GM."
+      },
+      "hpPath": {
+        "name": "HP data path",
+        "hint": "Actor data path for HP (Pirate Borg: system.hp.value)."
+      },
+      "alwaysVoiceUsers": {
+        "name": "Always-voice users",
+        "hint": "Comma-separated user names who always get voice replies."
+      },
+      "unpauseOnStart": {
+        "name": "Unpause on 'start'",
+        "hint": "Typing 'start' in chat unpauses the game."
+      },
+      "debounceMs": {
+        "name": "Debounce (ms)",
+        "hint": "Send a chat burst after this much quiet. One bot wake per burst."
+      },
+      "maxWaitMs": {
+        "name": "Max wait (ms)",
+        "hint": "Never hold the first event longer than this (default 3500 ms)."
+      },
+      "wakeOn": {
+        "name": "Wake on",
+        "hint": "Comma list: mention, whisper, keyword, question, ic (any in-character line)."
+      },
+      "ignoreOOC": {
+        "name": "Ignore OOC",
+        "hint": "Skip (( )), ooc and // messages."
+      },
+      "ignorePlainRolls": {
+        "name": "Ignore plain rolls",
+        "hint": "Rolls without a question don't wake the bot."
+      },
+      "ignoreUsers": {
+        "name": "Ignore users",
+        "hint": "Comma list of user names or ids that never wake the bot."
+      },
+      "minChars": {
+        "name": "Min characters",
+        "hint": "Shorter messages don't wake the bot (mentions and whispers still do)."
+      },
+      "localCommands": {
+        "name": "Local commands",
+        "hint": "Handle !roll, !music, !scene, !hp, !luck in Foundry with no bot call."
+      },
+      "localPrefix": {
+        "name": "Local command prefix",
+        "hint": "Default !"
+      },
+      "maxTextChars": {
+        "name": "Max text per event",
+        "hint": "Longer chat is trimmed in the payload."
+      },
+      "ttsMinChars": {
+        "name": "TTS min characters",
+        "hint": "Replies shorter than this are posted as text (no TTS). 0 = off."
+      },
+      "metricsLogEvery": {
+        "name": "Log metrics every N batches",
+        "hint": "0 = off. Also see api.metrics()."
+      },
+      "uploadsEnabled": {
+        "name": "Allow bot uploads",
+        "hint": "Let the AI GM upload images, audio and text into the ai-gm-uploads folder. GM-only."
+      },
+      "uploadMaxMB": {
+        "name": "Upload size limit (MB)",
+        "hint": "Largest file the AI GM may upload."
+      },
+      "uploadTypes": {
+        "name": "Allowed upload types",
+        "hint": "Comma-separated file extensions."
+      },
+      "speakerAlias": {
+        "name": "Speaker alias",
+        "hint": "Name shown on cards the module posts (roll requests, turn prompts, rest)."
+      },
+      "rollRequestTimeoutMs": {
+        "name": "Roll request timeout (ms)",
+        "hint": "After this, a requested roll shows a GM-only 'roll for them' button and the bot gets a rollTimeout event."
+      },
+      "turnPrompts": {
+        "name": "Combat turn prompts",
+        "hint": "Post who is up on each turn change and notify the owning player. Handled in Foundry, no bot wake."
+      },
+      "turnWake": {
+        "name": "Wake bot on turns",
+        "hint": "Also send turn changes to the bot (costs a wake per turn)."
+      },
+      "turnVoiceUsers": {
+        "name": "Voiced turn prompts for",
+        "hint": "Comma-separated user names or ids. Those players hear their turn prompt: a cached bot clip if one exists, else browser speech."
+      },
+      "sessionLog": {
+        "name": "Session log",
+        "hint": "Log HP changes, deaths, items, resources and combat to the GM-only journal 'AI GM Session Log'."
+      },
+      "rollRequestExpireMs": {
+        "name": "Roll request expiry after timeout (ms)",
+        "hint": "How long after the timeout a roll card can still be answered (GM fallback window). After that it is marked Expired."
+      },
+      "rollAnswerNote": {
+        "name": "Roll answer note",
+        "hint": "Post a small chat line saying which roll card a roll answered."
+      },
+      "ramUsesArmor": {
+        "name": "Ram uses target armour (house rule)",
+        "hint": "Off (default) matches the Pirate Borg system: a ram rolls the target's armour but does not subtract it. On subtracts the armour roll from ram damage."
+      }
+    }
+  }
+}

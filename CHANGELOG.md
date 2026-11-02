@@ -1,0 +1,103 @@
+# Changelog
+
+## 0.8.0
+- First public release, by Gate (GateShark). Module id is now `ai-gm-bridge`; relay reads `AIGM_*` env vars only.
+
+## 0.8.0-rc2
+- Ram matches the pirateborg system by default; `ramUsesArmor` house-rule setting. Test fixtures scrubbed of private names.
+
+## 0.8.0-rc1
+- Context diff: removed sections are listed only in `removed`, not also in `changed`.
+- Pirate Borg morale and ship combat: `moraleCheck`, `shipAction` (broadsides, small arms, ram, repair, full sail, come about, anchors, shanty, sinking), `shipDamage`, `getShip`, plus `!morale`, `!ship` and `!<action>` shortcuts. Uses the system's own outcome builders and chat card without dialogs; our cards never wake the bot.
+- Ram matches the pirateborg system by default (target armor rolled but not subtracted). New world setting `ramUsesArmor` (default off) is a house rule that subtracts it.
+- Release candidate: tested only in one test world.
+
+## 0.7.2
+- Fix: payload `prune()` dropped `false` (and `[]`), so rollResult lost `success:false`, `crit:false`, `fumble:false`. It now drops only null, undefined and "" (0, false and [] survive). No other payload code strips falsy values; the remaining `|| undefined` / `filter(Boolean)` uses are on strings or optional flags, not payload values.
+- No secrets in client-synced data: Foundry v14 sends every journal (even ownership None) and world setting to player browsers. The context journal list is no longer stored in the world: the bot passes `journals` per `getContext` call (entry, "Entry/Page" or folder names), or the relay adds `AIGM_CONTEXT_JOURNALS` from its environment when the bot passes none. The GM form field is removed. On load the GM clears the old `contextJournals` setting and removes the v0.7.1 "AI GM Config" journal (deleted if empty, else its flag is unset); the old value is logged to the GM console once.
+- Context cache is memory-only on the GM client (no flags, settings or documents), with a test that audits this.
+- Per-journal diffs: each journal entry is its own section (`journal:<name>`) with its own hash; only changed scene/combat/tokens/journal sections are resent, and dropped ones are listed in `removed`.
+- README: Known limits.
+
+## 0.7.1
+- No spoilers: the context journal list moved out of world settings (which every client can read) into a flag on a dedicated GM-only JournalEntry "AI GM Config" (ownership default NONE; re-locked if someone opens it). It is edited in the GM settings form.
+- On load, the active GM migrates a v0.7.0 `contextJournals` setting value into the journal and clears the setting (the setting stays registered, hidden and empty).
+
+## 0.7.0
+- rollResult always has `success`, `crit` and `fumble` as booleans (never omitted; a missing total/DR gives success:false).
+- GM-only context: `getContext` command and `api.context({scene, journals, maxChars, since, full})`. Returns compact plain text: scene name and notes (scene journal page + map-note labels), journal pages (stripped HTML, truncated), visible and hidden tokens with HP, active combat order.
+  - Only returned to the caller (bot webhook command response or GM api). Never posted to chat, whispered, emitted on the socket, or rendered. Non-GM callers get 403.
+  - New world setting `contextJournals`: journal entry or folder names/ids to always include (subfolders included).
+  - Cached and diff-based: a short `hash`; `{since: hash}` or an unchanged repeat returns `{unchanged:true}`; otherwise only changed sections (`changed`, `removed`) unless `full:true` or the bot's hash is stale.
+
+## 0.6.1
+- setHP accepts `delta` (number or "+3"/"-2" string) or `value`; a +/- string in `value` is treated as a delta. Clamped to max like setResource.
+- Roll matching handles Pirate Borg sheet rolls: they carry no `message.rolls`; the roll is read from `flags.pirateborg.outcomes[].roll` and the ability from the outcome formula (`@abilities.X`).
+- Several open cards: match the roll's speaker actor first, then the ability, then oldest. A roll for an ability with no open card answers nothing.
+- Cards expire (`rollRequestExpireMs`, default 10 min after timeout) and are marked Expired.
+- The answered card shows how it was answered; a small chat note names the card (`rollAnswerNote`). The rollResult event has `via`.
+- The rest report includes the per-day rolls (formula=total) for extra resource, rituals and luck.
+
+## 0.6.0
+- Burst cap default is now 3.5 s (`maxWaitMs` 3500, still configurable).
+- requestRoll: a clickable test card for one player (or a GM). It accepts the button roll, a sheet roll or Pixels dice. Idempotent requestId, a single urgent rollResult event, and on timeout a rollTimeout event plus a GM fallback button.
+- Combat turn prompts in Foundry with no wakes: a chat line, a notification to the owner, and optional per-user voice (a cached clip or browser speech). Adds api.turnStatus(), the turnStatus command and !turn. Turn events now reach the bot only when `turnWake` is on.
+- Session log: GM-only journal "AI GM Session Log" with damage, heals, 0 HP, items, resources, combat start/end and rests. Adds api.recap({since}) and the recap command.
+- Pirate Borg rest: the rest command and !rest, following the system rules and reusing its per-day and grog functions.
+- speakBubble: an NPC chat bubble on a token, broadcast to all clients.
+- Tests: test/v06.test.mjs (27).
+
+## 0.5.0
+- Cap hardening: the 4 s cap is measured from each event's enqueue time (`push({at})`), the earliest pending event wins, and events left unsent after a flush (because of batchMax or a retry wake) are re-armed with their original time. If the cap is already reached when an event arrives, the batch is sent immediately instead of through a 0 ms timer. The heartbeat also enforces the cap, since browsers throttle timers in background tabs. Sends never wait for an ack: they are emitted in parallel.
+- metrics holdMaxMs (longest time an event waited before its first send).
+- api.debug.burstTest({count, gapMs | [min,max], ackAfterMs, seed}): a headless timing harness (no ChatMessages, mock sink). Returns batch sizes, send times, holds and maxHoldMs.
+- Tests: test/v05.test.mjs (27): 25 seeded 1.1-2.3 s jitter runs x 3 ack latencies, max hold <= 4.05 s; 9 @ 800 ms -> 5+4; cap from the earliest event, synchronous fire, heartbeat catch-up.
+
+## 0.4.0
+- lockToken: scope move or all; enforced in preUpdateToken on every client (GMs exempt) and through core `locked`.
+- upload: GM-only base64 upload to ai-gm-uploads/<kind>/; settings for on/off, MB limit and types; magic-byte check; content-hash names (no duplicate uploads).
+- spawnAndVision: place an actor token with clamped sight/light, optional lock, idempotent spawnKey. setVision for existing tokens.
+- Fix (grouping after a flush): the retry/backoff wake shared the burst timer, so an in-flight batch's 2 s retry wake fired mid-burst and sent fresh events one by one. Retries now use a separate timer, and a retry wake while a burst is still grouping sends only retries. nextDueAt counts only sent items. Each burst gets a fresh 1.2 s quiet window and a 4 s cap from its own first event.
+- Tests: test/v04.test.mjs (5), test/v04-burst.test.mjs (4; reproduces 9 messages 800 ms apart -> 5+4).
+
+## 0.3.1
+- Fix (blocker): Batcher stored native setTimeout/clearTimeout and called them as methods -> browser "Illegal invocation"; debounce/maxWait/retry timers never fired. Now arrow wrappers. Same hardening for movewait timers, direct/relay fetch, relay log.
+- Drop queued events whose chat message was deleted (deleteChatMessage hook + check before each send; metric dropDeleted).
+- Tests: browser-style strict natives (batcher, movewait, direct fetch), source scan for bare native refs, dropWhere.
+
+## 0.3.0 (2026-11-02): speed and usage
+- Event-driven batching: chat bursts debounced (debounceMs 1200, maxWaitMs 4000) into one batch = one bot wake; mentions/whispers flush at once.
+  The flush interval timer is gone; retries are scheduled at their exact due time. Heartbeat is the only interval left.
+- Configurable filter (wakeOn, ignoreOOC, ignorePlainRolls, ignoreUsers, minChars) with reasons counted in metrics.
+- Local commands (no bot call): !roll, !r, !music <playlist> [stop], !scene, !hp/!luck/!rituals/!prayers <actor> <±n|n>. Players only for actors they own; music/scene GM-only.
+- Compact payloads: HTML stripped, text trimmed (maxTextChars), empty fields dropped, ids/flags the bot doesn't need removed; combat/scene/paused sent as a ctx diff against the last acked batch.
+- Voice: cache of mp3 per normalized text hash (voiceLookup, postVoice reuses cached clip), ttsMinChars posts short replies as text.
+- Metrics: api.metrics() and a log line every metricsLogEvery batches (seen, woke, wakes, local, filtered by reason, bytes, events/wake, queue/ack/reply p50/p95).
+- Fix: move awaits v14 async movement (updateToken hook) and returns the final x,y, or 504 if the token never arrives.
+- Fix: batchId = world + hash of the exact event set; a batchId never carries a different set.
+- Bot-agnostic: titled "AI GM Bridge", neutral text, no hardcoded bot user name (pick one in the form), botNames setting for bot user names.
+- GM-only settings form (Configure AI GM): bot user picker, delivery relay/direct, webhook URL + auth header, write-only secret, filters.
+- Direct delivery mode (bot GM browser POSTs). Webhook 2xx responses may return {commands:[...]}; they run (commandId batchId:i) before the ack, in both relay and direct modes.
+- Relay env renamed to AIGM_*. docs/BOT-API.md (JSON schema), examples/echo-gm.mjs, tools/set-release.mjs; manifest/download placeholders.
+- Fix: dead outbox items (retries exhausted with no relay ack) are purged after 6 h on load/leader change; status().deadIds and api.clearDead().
+
+## 0.2.1 (2026-11-02)
+- Prayers label confirmed from pirateborg source: class item system.extraResourceNamePlural (Actor#extraResourceNamePlural getter, base-class fallback). Adapter reads exactly that.
+
+## 0.2.0 (2026-11-01, source only, not installed)
+- relay/: real relay (core.mjs, foundry-client.mjs, index.mjs, Dockerfile, RUN.md). Env webhook URL/auth; idle if unset.
+  One handler per message: lockfile, persisted done-set, idempotency-key=batchId, re-emitted batches re-acked without re-POST,
+  ack only after 2xx, retries 2/5/15/60 s, 4xx dead-letter, auth never logged.
+- postVoice (voice + text fallback, ack after post), serial deduped audio queue, playAudio.
+- Pirate Borg adapter: hp, luck (Devil's Luck), rituals, class extraResource (e.g. Prayers) kept separate from rituals; vehicles.
+  setHP now writes system.attributes.hp.value on pirateborg. New getResources, setResource (value|delta, clamped).
+- whisper, tokenUpdate (hidden/elevation/rotation/alpha); post/whisper/postVoice accept ackEventIds.
+
+## 0.1.1 (2026-11-01)
+- Reply dedupe (post replyTo) persisted in the dedupe store; survives reloads and leader changes.
+- post accepts allowMultiple (boolean, default false).
+- Repeated commandId: 409 with alreadyDone:true + prior result when done; alreadyDone:false while in progress.
+- Dedupe claims flushed immediately (no debounce); new leader reloads dedupe/outbox and re-checks the last 2 min / 50 chat messages.
+
+## 0.1.0 (2026-11-01)
+- First build: leader election, dedupe, typed commands, acked outbound queue, enabled=false default.
