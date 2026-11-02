@@ -3,10 +3,10 @@ import test from "node:test"; import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { combatEvent, startedNow } from "../scripts/lib/combatevents.mjs";
 import { DedupeStore } from "../scripts/lib/dedupe.mjs";
-const c = { id: "C1", scene: { id: "S1" }, round: 1, started: true, combatants: { contents: [{ name: "Tempus" }, { actor: { name: "Bilge Rat" } }, {}] } };
+const c = { id: "C1", scene: { id: "S1" }, round: 1, started: true, combatants: { contents: [{ name: "Hero" }, { actor: { name: "Bilge Rat" } }, {}] } };
 
 test("combat start/end payload shape", () => {
-  assert.deepEqual(combatEvent(c, "start"), { eventId: "combat:C1:start", type: "combat", state: "start", combatId: "C1", sceneId: "S1", round: 1, combatants: ["Tempus", "Bilge Rat"] });
+  assert.deepEqual(combatEvent(c, "start"), { eventId: "combat:C1:start", type: "combat", state: "start", combatId: "C1", sceneId: "S1", round: 1, combatants: ["Hero", "Bilge Rat"] });
   const e = combatEvent({ ...c, scene: null, sceneId: "S2", round: 4, combatants: [{ name: "A" }] }, "end");
   assert.equal(e.state, "end"); assert.equal(e.sceneId, "S2"); assert.equal(e.round, 4); assert.deepEqual(e.combatants, ["A"]);
   assert.equal(combatEvent(c, "pause"), null); assert.equal(combatEvent(null, "start"), null);

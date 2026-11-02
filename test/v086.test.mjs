@@ -40,7 +40,7 @@ test("0.8.6 rollBreakdown: negative mod, multi dice, discarded, no dice", () => 
   assert.equal(rollBreakdown({ total: 3, terms: [{ number: 3 }] }), null); assert.equal(rollBreakdown(null), null);
 });
 test("0.8.6 roll card shows breakdown; old results without it still render", () => {
-  const base = { id: "r1", stat: "strength", dr: 12, actorName: "Tempus", status: "done" };
+  const base = { id: "r1", stat: "strength", dr: 12, actorName: "Hero", status: "done" };
   assert.match(cardHtml({ ...base, result: { total: 20, success: true, breakdown: "d20 19 + 1 = 20" } }), /d20 19 \+ 1 = 20 → <b>20<\/b>/);
   assert.match(cardHtml({ ...base, result: { total: 20, success: true } }), /<br><b>20<\/b>/);
 });

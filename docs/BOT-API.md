@@ -184,7 +184,7 @@ Turn it off with the `thinkingIndicator` world setting. Text: `AIGM.thinking` in
 ## v0.8.3: combat start/end events
 When Foundry combat starts (`combatStart`, or `updateCombat` reaching round 1) or ends (`deleteCombat`; ending combat deletes it), the module sends one event at once, skipping the debounce:
 ```json
-{ "eventId": "combat:<id>:start", "type": "combat", "state": "start", "combatId": "<id>", "sceneId": "<id>", "round": 1, "combatants": ["Tempus", "Bilge Rat"] }
+{ "eventId": "combat:<id>:start", "type": "combat", "state": "start", "combatId": "<id>", "sceneId": "<id>", "round": 1, "combatants": ["Hero", "Bilge Rat"] }
 ```
 `state` is `"start"` or `"end"` (`round` is the last round on end). Only the leader client (bot user, else the active GM) sends it, and the eventId is deduped, so each combat gives at most one start and one end. A combat deleted before it started sends no end.
 Use it to keep the bot awake during fights and let it sleep otherwise. Setting `combatEvents` (default on).
