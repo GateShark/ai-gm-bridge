@@ -53,7 +53,7 @@ export async function shipAction(actor, a = {}, { findActor, findToken }) {
   if (a.toChat !== false) await card({ actor, title: L(d.title), description: L(d.desc), outcomes, target });
   const [main, ...rest] = outcomes;
   return ok({ actorId: actor.id, action: key, target: target?.name ?? null, crew: crew?.name ?? null, ...leanOutcome(main),
-    ...(rest.length ? { damage: rest[0]?.totalDamage, armor: rest[1]?.roll?.total } : {}),
+    ...(rest.length ? { damage: rest[0]?.totalDamage, ...(key === "ram" && !ramUsesArmor() ? { armorRoll: rest[1]?.roll?.total } : { armor: rest[1]?.roll?.total }) } : {}),
     ...(d.shanty ? { shantiesLeft: actor.system.attributes.shanties.value } : {}) });
 }
 

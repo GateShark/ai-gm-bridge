@@ -16,6 +16,7 @@ import { runCommand, COMMANDS } from "./commands.mjs";
 import { missedMessages } from "./lib/replies.mjs";
 import { lockBlocks } from "./lib/spawn.mjs";
 import { burstTest } from "./lib/bursttest.mjs";
+import { formatResult } from "./lib/v081.mjs";
 import * as F from "./features.mjs";
 import { getContext } from "./context.mjs";
 import { cleanupContextJournals } from "./gmstore.mjs";
@@ -72,6 +73,7 @@ Hooks.once("ready", () => {
     status: () => ({ enabled: enabled(), leader: S.leader, amLeader: amLeader(), queued: S.outbox?.items.length ?? 0, dead: S.outbox?.dead().length ?? 0,
       deadIds: S.outbox?.dead().map(i => i.event.eventId) ?? [] }),
     metrics: () => S.metrics.snapshot(),
+    format: (r) => formatResult(r),
     debug: { burstTest: (o = {}) => burstTest({ debounceMs: get("debounceMs"), maxWaitMs: get("maxWaitMs"), ...o }) },
     clearDead: () => { const ids = S.outbox?.clearDead() ?? []; persistSoon(); return { ok: true, result: { cleared: ids } }; },
     run: async (cmd) => {

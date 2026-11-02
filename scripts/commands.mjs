@@ -3,6 +3,7 @@ import { ok, fail, validate, checkExpect } from "./lib/result.mjs";
 import { KeyedMutex } from "./lib/mutex.mjs";
 import { priorReply, recordReply } from "./lib/replies.mjs";
 import { waitForPosition } from "./lib/movewait.mjs";
+import { moveWithFallback, setSceneBackground, formatResult } from "./lib/v081.mjs";
 import { VoiceCache, shouldSkipTts } from "./lib/voicecache.mjs";
 import { AudioQueue, voiceOrText } from "./lib/audioqueue.mjs";
 import { planUpload, DEFAULT_LIMITS, UPLOAD_ROOT } from "./lib/uploads.mjs";
@@ -78,11 +79,9 @@ export const COMMANDS = {
   }},
   move: { schema: { tokenId: "string?", tokenName: "string?", sceneId: "string?", x: "number", y: "number" }, async run(a) {
     const t = findToken(a); if (!t) return fail(404, "token not found");
-    const w = waitForPosition(t, a.x, a.y, { on: (h, f) => Hooks.on(h, f), off: (h, id) => Hooks.off(h, id) });
-    await t.update({ x: a.x, y: a.y }, { animate: false });
-    const r = await w;
-    if (!r.reached) return fail(504, "token did not reach the requested position", { tokenId: t.id, x: r.x, y: r.y, requested: { x: a.x, y: a.y } });
-    return ok({ tokenId: t.id, x: r.x, y: r.y });
+    const r = await moveWithFallback(t, a.x, a.y, () => waitForPosition(t, a.x, a.y, { on: (h, f) => Hooks.on(h, f), off: (h, id) => Hooks.off(h, id) }));
+    if (!r.reached) return fail(504, "token did not reach the requested position", { tokenId: t.id, x: r.x, y: r.y, requested: { x: a.x, y: a.y }, via: r.via });
+    return ok({ tokenId: t.id, x: r.x, y: r.y, ...(r.via === "displace" ? { via: "displace" } : {}) });
   }},
   nextTurn: { schema: { expect: "object" }, async run(a) {
     const key = a.expect?.combatId ?? "none";
@@ -107,6 +106,12 @@ export const COMMANDS = {
     if (a.activate === false) await s.view(); else await s.activate();
     return ok({ sceneId: s.id, active: s.active });
   }},
+  setBackground: { schema: { sceneId: "string?", sceneName: "string?", src: "string" }, async run(a) {
+    const s = (a.sceneId || a.sceneName) ? (game.scenes.get(a.sceneId) ?? game.scenes.getName?.(a.sceneName)) : (canvas?.scene ?? game.scenes.active);
+    if (!s) return fail(404, "scene not found");
+    return ok({ sceneId: s.id, ...(await setSceneBackground(s, a.src)) });
+  }},
+  format: { schema: { result: "any" }, async run(a) { return ok({ text: formatResult(a.result) }); } },
   music: { schema: { playlist: "string", sound: "string?", action: "string?" }, async run(a) {
     const p = game.playlists.get(a.playlist) ?? game.playlists.getName?.(a.playlist); if (!p) return fail(404, "playlist not found");
     const action = a.action ?? "play";

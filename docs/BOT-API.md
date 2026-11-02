@@ -70,7 +70,9 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | voiceLookup | content, voice?; returns {skipTts, cached}. Call it before TTS to reuse a clip or skip short replies |
 | playAudio | path, id?, volume?, wait? |
 | roll | formula, flavor?, toChat? |
-| move | tokenId or tokenName, sceneId?, x, y; returns the final position, or 504 if the token didn't get there |
+| move | tokenId or tokenName, sceneId?, x, y; returns the final position. If a normal move doesn't arrive, it retries once as `TokenDocument.move` with action `displace` (ignoring walls and cost) and adds `via:"displace"`; 504 only if that also fails |
+| setBackground | src, sceneId? or sceneName? (default: viewed/active scene). Foundry v14 stores the background on the scene's first level, so it updates `scene.levels.contents[0]`; older versions update the scene. Returns {sceneId, via: level or scene, levelId, src} |
+| format | result (any command reply); returns {text}, a one-line readable version |
 | tokenUpdate | tokenId or tokenName, hidden?, elevation?, rotation?, alpha? |
 | setHP | actorId or actorName, value or delta, path? |
 | getResources / setResource | actorId or actorName, resource (hp, luck, rituals, prayers, hull, crew, ...), value or delta |
@@ -129,3 +131,41 @@ Uses the pirateborg system's own outcome builders and chat card, without its cre
 - `shipDamage {actorId|actorName, amount | formula, armor?}`: subtracts the ship's hull armor die roll (unless `armor:false`), sets HP with the system's `updateHp`, never below 0. → `{rolled, armorDie, reduction, damage, before, after, sinking}`
 - `getShip {actorId|actorName}` → hp, hull + armorDie, agility, skill, speed, crew, shanties, cargo, weapons dice, captain, crewActors, sinking.
 - Local (no wake): `!morale <actor> [n]`, `!ship <ship>`, `!broadsides|!smallarms|!ram|!repair|!fullsail|!comeabout|!shanty|!sink <ship> [dr N]`. Players may use them on actors they own.
+
+## v0.8.1 notes
+
+### Reading replies (don't post raw JSON)
+Every command reply is wrapped: `{"ok":true,"result":{...}}` or `{"ok":false,"code":404,"error":"..."}`. Read `result`, don't paste the
+whole object into chat (you get raw JSON, or `[object Object]` if you string-concatenate it). Write the narration yourself from the fields,
+or use the helper for a quick readable line:
+```js
+const r = await api.run({ name: "getShip", args: { actorName: "My Ship" } });
+if (!r.ok) console.warn(r.code, r.error); else await api.run({ name: "post", args: { content: api.format(r) } });
+```
+`api.format(reply)` (browser) and the `format` command (`{name:"format",args:{result:reply}}`) return the same text. Prefer a
+`summary`/`report` field when a command gives one.
+
+### Voice
+The module never makes audio itself (no TTS keys live in the world). The voice path is:
+1. `voiceLookup {content, voice}`: if `cached` is a path, skip TTS; if `skipTts` is true, reply as text.
+2. Otherwise your bot or relay runs its own TTS and sends the mp3 with `upload {name:"line.mp3", data, kind:"audio"}`.
+3. `postVoice {content, audioPath: <path from upload>, replyTo}` posts the text with an audio player, plays it in order, and caches
+   it for the same text next time. A missing or broken file falls back to a text reply.
+Without any TTS, turn prompts for `turnVoiceUsers` use the player's browser speech synthesis. Use `playAudio` for sound effects.
+
+### Bot-author commands: `!` shortcuts typed by the bot are ignored
+`!turn`, `!rest`, `!morale`, `!ship`, `!roll`, `!hp`, `!luck`, `!prayers` and the other `!` shortcuts run locally only for messages
+from humans. Messages authored by the bot GM user (`authorId === botUserId`) never run local commands and never wake the bot, so the
+bot can't loop on its own output. This is by design. For the bot, call the typed command instead (`turnStatus`, `rest`, `moraleCheck`,
+`getShip`, `shipAction`, `roll`, `setHP`, `setResource`). To test a shortcut, type it from a second login (a player or another GM user);
+Foundry allows only one session per user.
+
+### Ram armour field
+`shipAction ram` returns `armor` only when the `ramUsesArmor` house rule is on (that roll was subtracted). With it off (the default,
+matching the system), the target's armour is still rolled and shown on the card, but it is reported as `armorRoll` so it isn't read
+as a reduction.
+
+### Burst grouping
+Events closer together than `debounceMs` (default 1200 ms) go out as one batch; a batch is never held longer than `maxWaitMs`
+(3500 ms). Events further apart than `debounceMs` are sent separately on purpose. Check timing in the world with
+`api.debug.burstTest({count: 3, gapMs: 300})` (expect `batches: [3]`); it posts nothing and wakes no bot.

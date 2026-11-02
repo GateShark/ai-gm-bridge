@@ -124,8 +124,11 @@ test("ship cards never wake the bot: main.mjs skips own outcome ids before roll 
 test("ramUsesArmor house rule subtracts the armour roll; default off matches the system", async () => {
   const g = game.settings.get; game.settings.get = (m, k) => k === "ramUsesArmor" ? true : "";
   try { calls.length = 0; const r = await run("shipAction", { actorName: "Black Gull", action: "ram", targetTokenId: "t2", movement: 1, toChat: false });
-    assert.equal(r.ok, true); assert.equal(calls.find(c => c[0] === "inflict")[1].damageReduction, 2); }
+    assert.equal(r.ok, true); assert.equal(calls.find(c => c[0] === "inflict")[1].damageReduction, 2);
+    assert.equal(r.result.armor, 2); assert.equal("armorRoll" in r.result, false); }
   finally { game.settings.get = g; }
-  calls.length = 0; await run("shipAction", { actorName: "Black Gull", action: "ram", targetTokenId: "t2", toChat: false });
+  calls.length = 0; const off = await run("shipAction", { actorName: "Black Gull", action: "ram", targetTokenId: "t2", toChat: false });
   assert.equal(calls.find(c => c[0] === "inflict")[1].damageReduction, 0);
+  // v0.8.1: armour rolled but not subtracted is reported as armorRoll, never armor
+  assert.equal(off.result.armorRoll, 2); assert.equal("armor" in off.result, false);
 });

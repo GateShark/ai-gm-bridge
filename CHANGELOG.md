@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.1
+- `move`: when the normal update doesn't reach the target (504), retry once with `TokenDocument.move` action `displace` and `constrainOptions {ignoreWalls, ignoreCost}`; replies add `via:"displace"` when used.
+- New `setBackground` command: Foundry v14 writes `scene.levels.contents[0]` `background.src`; older versions fall back to the scene.
+- New `format` command and `api.format(reply)`: one readable line from a `{ok,result}` reply, so bots don't post raw JSON or `[object Object]`.
+- `shipAction ram` with `ramUsesArmor` off reports the rolled armour as `armorRoll` (not `armor`); `armor` means it was subtracted.
+- Docs: reading replies, the voice path (voiceLookup, your TTS, upload, postVoice), why `!` shortcuts typed by the bot user are ignored, burst grouping.
+- Tests: burst retest (events closer than debounceMs group into one batch), move fallback, background, format.
+
 ## 0.8.0
 - First public release, by Gate (GateShark). Module id is now `ai-gm-bridge`; relay reads `AIGM_*` env vars only.
 
