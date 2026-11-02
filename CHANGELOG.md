@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.3
+- New immediate (non-debounced) `combat` events `{type:"combat", state:"start"|"end", combatId, sceneId, round, combatants}` on combat start (`combatStart` / `updateCombat` round 1) and end (`deleteCombat`). Leader-only, deduped per combat. Setting `combatEvents` (default on).
+- `turnWake` turn events (still default off) are now sent immediately instead of debounced.
+
 ## 0.8.2
 - Fix: `setHP` (and `setResource`, `getResources`, `shipDamage`, `getShip`, `rest`) accept `tokenId`/`tokenName`; unlinked tokens (`actorLink:false`) are written through `token.actor` instead of the base actor. Linked tokens and actor-only calls are unchanged.
 - New "GM is thinking…" indicator: a bottom-right pill on every client (module socket, not a chat message) after a player message or roll is sent to the bot; cleared by the bot's next chat message, voice line or command, or after `thinkingTimeoutMs` (default 90 s). `thinkingIndicator` setting (default on). Localized as `AIGM.thinking`.

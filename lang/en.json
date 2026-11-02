@@ -144,6 +144,10 @@
       "thinkingTimeoutMs": {
         "name": "Thinking indicator timeout (ms)",
         "hint": "Hide the indicator after this long if the bot has not replied. 0 = only hide on reply."
+      },
+      "combatEvents": {
+        "name": "Send combat start/end",
+        "hint": "Send the bot an immediate event when combat starts or ends, so it can stay awake during fights."
       }
     },
     "audio": {

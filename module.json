@@ -2,7 +2,7 @@
   "id": "ai-gm-bridge",
   "title": "AI GM Bridge",
   "description": "Connect any AI game-master bot to Foundry VTT: filtered, batched chat events to your webhook (relay or direct), typed JSON commands back, leader election and exactly-once handling. Disabled by default per world.",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "authors": [
     {
       "name": "Gate (GateShark)",

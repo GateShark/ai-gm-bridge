@@ -180,3 +180,12 @@ Linked tokens, or calls with only `actorId`/`actorName`, write the base actor as
 After a batch with a player message or roll result is sent to the bot, every client shows a small bottom-right notice (not a chat message).
 It clears when the bot user posts a chat message, a voice line plays, or the bot runs any command; otherwise after `thinkingTimeoutMs` (default 90000, 0 = no timeout).
 Turn it off with the `thinkingIndicator` world setting. Text: `AIGM.thinking` in lang files.
+
+## v0.8.3: combat start/end events
+When Foundry combat starts (`combatStart`, or `updateCombat` reaching round 1) or ends (`deleteCombat`; ending combat deletes it), the module sends one event at once, skipping the debounce:
+```json
+{ "eventId": "combat:<id>:start", "type": "combat", "state": "start", "combatId": "<id>", "sceneId": "<id>", "round": 1, "combatants": ["Tempus", "Bilge Rat"] }
+```
+`state` is `"start"` or `"end"` (`round` is the last round on end). Only the leader client (bot user, else the active GM) sends it, and the eventId is deduped, so each combat gives at most one start and one end. A combat deleted before it started sends no end.
+Use it to keep the bot awake during fights and let it sleep otherwise. Setting `combatEvents` (default on).
+Optional per-turn events: `turnWake` (default off) sends `{type:"turn", combat:{id,round,turn}, combatant, isNPC}` on every round/turn change, now also without debounce.

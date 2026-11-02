@@ -21,6 +21,7 @@ import * as F from "./features.mjs";
 import { getContext } from "./context.mjs";
 import { cleanupContextJournals } from "./gmstore.mjs";
 import { turnText } from "./lib/turns.mjs";
+import { combatEvent, startedNow } from "./lib/combatevents.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
 
 const ID = "ai-gm-bridge"; const SOCKET = `module.${ID}`;
@@ -64,6 +65,8 @@ Hooks.once("init", () => {
   // v0.8 house rule: pirateborg v1.9.0 ram ignores the target armour roll; on = subtract it
   reg("ramUsesArmor", Boolean, false);
   // v0.8.2 #14 "GM is thinking…" indicator
+  // v0.8.3 immediate combat start/end events (turnWake = also send each turn/round change)
+  reg("combatEvents", Boolean, true);
   reg("thinkingIndicator", Boolean, true); reg("thinkingTimeoutMs", Number, 90000);
   // v0.7 (GM-only: world setting, config menu is GM-only)
   // v0.7.0 stored the context journal list here. Kept hidden (config:false) only so v0.7.2 can clear it; never written otherwise.
@@ -193,7 +196,14 @@ Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) F.bindRollCard
 Hooks.on("updateActor", (a, change) => { if (enabled() && amLeader()) F.onActorUpdate(a, change); });
 Hooks.on("createActor", (a) => { if (enabled() && amLeader()) F.onActorUpdate(a, {}); });
 Hooks.on("createItem", (i) => { if (enabled() && amLeader()) F.onItemCreate(i); });
-Hooks.on("deleteCombat", (c) => { if (enabled() && amLeader()) F.onCombatDelete(c); });
+Hooks.on("deleteCombat", (c) => { if (enabled() && amLeader()) { F.onCombatDelete(c); combatState(c, "end"); } });
+// v0.8.3: only the leader (bot user, else active GM) sends; eventId dedupe means one start/end per combat.
+function combatState(c, state) {
+  if (!enabled() || !amLeader() || !get("combatEvents")) return;
+  if (state === "end" && !c?.started && !(c?.round > 0)) return; // never started: no end event
+  const ev = combatEvent(c, state); if (ev) emitEvent(ev, { urgent: true });
+}
+Hooks.on("combatStart", (c) => combatState(c, "start"));
 function filterOpts(botId) {
   return { botUserId: botId, gmNames: list("botNames").map(n => n.toLowerCase()), keywords: list("keywords"), wakeOn: list("wakeOn"), ignoreOOC: get("ignoreOOC"),
     ignorePlainRolls: get("ignorePlainRolls"), ignoreUsers: list("ignoreUsers"), minChars: get("minChars") };
@@ -253,6 +263,7 @@ Hooks.on("deleteChatMessage", (msg) => {
 });
 Hooks.on("updateCombat", (c, change) => {
   if (!enabled() || !amLeader() || !("turn" in change || "round" in change)) return;
+  if (startedNow(c, change)) combatState(c, "start"); // combatStart only fires on the starting client
   F.onCombatUpdate(c, change);
   if (get("turnPrompts")) F.turnPrompt(c).catch(e => log("turnPrompt", e?.message));
   if (!get("turnWake")) return; // v0.6: turns are handled locally; set turnWake to also wake the bot
@@ -260,7 +271,7 @@ Hooks.on("updateCombat", (c, change) => {
   if (!S.dedupe.claim(eventId, now)) return;
   S.outbox.enqueue({ eventId, type: "turn", combat: { id: c.id, round: c.round, turn: c.turn }, combatant: c.combatant?.name ?? null,
     isNPC: c.combatant?.actor ? !c.combatant.actor.hasPlayerOwner : null }, now);
-  S.dedupe.mark(eventId, "sent", now); persistNow(); S.batcher?.push();
+  S.dedupe.mark(eventId, "sent", now); persistNow(); S.batcher?.push({ urgent: true });
 });
 
 function liveCtx() {
