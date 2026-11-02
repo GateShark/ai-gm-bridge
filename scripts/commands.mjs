@@ -259,7 +259,7 @@ export const COMMANDS = {
   getShip: { schema: { actorId: "string?", actorName: "string?", ...TOK }, async run(a) {
     const tg = findTarget(a); if (tg.error) return fail(404, "ship not found"); return SHIP.getShip(tg.actor); } },
   // v0.6
-  requestRoll: { schema: { user: "string", actorId: "string?", actorName: "string?", stat: "string", dr: "number", label: "string?", requestId: "string?", timeoutMs: "number?" },
+  requestRoll: { schema: { user: "string", actorId: "string?", actorName: "string?", stat: "string?", formula: "string?", dr: "number?", label: "string?", requestId: "string?", timeoutMs: "number?" },
     async run(a) { return F.requestRoll(a); } },
   turnStatus: { schema: {}, async run() { const t = F.turnStatus(); return ok({ active: !!t, ...(t ?? {}) }); } },
   recap: { schema: { since: "any?", max: "number?" }, async run(a) { return ok(await F.recap(a)); } },

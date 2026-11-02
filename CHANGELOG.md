@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.8.4
+- #15: `requestRoll` takes `formula` (any Foundry formula, e.g. `1d6`, `2d4+1`, `1d20+@abilities.agility.value`) with `label`; `stat`/`dr` optional then. Same clickable card button; `rollResult` adds `formula`/`label`, `success` null without `dr`. d20 stat tests unchanged.
+
 ## 0.8.3
 - New immediate (non-debounced) `combat` events `{type:"combat", state:"start"|"end", combatId, sceneId, round, combatants}` on combat start (`combatStart` / `updateCombat` round 1) and end (`deleteCombat`). Leader-only, deduped per combat. Setting `combatEvents` (default on).
 - `turnWake` turn events (still default off) are now sent immediately instead of debounced.

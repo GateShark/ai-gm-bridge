@@ -1,7 +1,7 @@
 // v0.6 runtime features: requestRoll, turn prompts, session log, Pirate Borg rest, speakBubble.
 // Deps are injected by main.mjs via initFeatures() so commands.mjs and tests can use them.
 import { ok, fail } from "./lib/result.mjs";
-import { normStat, formulaFor, evaluate, canClick, reqIdFrom, cardHtml, matchRoll, naturalOf, d20Of, rollsOf, isOpen } from "./lib/rollreq.mjs";
+import { normStat, formulaFor, evaluate, evaluateFormula, reqFormula, canClick, reqIdFrom, cardHtml, matchRoll, naturalOf, d20Of, rollsOf, isOpen } from "./lib/rollreq.mjs";
 import { turnInfo, turnText, voiceUsersFrom } from "./lib/turns.mjs";
 import { actorChanges, lineHtml, parseLines, recap as recapLines, TRACKED, stamp } from "./lib/sessionlog.mjs";
 import { planRest, clampHp, diffReport } from "./lib/pbrest.mjs";
@@ -20,12 +20,17 @@ export async function requestRoll(a) {
   const id = reqIdFrom(a.requestId, foundry.utils.randomID()); // idempotent: same requestId returns the existing card/result
   const prior = reqMessages().find(m => m.flags[ID].rollRequest.id === id);
   if (prior) { const r = prior.flags[ID].rollRequest; return ok({ requestId: id, messageId: prior.id, status: r.status, result: r.result ?? null, duplicate: true }); }
-  const stat = normStat(a.stat); if (!stat) return fail("BAD_STAT", `unknown stat ${a.stat}; use strength, agility, presence, toughness or spirit`);
+  const formula = typeof a.formula === "string" && a.formula.trim() ? a.formula.trim() : null;
+  const stat = a.stat ? normStat(a.stat) : null;
+  if (!formula && !stat) return fail("BAD_STAT", `unknown stat ${a.stat}; use strength, agility, presence, toughness or spirit, or pass formula`);
+  if (formula && a.stat && !stat) return fail("BAD_STAT", `unknown stat ${a.stat}`);
+  if (!formula && typeof a.dr !== "number") return fail("BAD_ARGS", "dr is required for a stat test");
+  if (formula && globalThis.Roll?.validate && !Roll.validate(formula)) return fail("BAD_FORMULA", `invalid formula ${formula}`);
   const user = findUser(a.user); if (!user) return fail("NOT_FOUND", `user ${a.user} not found`);
   const actor = (a.actorId && game.actors.get(a.actorId)) || (a.actorName && game.actors.getName(a.actorName)) || user.character;
   if (!actor) return fail("NOT_FOUND", "no actor (pass actorId/actorName or give the user a character)");
   const timeoutMs = Math.max(5000, a.timeoutMs ?? D.get("rollRequestTimeoutMs") ?? 120000);
-  const req = { id, userId: user.id, userName: user.name, actorId: actor.id, actorName: actor.name, stat, dr: a.dr, label: a.label ?? "", status: "pending", at: Date.now(), timeoutAt: Date.now() + timeoutMs,
+  const req = { id, userId: user.id, userName: user.name, actorId: actor.id, actorName: actor.name, stat, ...(formula ? { formula } : {}), dr: a.dr ?? null, label: a.label ?? "", status: "pending", at: Date.now(), timeoutAt: Date.now() + timeoutMs,
     expireAt: Date.now() + timeoutMs + Math.max(0, a.expireAfterMs ?? D.get("rollRequestExpireMs") ?? 600000) };
   const msg = await ChatMessage.create({ content: cardHtml(req), speaker: { alias: D.get("speakerAlias") || "AI GM" }, flags: { [ID]: { local: true, rollRequest: req } } });
   armTimeout(req, msg.id);
@@ -48,16 +53,16 @@ export async function onRollMessage(msg) {
   if (!rollsOf(msg).length) return false;
   const req = matchRoll(msg, pendingRequests()); if (!req) return false;
   const by = msg.author ?? msg.user; if (!canClick(req, typeof by === "string" ? game.users.get(by) : by)) return false;
-  const roll = d20Of(msg);
-  const result = evaluate({ total: roll.total, natural: naturalOf(roll), dr: req.dr });
+  const roll = req.formula ? (rollsOf(msg)[0]?.roll ?? d20Of(msg)) : d20Of(msg);
+  const result = req.formula ? evaluateFormula({ total: roll.total, natural: naturalOf(roll), dr: req.dr }) : evaluate({ total: roll.total, natural: naturalOf(roll), dr: req.dr });
   const via = msg.flags?.[ID]?.rollRequestId ? "button" : msg.flags?.pirateborg?.outcomes ? "sheet roll" : "roll";
   const done = { ...req, status: "done", result, rollMessageId: msg.id, answeredBy: `${via} by ${(typeof by === "object" ? by?.name : game.users.get(by)?.name) ?? "?"}` }; delete done.messageId;
   clearTimeout(timers.get(req.id));
   const card = game.messages.get(req.messageId); if (card) await card.update({ content: cardHtml(done), [`flags.${ID}.rollRequest`]: done });
-  if (D.get("rollAnswerNote") !== false) await ChatMessage.create({ content: `<small>↳ answers ${req.label || req.stat} DR ${req.dr} for ${req.actorName}: ${result.total} ${result.success ? "success" : "fail"}</small>`,
+  if (D.get("rollAnswerNote") !== false) await ChatMessage.create({ content: `<small>↳ answers ${req.label || req.formula || req.stat}${req.dr != null ? ` DR ${req.dr}` : ""} for ${req.actorName}: ${result.total}${result.success === null ? "" : result.success ? " success" : " fail"}</small>`,
     speaker: { alias: D.get("speakerAlias") || "AI GM" }, flags: { [ID]: { local: true, rollAnswer: req.id } } });
   D.emit({ eventId: `rollreq:${req.id}`, type: "rollResult", requestId: req.id, actor: req.actorName, user: req.userName, by: (typeof by === "object" ? by?.name : game.users.get(by)?.name) ?? null,
-    via, stat: req.stat, dr: req.dr, ...result, success: result.success === true, crit: result.crit === true, fumble: result.fumble === true }, { urgent: true });
+    via, stat: req.stat, ...(req.formula ? { formula: req.formula, label: req.label || null } : {}), dr: req.dr, ...result, success: result.success === true, crit: result.crit === true, fumble: result.fumble === true, ...(req.formula && result.success === null ? { success: null } : {}) }, { urgent: true });
   return true;
 }
 // Any client: wire the card button.
@@ -68,8 +73,8 @@ export function bindRollCard(msg, html) {
   btn.addEventListener("click", async (ev) => {
     ev.preventDefault(); btn.disabled = true;
     const actor = game.actors.get(req.actorId); if (!actor) return ui.notifications?.warn("Actor not found");
-    const roll = await new Roll(formulaFor(req.stat), actor.getRollData()).evaluate();
-    await roll.toMessage({ speaker: ChatMessage.getSpeaker({ actor }), flavor: `${req.label || req.stat} (DR ${req.dr})`, flags: { [ID]: { rollRequestId: req.id, rollStat: req.stat } } });
+    const roll = await new Roll(reqFormula(req), actor.getRollData()).evaluate();
+    await roll.toMessage({ speaker: ChatMessage.getSpeaker({ actor }), flavor: `${req.label || req.formula || req.stat}${req.dr != null ? ` (DR ${req.dr})` : ""}`, flags: { [ID]: { rollRequestId: req.id, rollStat: req.stat } } });
   });
 }
 

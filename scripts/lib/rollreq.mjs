@@ -8,15 +8,23 @@ export function evaluate({ total, natural, dr }) {
   const crit = natural === 20, fumble = natural === 1; const t = Number(total), d = Number(dr);
   return { total, natural: natural ?? null, dr, success: crit ? true : fumble ? false : (Number.isFinite(t) && Number.isFinite(d) && t >= d), crit: !!crit, fumble: !!fumble };
 }
+// 0.8.4 #15: any-formula requests. Result: total, success only when a DR was given; crit/fumble only for a natural d20.
+export function evaluateFormula({ total, natural, dr }) {
+  const hasDr = dr !== undefined && dr !== null && Number.isFinite(Number(dr));
+  if (hasDr && natural != null) return evaluate({ total, natural, dr });
+  return { total, natural: natural ?? null, dr: hasDr ? dr : null, success: hasDr ? Number(total) >= Number(dr) : null, crit: false, fumble: false };
+}
+export const reqFormula = (req) => req.formula || formulaFor(req.stat);
 export function canClick(req, user) { return !!user && (user.isGM || user.id === req.userId); }
 export const reqIdFrom = (requestId, seed) => requestId || `rr-${seed}`;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 export function cardHtml(req) {
-  const head = `<div class="aigm-rollreq" data-request-id="${esc(req.id)}"><b>${esc(req.label || `${cap(req.stat)} test`)}</b> — DR ${req.dr}<br>${esc(req.actorName)} (${esc(req.userName)})`;
-  if (req.status === "pending") return `${head}<br><button type="button" data-aigm-roll="${esc(req.id)}">Roll ${cap(req.stat)}</button></div>`;
+  const title = req.label || (req.formula ? req.formula : `${cap(req.stat)} test`); const dr = req.dr != null ? ` — DR ${req.dr}` : "";
+  const head = `<div class="aigm-rollreq" data-request-id="${esc(req.id)}"><b>${esc(title)}</b>${dr}<br>${esc(req.actorName)} (${esc(req.userName)})`;
+  if (req.status === "pending") return `${head}<br><button type="button" data-aigm-roll="${esc(req.id)}">Roll ${req.formula ? esc(req.formula) : cap(req.stat)}</button></div>`;
   if (req.status === "expired") return `${head}<br><i>Expired.</i></div>`;
   if (req.status === "timeout") return `${head}<br><i>No roll yet.</i> <button type="button" data-aigm-roll="${esc(req.id)}" data-gm-only="1">GM: roll for them</button></div>`;
-  const r = req.result; return `${head}<br><b>${r.total}</b> → ${r.crit ? "CRIT " : r.fumble ? "FUMBLE " : ""}${r.success ? "success" : "fail"}${req.answeredBy ? ` <small>(${esc(req.answeredBy)})</small>` : ""}</div>`;
+  const r = req.result; return `${head}<br><b>${r.total}</b>${r.success === null || r.success === undefined ? "" : ` → ${r.crit ? "CRIT " : r.fumble ? "FUMBLE " : ""}${r.success ? "success" : "fail"}`}${req.answeredBy ? ` <small>(${esc(req.answeredBy)})</small>` : ""}</div>`;
 }
 const cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
 // Rolls carried by a chat message. Core rolls live in msg.rolls. Pirate Borg sheet rolls (showGenericCard) put NO rolls in
@@ -47,7 +55,7 @@ export function matchRoll(msg, pending, now = Date.now()) {
   if (!rolls.some(r => /d20/i.test(r.formula) || /d20/i.test(r.raw))) return null;
   const author = msg.author ?? msg.user; const by = typeof author === "string" ? author : author?.id; const gm = typeof author === "object" && !!author?.isGM;
   const actorId = msg.speaker?.actor ?? null; const stat = abilityOf(msg, rolls);
-  let c = open.filter(p => (msg.timestamp ?? Infinity) >= p.at && (p.userId === by || (gm && actorId && p.actorId === actorId)));
+  let c = open.filter(p => (!p.formula || /d20/i.test(p.formula)) && (msg.timestamp ?? Infinity) >= p.at && (p.userId === by || (gm && actorId && p.actorId === actorId)));
   if (actorId) c = c.filter(p => p.actorId === actorId);
   if (stat) c = c.filter(p => p.stat === stat);
   return c.sort((a, b) => a.at - b.at)[0] ?? null;
