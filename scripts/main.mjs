@@ -1,4 +1,4 @@
-// AI GM Bridge v0.8.0-rc2 — entry point (bot-agnostic). Does nothing unless world setting `enabled` is true.
+// AI GM Bridge — entry point (version comes from module.json) (bot-agnostic). Does nothing unless world setting `enabled` is true.
 import { decideLeader, applyHeartbeat } from "./lib/leader.mjs";
 import { DedupeStore } from "./lib/dedupe.mjs";
 import { Outbox } from "./lib/outbox.mjs";
@@ -12,11 +12,12 @@ import { Metrics } from "./lib/metrics.mjs";
 import { deliverDirect } from "./lib/direct.mjs";
 import { makeConfigApp } from "./config-app.mjs";
 import { fail } from "./lib/result.mjs";
-import { runCommand, COMMANDS, onVoiceSocket } from "./commands.mjs";
+import { runCommand, COMMANDS, onVoiceSocket, audioQueue } from "./commands.mjs";
 import { missedMessages } from "./lib/replies.mjs";
 import { lockBlocks } from "./lib/spawn.mjs";
 import { burstTest } from "./lib/bursttest.mjs";
-import { formatResult } from "./lib/v081.mjs";
+import { formatResult, sceneBackgroundSrc } from "./lib/v081.mjs";
+import { installAudioResume } from "./lib/audioqueue.mjs";
 import * as F from "./features.mjs";
 import { getContext } from "./context.mjs";
 import { cleanupContextJournals } from "./gmstore.mjs";
@@ -49,6 +50,9 @@ function setupPtt() {
   pttInst.install();
 }
 Hooks.once("init", () => {
+  // 0.8.7: pre-ready stub so macros/scripts that run early can wait instead of throwing.
+  { const mod = game.modules?.get?.(ID); let res; const p = new Promise(r => (res = r)); globalThis.__aigmReady = res;
+    if (mod) mod.api = { version: mod.version, ready: false, whenReady: () => p }; }
   const reg = (k, type, def, extra = {}) => game.settings.register(ID, k, { scope: "world", config: true, restricted: true, type, default: def,
     name: `AIGM.settings.${k}.name`, hint: `AIGM.settings.${k}.hint`, ...extra });
   reg("enabled", Boolean, false, { onChange: () => restart() });
@@ -95,8 +99,10 @@ Hooks.once("init", () => {
 Hooks.once("ready", () => {
   try { setupPtt(); } catch (e) { console.warn(`${ID} | push-to-talk`, e); }
   const mod = game.modules.get(ID);
+  const whenReady = mod.api?.whenReady ?? (() => Promise.resolve(mod.api));
+  try { installAudioResume({ queue: audioQueue, beforeUnlock: async () => { await game.audio?.unlock; try { await game.audio?.context?.resume?.(); } catch {} } }); } catch {}
   mod.api = {
-    version: mod.version, commands: Object.keys(COMMANDS),
+    version: mod.version, ready: true, whenReady, commands: Object.keys(COMMANDS),
     status: () => ({ enabled: enabled(), leader: S.leader, amLeader: amLeader(), queued: S.outbox?.items.length ?? 0, dead: S.outbox?.dead().length ?? 0,
       deadIds: S.outbox?.dead().map(i => i.event.eventId) ?? [] }),
     metrics: () => S.metrics.snapshot(),
@@ -122,6 +128,7 @@ Hooks.once("ready", () => {
     turnStatus: () => F.turnStatus(), recap: (o) => F.recap(o),
     takeBatch: () => S.lastBatch, // relay stub can poll this on the headless client
   };
+  try { globalThis.__aigmReady?.(mod.api); } catch {}
   game.socket.on(SOCKET, onSocket);
   if (game.user.isGM && game.users.activeGM?.id === game.user.id) cleanupContextJournals(game).then(r => r.cleared && log("v0.7.2: the context journal list is no longer stored in the world (players could read it). Set AIGM_CONTEXT_JOURNALS on the relay or pass journals per getContext call. Old value:", r.old)).catch(e => log("migrate", e?.message));
   F.initFeatures({ get, amLeader, log, voice: (t) => S.voice?.get(t) ?? null, emit: emitEvent });
@@ -332,3 +339,12 @@ function flush(opts = {}) {
   if (left.length) S.batcher?.push({ at: Math.min(...left.map(i => i.firstAt)) }); // e.g. >batchMax or held back by a retry wake: keep their cap
   S.batcher?.at(S.outbox.nextDueAt()); // next retry, if any — no polling
 }
+
+// 0.8.7: warn the GM when a scene shows grey because its background is unset or the file is missing (v14 keeps it on levels[0]).
+Hooks.on("canvasReady", async (c) => {
+  if (!game.user?.isGM) return; const scene = c?.scene; if (!scene) return;
+  const src = sceneBackgroundSrc(scene);
+  let missing = !src;
+  if (src) { try { missing = !(await fetch(src, { method: "HEAD" })).ok; } catch { missing = true; } }
+  if (missing) ui.notifications?.warn(`AI GM Bridge: scene "${scene.name}" has ${src ? `a missing background file (${src})` : "no background image"}. On Foundry v14 set it on the scene's level (setBackground command does this).`);
+});

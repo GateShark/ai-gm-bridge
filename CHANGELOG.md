@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.7
+- Audio: any click/keypress, or returning to the Foundry tab, now resumes voice blocked by the browser's autoplay policy (after a reload or while the tab was in the background); the "Click to enable audio" button still appears.
+- Grey map: on scene load the GM gets a warning if the scene has no background image or the file is missing (checks the v14 level background first, then the scene's).
+- GM text that arrives as a JSON string like `{"text":"..."}` is unwrapped before posting/voicing (post, postVoice, whisper, speakBubble).
+- `api.ready` / `api.whenReady()`: a stub API exists from `init`, so macros that run early can `await game.modules.get("ai-gm-bridge").api.whenReady()` instead of failing. Removed the stale hardcoded "v0.8.0" header; version comes only from module.json.
+
 ## 0.8.6
 - "GM is thinking…" pill now clears on every client when the bot acks events or clears dead events (broadcast), when a combat ends or is deleted, and on any bot chat message or command (as before).
 - Pill timeout runs from the first show: queued player messages no longer push the 90 s deadline out (shorter timeouts still win).

@@ -1,4 +1,4 @@
-# AI GM Bridge (module id `ai-gm-bridge`) v0.8.6
+# AI GM Bridge (module id `ai-gm-bridge`) v0.8.7
 
 > ⚠️ **Alpha:** still in testing. Expect bugs and breaking changes.
 

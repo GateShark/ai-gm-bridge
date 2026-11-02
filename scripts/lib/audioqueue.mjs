@@ -53,3 +53,13 @@ export async function voiceOrText({ audioPath, checkAudio, playVoice, postText, 
   }
   return { mode: "text", messageId: await postText() };
 }
+
+// 0.8.7: any user gesture, or the tab becoming visible again, resumes a blocked queue (no need to hit the button).
+export function installAudioResume({ queue, doc = globalThis.document, beforeUnlock = async () => {} }) {
+  if (!doc?.addEventListener) return false;
+  const go = async () => { if (!queue.blocked && !queue.length) return; try { await beforeUnlock(); } catch {} doc.getElementById?.("aigm-audio-unlock")?.remove?.();
+    if (!queue.unlock()) queue._drain(); };
+  for (const ev of ["pointerdown", "keydown"]) doc.addEventListener(ev, go, { capture: true });
+  doc.addEventListener("visibilitychange", () => { if (doc.visibilityState === "visible") go(); });
+  return true;
+}

@@ -32,3 +32,15 @@ export function formatResult(r) {
   return Object.entries(v).filter(([, x]) => x !== undefined && x !== null && x !== "")
     .map(([k, x]) => `${k}: ${typeof x === "object" ? (Array.isArray(x) ? x.map(y => typeof y === "object" ? JSON.stringify(y) : y).join("/") : JSON.stringify(x)) : x}`).join(", ");
 }
+
+// 0.8.7: GM text sometimes arrives as a JSON string like {"text":"..."}; unwrap it before display/TTS.
+export function unwrapText(v) {
+  if (v && typeof v === "object") return String(v.text ?? v.content ?? JSON.stringify(v));
+  const t = String(v ?? "").trim();
+  if (t.startsWith("{") && t.endsWith("}")) { try { const o = JSON.parse(t); const x = o?.text ?? o?.content; if (typeof x === "string") return x; } catch {} }
+  return v ?? "";
+}
+// 0.8.7: background src for a scene on v14 (levels[0]) or older (scene.background).
+export function sceneBackgroundSrc(scene) {
+  return scene?.levels?.contents?.[0]?.background?.src || scene?.background?.src || scene?.img || null;
+}

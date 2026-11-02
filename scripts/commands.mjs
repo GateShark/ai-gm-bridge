@@ -5,6 +5,7 @@ import { priorReply, recordReply } from "./lib/replies.mjs";
 import { waitForPosition } from "./lib/movewait.mjs";
 import { moveWithFallback, setSceneBackground, formatResult } from "./lib/v081.mjs";
 import { VoiceCache, shouldSkipTts } from "./lib/voicecache.mjs";
+import { unwrapText } from "./lib/v081.mjs";
 import { AudioQueue, voiceOrText, showAudioUnlockPrompt } from "./lib/audioqueue.mjs";
 import { planUpload, DEFAULT_LIMITS, UPLOAD_ROOT } from "./lib/uploads.mjs";
 import { buildSpawn, LOCK_SCOPES } from "./lib/spawn.mjs";
@@ -162,7 +163,7 @@ export const COMMANDS = {
     await actor.update({ [r.base + ".value"]: after });
     return ok({ actorId: actor.id, ...targetInfo(tg), resource: r.label ?? r.key, path: r.base + ".value", before: cur?.value, after: foundry.utils.getProperty(actor, r.base + ".value") });
   }},
-  whisper: { schema: { content: "string", to: "array", speakerAlias: "string?", replyTo: "string?", ackEventIds: "array?" }, async run(a, ctx) {
+  whisper: { schema: { content: "string", to: "array", speakerAlias: "string?", replyTo: "string?", ackEventIds: "array?" }, async run(a, ctx) { if ("content" in a) a.content = unwrapText(a.content);
     if (!Array.isArray(a.to) || !a.to.length) return fail(400, "to must be a non-empty array of user ids or names");
     const users = a.to.map(x => game.users.get(x) ?? game.users.getName?.(x)); if (users.some(u => !u)) return fail(404, "unknown recipient");
     const prev = priorReply(ctx.dedupe, a.replyTo); if (prev) { await ackAfter(ctx, a.ackEventIds); return ok({ messageId: prev, duplicate: true }); }
@@ -179,11 +180,11 @@ export const COMMANDS = {
   // Reply with voice (uploaded mp3 path) and fall back to text if the audio is missing or the post fails.
   // ackEventIds are acked only after a post succeeds.
   // Ask before generating TTS: {cached:path} = reuse it (call postVoice without audioPath); {skipTts:true} = reply as text.
-  voiceLookup: { schema: { content: "string", voice: "string?" }, async run(a, ctx) {
+  voiceLookup: { schema: { content: "string", voice: "string?" }, async run(a, ctx) { if ("content" in a) a.content = unwrapText(a.content);
     if (shouldSkipTts(a.content, ctx.ttsMinChars ?? 0)) return ok({ skipTts: true, cached: null });
     return ok({ skipTts: false, cached: ctx.voiceCache?.get(a.content, a.voice) ?? null });
   }},
-  postVoice: { schema: { content: "string", audioPath: "string?", voice: "string?", replyTo: "string?", speakerAlias: "string?", ackEventIds: "array?" }, async run(a, ctx) {
+  postVoice: { schema: { content: "string", audioPath: "string?", voice: "string?", replyTo: "string?", speakerAlias: "string?", ackEventIds: "array?" }, async run(a, ctx) { if ("content" in a) a.content = unwrapText(a.content);
     const prev = priorReply(ctx.dedupe, a.replyTo); if (prev) { await ackAfter(ctx, a.ackEventIds); return ok({ messageId: prev, duplicate: true }); }
     const flags = { "ai-gm-bridge": { replyTo: a.replyTo ?? null } };
     let audioPath = a.audioPath, cacheHit = false, skippedTts = false;
@@ -266,8 +267,8 @@ export const COMMANDS = {
   rest: { schema: { actorId: "string?", actorName: "string?", ...TOK, length: "string?", food: "string?", infected: "boolean?" }, async run(a) {
     const tg = findTarget(a); if (tg.error) return fail("NOT_FOUND", tg.error.error); return F.rest(tg.actor, a); } },
   speakBubble: { schema: { tokenId: "string?", tokenName: "string?", sceneId: "string?", text: "string", emote: "boolean?" }, async run(a) {
-    const t = findToken(a); if (!t) return fail("NOT_FOUND", "token not found"); return F.speakBubble({ tokenId: t.id, text: a.text, emote: a.emote }); } },
-  post: { schema: { content: "string", replyTo: "string?", speakerAlias: "string?", allowMultiple: "boolean?", ackEventIds: "array?" }, async run(a, ctx) {
+    const t = findToken(a); if (!t) return fail("NOT_FOUND", "token not found"); return F.speakBubble({ tokenId: t.id, text: unwrapText(a.text), emote: a.emote }); } },
+  post: { schema: { content: "string", replyTo: "string?", speakerAlias: "string?", allowMultiple: "boolean?", ackEventIds: "array?" }, async run(a, ctx) { if ("content" in a) a.content = unwrapText(a.content);
     const prev = priorReply(ctx.dedupe, a.replyTo, a.allowMultiple === true);
     if (prev) { await ackAfter(ctx, a.ackEventIds); return ok({ messageId: prev, duplicate: true }); }
     const m = await ChatMessage.create({ content: a.content, speaker: a.speakerAlias ? { alias: a.speakerAlias } : ChatMessage.getSpeaker(),
