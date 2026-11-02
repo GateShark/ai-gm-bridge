@@ -1,4 +1,4 @@
-# AI GM Bridge (module id `ai-gm-bridge`) v0.8.0
+# AI GM Bridge (module id `ai-gm-bridge`) v0.8.6
 
 > ⚠️ **Alpha:** still in testing. Expect bugs and breaking changes.
 
@@ -40,6 +40,8 @@ See `docs/BOT-API.md`.
 they are `example.invalid` placeholders. Tests: `npm test`.
 
 ## Known limits
+- Voice: before 0.8.1, bot voice lines could be missed by players (e.g. playing as a player user rather than the GM). Since 0.8.1 voice is sent to every client over the module socket and played locally; confirmed playing on a player client. Browsers may need one click to allow audio.
+- Push-to-talk (optional, off by default) uses the Web Speech API: Chrome/Edge only, and the page must be HTTPS or localhost.
 - Foundry sends GM-only journals (even ownership None) and all world settings to every player's browser. A tech-savvy player can read them from the console. The module therefore stores nothing secret in the world: the bot names the journals it wants per `getContext` call, or the relay adds `AIGM_CONTEXT_JOURNALS` from its own environment. The context text is returned only to the bot, and its cache is in memory on the GM client.
 - The secret content itself (GM journals, hidden tokens) is still in the world and therefore reaches players' browsers. That is Foundry's behaviour, not something a module can change.
 - Morale and ship commands load the pirateborg system's own files (tested with pirateborg v1.9.0). If a system update moves them, these commands return an error; everything else keeps working. Ship targets must be tokens on the scene the GM client is viewing.
