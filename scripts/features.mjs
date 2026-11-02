@@ -1,7 +1,7 @@
 // v0.6 runtime features: requestRoll, turn prompts, session log, Pirate Borg rest, speakBubble.
 // Deps are injected by main.mjs via initFeatures() so commands.mjs and tests can use them.
 import { ok, fail } from "./lib/result.mjs";
-import { normStat, formulaFor, evaluate, evaluateFormula, reqFormula, canClick, reqIdFrom, cardHtml, matchRoll, naturalOf, d20Of, rollsOf, isOpen } from "./lib/rollreq.mjs";
+import { normStat, formulaFor, evaluate, evaluateFormula, reqFormula, canClick, reqIdFrom, cardHtml, matchRoll, naturalOf, d20Of, rollBreakdown, rollsOf, isOpen } from "./lib/rollreq.mjs";
 import { turnInfo, turnText, voiceUsersFrom } from "./lib/turns.mjs";
 import { actorChanges, lineHtml, parseLines, recap as recapLines, TRACKED, stamp } from "./lib/sessionlog.mjs";
 import { planRest, clampHp, diffReport } from "./lib/pbrest.mjs";
@@ -55,11 +55,12 @@ export async function onRollMessage(msg) {
   const by = msg.author ?? msg.user; if (!canClick(req, typeof by === "string" ? game.users.get(by) : by)) return false;
   const roll = req.formula ? (rollsOf(msg)[0]?.roll ?? d20Of(msg)) : d20Of(msg);
   const result = req.formula ? evaluateFormula({ total: roll.total, natural: naturalOf(roll), dr: req.dr }) : evaluate({ total: roll.total, natural: naturalOf(roll), dr: req.dr });
+  const bd = rollBreakdown(roll); if (bd) Object.assign(result, { breakdown: bd.text, dice: bd.dice, modifier: bd.modifier }); // v0.8.6
   const via = msg.flags?.[ID]?.rollRequestId ? "button" : msg.flags?.pirateborg?.outcomes ? "sheet roll" : "roll";
   const done = { ...req, status: "done", result, rollMessageId: msg.id, answeredBy: `${via} by ${(typeof by === "object" ? by?.name : game.users.get(by)?.name) ?? "?"}` }; delete done.messageId;
   clearTimeout(timers.get(req.id));
   const card = game.messages.get(req.messageId); if (card) await card.update({ content: cardHtml(done), [`flags.${ID}.rollRequest`]: done });
-  if (D.get("rollAnswerNote") !== false) await ChatMessage.create({ content: `<small>↳ answers ${req.label || req.formula || req.stat}${req.dr != null ? ` DR ${req.dr}` : ""} for ${req.actorName}: ${result.total}${result.success === null ? "" : result.success ? " success" : " fail"}</small>`,
+  if (D.get("rollAnswerNote") !== false) await ChatMessage.create({ content: `<small>↳ answers ${req.label || req.formula || req.stat}${req.dr != null ? ` DR ${req.dr}` : ""} for ${req.actorName}: ${result.breakdown ?? result.total}${result.success === null ? "" : result.success ? " success" : " fail"}</small>`,
     speaker: { alias: D.get("speakerAlias") || "AI GM" }, flags: { [ID]: { local: true, rollAnswer: req.id } } });
   D.emit({ eventId: `rollreq:${req.id}`, type: "rollResult", requestId: req.id, actor: req.actorName, user: req.userName, by: (typeof by === "object" ? by?.name : game.users.get(by)?.name) ?? null,
     via, stat: req.stat, ...(req.formula ? { formula: req.formula, label: req.label || null } : {}), dr: req.dr, ...result, success: result.success === true, crit: result.crit === true, fumble: result.fumble === true, ...(req.formula && result.success === null ? { success: null } : {}) }, { urgent: true });

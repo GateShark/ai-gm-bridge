@@ -6,8 +6,8 @@ export const WAKE_TYPES = ["chat", "rollResult"];
 export const shouldShowThinking = (events = [], attempt = 1) => attempt === 1 && events.some(e => WAKE_TYPES.includes(e?.type));
 
 export class ThinkingIndicator {
-  constructor({ doc = globalThis.document, label = () => "GM is thinking…", setT = (f, ms) => setTimeout(f, ms), clearT = (t) => clearTimeout(t) } = {}) {
-    Object.assign(this, { doc, label, setT, clearT }); this.timer = null;
+  constructor({ doc = globalThis.document, label = () => "GM is thinking…", setT = (f, ms) => setTimeout(f, ms), clearT = (t) => clearTimeout(t), now = () => Date.now() } = {}) {
+    Object.assign(this, { doc, label, setT, clearT, now }); this.timer = null; this.deadline = null;
   }
   get visible() { return !!this.doc?.getElementById?.(THINKING_ID); }
   show(timeoutMs = 90000) {
@@ -19,12 +19,16 @@ export class ThinkingIndicator {
       this.doc.body.appendChild(el);
     }
     el.textContent = typeof this.label === "function" ? this.label() : this.label;
+    // v0.8.6: the timeout runs from the FIRST show; later shows (queued messages) never push the deadline out.
+    const ms = Number(timeoutMs), now = this.now();
+    if (!(ms > 0)) { if (this.timer) this.clearT(this.timer); this.timer = null; this.deadline = null; return true; }
+    this.deadline = this.deadline == null ? now + ms : Math.min(this.deadline, now + ms);
     if (this.timer) this.clearT(this.timer);
-    const ms = Number(timeoutMs); this.timer = ms > 0 ? this.setT(() => this.hide(), ms) : null;
+    this.timer = this.setT(() => this.hide(), Math.max(0, this.deadline - now));
     return true;
   }
   hide() {
-    if (this.timer) this.clearT(this.timer); this.timer = null;
+    if (this.timer) this.clearT(this.timer); this.timer = null; this.deadline = null;
     const el = this.doc?.getElementById?.(THINKING_ID); if (el) { el.remove(); return true; } return false;
   }
 }

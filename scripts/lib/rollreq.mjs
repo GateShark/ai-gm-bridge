@@ -24,7 +24,7 @@ export function cardHtml(req) {
   if (req.status === "pending") return `${head}<br><button type="button" data-aigm-roll="${esc(req.id)}">Roll ${req.formula ? esc(req.formula) : cap(req.stat)}</button></div>`;
   if (req.status === "expired") return `${head}<br><i>Expired.</i></div>`;
   if (req.status === "timeout") return `${head}<br><i>No roll yet.</i> <button type="button" data-aigm-roll="${esc(req.id)}" data-gm-only="1">GM: roll for them</button></div>`;
-  const r = req.result; return `${head}<br><b>${r.total}</b>${r.success === null || r.success === undefined ? "" : ` → ${r.crit ? "CRIT " : r.fumble ? "FUMBLE " : ""}${r.success ? "success" : "fail"}`}${req.answeredBy ? ` <small>(${esc(req.answeredBy)})</small>` : ""}</div>`;
+  const r = req.result; return `${head}<br>${r.breakdown ? `${esc(r.breakdown)} → ` : ""}<b>${r.total}</b>${r.success === null || r.success === undefined ? "" : ` → ${r.crit ? "CRIT " : r.fumble ? "FUMBLE " : ""}${r.success ? "success" : "fail"}`}${req.answeredBy ? ` <small>(${esc(req.answeredBy)})</small>` : ""}</div>`;
 }
 const cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
 // Rolls carried by a chat message. Core rolls live in msg.rolls. Pirate Borg sheet rolls (showGenericCard) put NO rolls in
@@ -64,4 +64,16 @@ export function d20Of(msg) { const r = rollsOf(msg); return (r.find(x => /d20/i.
 export function naturalOf(roll) {
   for (const t of roll?.dice ?? roll?.terms ?? []) if (t.faces === 20 && t.results?.length) return t.results.find(r => r.active !== false)?.result ?? t.results[0].result;
   return null;
+}
+// v0.8.6: raw dice + modifier, e.g. "d20 19 + 1 = 20". Works on live Rolls and serialized ones (terms/dice with faces+results).
+// Returns { dice:[{faces, number, results:[n], kept:[n]}], modifier, text } or null when there are no dice.
+export function rollBreakdown(roll) {
+  const terms = (roll?.dice?.length ? roll.dice : (roll?.terms ?? []).filter(t => t?.faces && Array.isArray(t.results)));
+  if (!terms.length || !Number.isFinite(Number(roll?.total))) return null;
+  const dice = terms.map(t => { const all = t.results.map(r => r.result), kept = t.results.filter(r => r.active !== false && !r.discarded).map(r => r.result);
+    return { faces: t.faces, number: t.number ?? all.length, results: all, kept }; });
+  const sum = dice.reduce((s, d) => s + d.kept.reduce((a, b) => a + b, 0), 0), total = Number(roll.total), modifier = total - sum;
+  const dtext = dice.map(d => `${d.number > 1 ? d.number : ""}d${d.faces} ${d.kept.join("+")}`).join(" + ");
+  const text = `${dtext}${modifier ? ` ${modifier < 0 ? "-" : "+"} ${Math.abs(modifier)}` : ""} = ${total}`;
+  return { dice, modifier, text };
 }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.6
+- "GM is thinking…" pill now clears on every client when the bot acks events or clears dead events (broadcast), when a combat ends or is deleted, and on any bot chat message or command (as before).
+- Pill timeout runs from the first show: queued player messages no longer push the 90 s deadline out (shorter timeouts still win).
+- Roll results show raw dice and modifier: `rollResult` events, chat-event `rolls[]`, roll-request cards and answer notes gain `breakdown` (e.g. `d20 19 + 1 = 20`), `dice` and `modifier`. Existing fields (`total`, `natural`, `success`…) unchanged.
+
 ## 0.8.5
 - Optional push-to-talk: client settings `pushToTalk` (default off) and `pushToTalkKey` (default `Backquote`), plus a hold-to-talk mic button. Web Speech API transcript with a live "Listening…" indicator, posted on release as the player's own chat message. Ignored while typing; one-time notice when the API is missing (Firefox).
 

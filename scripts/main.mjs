@@ -22,6 +22,7 @@ import { getContext } from "./context.mjs";
 import { cleanupContextJournals } from "./gmstore.mjs";
 import { turnText } from "./lib/turns.mjs";
 import { combatEvent, startedNow } from "./lib/combatevents.mjs";
+import { rollBreakdown } from "./lib/rollreq.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
 import { PushToTalk, speechLang } from "./lib/ptt.mjs";
 
@@ -101,7 +102,7 @@ Hooks.once("ready", () => {
     metrics: () => S.metrics.snapshot(),
     format: (r) => formatResult(r),
     debug: { burstTest: (o = {}) => burstTest({ debounceMs: get("debounceMs"), maxWaitMs: get("maxWaitMs"), ...o }) },
-    clearDead: () => { const ids = S.outbox?.clearDead() ?? []; persistSoon(); return { ok: true, result: { cleared: ids } }; },
+    clearDead: () => { thinkingOff({ broadcast: true }); const ids = S.outbox?.clearDead() ?? []; persistSoon(); return { ok: true, result: { cleared: ids } }; },
     run: async (cmd) => {
       if (!enabled()) return fail(503, "AI GM bridge disabled in this world");
       if (!game.user.isGM || !isBot()) return fail(403, "commands only accepted from the bot GM user");
@@ -115,7 +116,7 @@ Hooks.once("ready", () => {
       if (cmd?.commandId) S.dedupe.mark(`cmd:${cmd.commandId}`, res.ok ? "acked" : "failed", Date.now(), { res }); persistSoon();
       return res;
     },
-    ack: (eventIds) => { onAcked(eventIds); const n = S.outbox?.ack(eventIds) ?? 0; S.metrics.inc("acked", n); for (const id of eventIds) S.dedupe?.mark(id, "acked", Date.now()); persistSoon(); return { ok: true, result: { acked: n } }; },
+    ack: (eventIds) => { thinkingOff({ broadcast: true }); onAcked(eventIds); const n = S.outbox?.ack(eventIds) ?? 0; S.metrics.inc("acked", n); for (const id of eventIds) S.dedupe?.mark(id, "acked", Date.now()); persistSoon(); return { ok: true, result: { acked: n } }; },
     // GM-only, returned to the caller only. Players get 403 and nothing is sent anywhere.
     context: (o = {}) => getContext(game, o),
     turnStatus: () => F.turnStatus(), recap: (o) => F.recap(o),
@@ -212,10 +213,11 @@ Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) F.bindRollCard
 Hooks.on("updateActor", (a, change) => { if (enabled() && amLeader()) F.onActorUpdate(a, change); });
 Hooks.on("createActor", (a) => { if (enabled() && amLeader()) F.onActorUpdate(a, {}); });
 Hooks.on("createItem", (i) => { if (enabled() && amLeader()) F.onItemCreate(i); });
-Hooks.on("deleteCombat", (c) => { if (enabled() && amLeader()) { F.onCombatDelete(c); combatState(c, "end"); } });
+Hooks.on("deleteCombat", (c) => { if (enabled()) thinking.hide(); if (enabled() && amLeader()) { F.onCombatDelete(c); combatState(c, "end"); } }); // v0.8.6: hide runs on every client
 // v0.8.3: only the leader (bot user, else active GM) sends; eventId dedupe means one start/end per combat.
 function combatState(c, state) {
   if (!enabled() || !amLeader() || !get("combatEvents")) return;
+  if (state === "end") thinkingOff({ broadcast: true }); // v0.8.6
   if (state === "end" && !c?.started && !(c?.round > 0)) return; // never started: no end event
   const ev = combatEvent(c, state); if (ev) emitEvent(ev, { urgent: true });
 }
@@ -234,7 +236,7 @@ function handleChat(msg) {
   if (authorId !== botId && get("localCommands") && tryLocal(msg, plain, author)) return;
   const ev = { eventId, type: "chat", authorId, author: author?.name,
     speaker: msg.speaker?.alias ?? null, whisper: msg.whisper ?? [], text: msg.content ?? "",
-    rolls: (msg.rolls ?? []).map(r => ({ formula: r.formula, total: r.total })),
+    rolls: (msg.rolls ?? []).map(r => { const b = rollBreakdown(r); return { formula: r.formula, total: r.total, ...(b ? { breakdown: b.text, dice: b.dice, modifier: b.modifier } : {}) }; }), // v0.8.6
     whisperToBot: (msg.whisper ?? []).includes(botId), inCharacter: !!msg.speaker?.actor,
     alwaysVoice: list("alwaysVoiceUsers").includes(author?.name) };
   const c = classify({ ...ev, text: plain }, filterOpts(botId));
