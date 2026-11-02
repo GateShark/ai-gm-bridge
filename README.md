@@ -1,5 +1,7 @@
 # AI GM Bridge (module id `ai-gm-bridge`) v0.8.0
 
+> ⚠️ **Alpha:** still in testing. Expect bugs and breaking changes.
+
 A Foundry VTT module (v13+, verified on v14 build 369) that lets any AI game-master bot run a world. It sends filtered,
 batched chat events to your bot's webhook, and your bot sends typed JSON commands back. It is off by default in every world.
 
