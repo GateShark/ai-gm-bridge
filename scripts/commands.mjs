@@ -24,7 +24,7 @@ function playClip({ src, volume = 0.8 }) {
   return new Promise(async (resolve, reject) => {
     try {
       if (game.audio?.locked) { const e = new Error("autoplay blocked"); e.blocked = true; throw e; }
-      const sound = await foundry.audio.AudioHelper.play({ src, volume, autoplay: true, loop: false }, true);
+      const sound = await foundry.audio.AudioHelper.play({ src, volume, autoplay: true, loop: false }, false); // local only: each client plays via its own queue (#12)
       if (!sound) throw new Error("clip did not start");
       let done = false; const fin = () => { if (!done) { done = true; resolve(); } };
       sound?.addEventListener?.("end", fin);
@@ -36,6 +36,17 @@ function playClip({ src, volume = 0.8 }) {
 export const audioQueue = new AudioQueue({ play: playClip, onBlocked: () => showAudioUnlockPrompt({
   queue: audioQueue, label: game.i18n?.localize?.("AIGM.audio.unlock") || "Click to enable audio",
   beforeUnlock: async () => { await game.audio?.unlock; try { await game.audio?.context?.resume?.(); } catch {} } }) });
+// #12: the core AudioHelper broadcast (play(data, true)) did not reach player clients in v14 and bypassed their
+// queue/unlock prompt. Instead emit on the module socket; every client (players included) plays through its own audioQueue.
+export const VOICE_SOCKET = "module.ai-gm-bridge";
+export function voiceAll(id, clip, g = globalThis.game) {
+  try { g?.socket?.emit?.(VOICE_SOCKET, { type: "voice", id, src: clip.src, volume: clip.volume }); } catch {}
+  return audioQueue.enqueue(id, clip);
+}
+export function onVoiceSocket(data) {
+  if (data?.type !== "voice" || typeof data.src !== "string" || !data.src) return null;
+  return audioQueue.enqueue(data.id ?? data.src, { src: data.src, volume: typeof data.volume === "number" ? data.volume : undefined });
+}
 const checkAudio = async (src) => { try { return (await fetch(src, { method: "HEAD" })).ok; } catch { return false; } };
 const speaker = (alias) => alias ? { alias } : ChatMessage.getSpeaker();
 async function ackAfter(ctx, ids) { if (Array.isArray(ids) && ids.length) await ctx.ack?.(ids); }
@@ -153,7 +164,7 @@ export const COMMANDS = {
   }},
   playAudio: { schema: { path: "string", id: "string?", volume: "number?", wait: "boolean?" }, async run(a) {
     if (!(await checkAudio(a.path))) return fail(404, "audio not reachable");
-    const p = audioQueue.enqueue(a.id ?? a.path, { src: a.path, volume: a.volume });
+    const p = voiceAll(a.id ?? a.path, { src: a.path, volume: a.volume });
     if (a.wait) return ok(await p);
     return ok({ id: a.id ?? a.path, queued: true, queueLength: audioQueue.length });
   }},
@@ -171,7 +182,7 @@ export const COMMANDS = {
     if (shouldSkipTts(a.content, ctx.ttsMinChars ?? 0)) { audioPath = undefined; skippedTts = true; ctx.metrics?.inc("ttsSkipped"); }
     else if (!audioPath && ctx.voiceCache) { audioPath = ctx.voiceCache.get(a.content, a.voice) ?? undefined; cacheHit = !!audioPath; if (cacheHit) ctx.metrics?.inc("voiceCacheHits"); }
     const r = await voiceOrText({ audioPath, checkAudio,
-      playVoice: (src) => audioQueue.enqueue(a.replyTo ?? src, { src }),
+      playVoice: (src) => voiceAll(a.replyTo ?? src, { src }),
       postVoice: async (src) => (await ChatMessage.create({ content: `${a.content}<audio controls preload="none" src="${foundry.utils.escapeHTML?.(src) ?? src}"></audio>`, speaker: speaker(a.speakerAlias), flags })).id,
       postText: async () => (await ChatMessage.create({ content: a.content, speaker: speaker(a.speakerAlias), flags })).id });
     if (r.mode === "voice" && a.audioPath && ctx.voiceCache) { ctx.voiceCache.put(a.content, a.audioPath, a.voice); ctx.persistVoice?.(); }

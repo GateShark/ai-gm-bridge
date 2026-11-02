@@ -12,7 +12,7 @@ import { Metrics } from "./lib/metrics.mjs";
 import { deliverDirect } from "./lib/direct.mjs";
 import { makeConfigApp } from "./config-app.mjs";
 import { fail } from "./lib/result.mjs";
-import { runCommand, COMMANDS } from "./commands.mjs";
+import { runCommand, COMMANDS, onVoiceSocket } from "./commands.mjs";
 import { missedMessages } from "./lib/replies.mjs";
 import { lockBlocks } from "./lib/spawn.mjs";
 import { burstTest } from "./lib/bursttest.mjs";
@@ -168,6 +168,7 @@ function onSocket(data) {
   if (data.type === "heartbeat") { S.leader = applyHeartbeat(S.leader, data, Date.now()); return; }
   if (data.type === "turnPing") return F.onTurnPing(data);
   if (data.type === "bubble") return F.showBubble(data);
+  if (data.type === "voice") return void onVoiceSocket(data); // #12: players play bot voice locally
   if (data.type === "ack" && amLeader() && Array.isArray(data.eventIds)) game.modules.get(ID).api.ack(data.eventIds);
 }
 
