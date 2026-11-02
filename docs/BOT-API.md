@@ -74,7 +74,7 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | setBackground | src, sceneId? or sceneName? (default: viewed/active scene). Foundry v14 stores the background on the scene's first level, so it updates `scene.levels.contents[0]`; older versions update the scene. Returns {sceneId, via: level or scene, levelId, src} |
 | format | result (any command reply); returns {text}, a one-line readable version |
 | tokenUpdate | tokenId or tokenName, hidden?, elevation?, rotation?, alpha? |
-| setHP | actorId or actorName, value or delta, path? |
+| setHP | actorId or actorName, or tokenId/tokenName (+sceneId); value or delta, path? |
 | getResources / setResource | actorId or actorName, resource (hp, luck, rituals, prayers, hull, crew, ...), value or delta |
 | nextTurn / endCombat | expect: {combatId, round, turn}; 409 if stale |
 | scene | sceneId or sceneName, activate? |
@@ -169,3 +169,14 @@ as a reduction.
 Events closer together than `debounceMs` (default 1200 ms) go out as one batch; a batch is never held longer than `maxWaitMs`
 (3500 ms). Events further apart than `debounceMs` are sent separately on purpose. Check timing in the world with
 `api.debug.burstTest({count: 3, gapMs: 300})` (expect `batches: [3]`); it posts nothing and wakes no bot.
+
+## v0.8.2 notes
+### Unlinked tokens (`tokenId` / `tokenName`)
+`setHP`, `setResource`, `getResources`, `shipDamage`, `getShip` and `rest` accept `tokenId` or `tokenName` (optional `sceneId`, default the viewed/active scene).
+If the token is unlinked (`actorLink: false`, it keeps its own stats) the write goes to `token.actor`; replies then include `tokenId` and `via: "token"`.
+Linked tokens, or calls with only `actorId`/`actorName`, write the base actor as before. Pass the token for monsters/NPCs placed from a shared actor.
+
+### "GM is thinking…" indicator
+After a batch with a player message or roll result is sent to the bot, every client shows a small bottom-right notice (not a chat message).
+It clears when the bot user posts a chat message, a voice line plays, or the bot runs any command; otherwise after `thinkingTimeoutMs` (default 90000, 0 = no timeout).
+Turn it off with the `thinkingIndicator` world setting. Text: `AIGM.thinking` in lang files.

@@ -11,6 +11,7 @@ import { buildSpawn, LOCK_SCOPES } from "./lib/spawn.mjs";
 import * as F from "./features.mjs";
 import { getContext } from "./context.mjs";
 import * as SHIP from "./ship.mjs";
+import { targetActor, targetInfo } from "./lib/target.mjs";
 import { resolveResource, nextValue, summarize, parseAmount } from "./lib/pirateborg.mjs";
 
 // Class item's own label for extraResource (e.g. "Prayers"); field name varies, so search string fields.
@@ -54,6 +55,13 @@ async function ackAfter(ctx, ids) { if (Array.isArray(ids) && ids.length) await 
 const combatLock = new KeyedMutex();
 const liveCombat = (c) => c ? { combatId: c.id, round: c.round, turn: c.turn } : null;
 const findActor = (a) => game.actors.get(a.actorId) ?? game.actors.getName?.(a.actorName) ?? null;
+// #13: tokenId/tokenName target that token; unlinked tokens are written through token.actor, not the base actor.
+const TOK = { tokenId: "string?", tokenName: "string?", sceneId: "string?" };
+function findTarget(a) {
+  if (a.tokenId || a.tokenName) { const t = findToken(a); if (!t) return { error: fail(404, "token not found") };
+    const base = (a.actorId || a.actorName) ? findActor(a) : null; const r = targetActor({ token: t, baseActor: base }); return r ?? { error: fail(404, "actor not found") }; }
+  const r = targetActor({ baseActor: findActor(a) }); return r ?? { error: fail(404, "actor not found") };
+}
 function findToken(a) {
   const scene = a.sceneId ? game.scenes.get(a.sceneId) : canvas?.scene ?? game.scenes.active;
   if (!scene) return null;
@@ -81,16 +89,16 @@ export const COMMANDS = {
   getContext: { schema: { scene: "string?", journals: "any?", maxChars: "number?", since: "string?", full: "boolean?" }, async run(a) {
     return getContext(game, a);
   }},
-  setHP: { schema: { actorId: "string?", actorName: "string?", value: "any?", delta: "any?", path: "string?" }, async run(a) {
+  setHP: { schema: { actorId: "string?", actorName: "string?", ...TOK, value: "any?", delta: "any?", path: "string?" }, async run(a) {
     const amt = parseAmount(a); if (amt.error) return fail(400, amt.error);
-    const actor = findActor(a); if (!actor) return fail(404, "actor not found");
+    const tg = findTarget(a); if (tg.error) return tg.error; const actor = tg.actor;
     let path = a.path ?? game.settings.get("ai-gm-bridge", "hpPath");
     if (!a.path && game.system.id === "pirateborg") { const r = resolveResource(actor.type, "hp"); if (r.error) return fail(400, r.error); path = r.base + ".value"; }
     const before = foundry.utils.getProperty(actor, path);
     const parent = path.endsWith(".value") ? foundry.utils.getProperty(actor, path.slice(0, -6)) : null;
     const after = nextValue(parent && typeof parent === "object" ? parent : { value: before }, amt);
     await actor.update({ [path]: after });
-    return ok({ actorId: actor.id, path, before, after: foundry.utils.getProperty(actor, path) });
+    return ok({ actorId: actor.id, ...targetInfo(tg), path, before, after: foundry.utils.getProperty(actor, path) });
   }},
   move: { schema: { tokenId: "string?", tokenName: "string?", sceneId: "string?", x: "number", y: "number" }, async run(a) {
     const t = findToken(a); if (!t) return fail(404, "token not found");
@@ -142,17 +150,17 @@ export const COMMANDS = {
     return ok({ formula: roll.formula, total: roll.total, messageId });
   }},
   unpause: { schema: {}, async run() { if (game.paused) game.togglePause(false, { broadcast: true }); return ok({ paused: false }); } },
-  getResources: { schema: { actorId: "string?", actorName: "string?" }, async run(a) {
-    const actor = findActor(a); if (!actor) return fail(404, "actor not found");
-    return ok({ actorId: actor.id, name: actor.name, type: actor.type, resources: summarize(actor.type, actor.system, extraLabel(actor)) });
+  getResources: { schema: { actorId: "string?", actorName: "string?", ...TOK }, async run(a) {
+    const tg = findTarget(a); if (tg.error) return tg.error; const actor = tg.actor;
+    return ok({ actorId: actor.id, ...targetInfo(tg), name: actor.name, type: actor.type, resources: summarize(actor.type, actor.system, extraLabel(actor)) });
   }},
-  setResource: { schema: { actorId: "string?", actorName: "string?", resource: "string", value: "any?", delta: "any?" }, async run(a) {
+  setResource: { schema: { actorId: "string?", actorName: "string?", ...TOK, resource: "string", value: "any?", delta: "any?" }, async run(a) {
     const amt = parseAmount(a); if (amt.error) return fail(400, amt.error); a = { ...a, ...amt }; delete a[amt.value === undefined ? "value" : "delta"];
-    const actor = findActor(a); if (!actor) return fail(404, "actor not found");
+    const tg = findTarget(a); if (tg.error) return tg.error; const actor = tg.actor;
     const r = resolveResource(actor.type, a.resource, extraLabel(actor)); if (r.error) return fail(400, r.error);
     const cur = foundry.utils.getProperty(actor, r.base); const after = nextValue(cur, a);
     await actor.update({ [r.base + ".value"]: after });
-    return ok({ actorId: actor.id, resource: r.label ?? r.key, path: r.base + ".value", before: cur?.value, after: foundry.utils.getProperty(actor, r.base + ".value") });
+    return ok({ actorId: actor.id, ...targetInfo(tg), resource: r.label ?? r.key, path: r.base + ".value", before: cur?.value, after: foundry.utils.getProperty(actor, r.base + ".value") });
   }},
   whisper: { schema: { content: "string", to: "array", speakerAlias: "string?", replyTo: "string?", ackEventIds: "array?" }, async run(a, ctx) {
     if (!Array.isArray(a.to) || !a.to.length) return fail(400, "to must be a non-empty array of user ids or names");
@@ -246,17 +254,17 @@ export const COMMANDS = {
     targetTokenId: "string?", targetTokenName: "string?", sceneId: "string?", movement: "number?", toChat: "boolean?" }, async run(a) {
     const actor = findActor(a); if (!actor) return fail(404, "ship not found");
     return SHIP.shipAction(actor, a, { findActor: (x) => findActor(x), findToken }); } },
-  shipDamage: { schema: { actorId: "string?", actorName: "string?", amount: "number?", formula: "string?", armor: "boolean?", toChat: "boolean?" }, async run(a) {
-    const actor = findActor(a); if (!actor) return fail(404, "ship not found"); return SHIP.shipDamage(actor, a); } },
-  getShip: { schema: { actorId: "string?", actorName: "string?" }, async run(a) {
-    const actor = findActor(a); if (!actor) return fail(404, "ship not found"); return SHIP.getShip(actor); } },
+  shipDamage: { schema: { actorId: "string?", actorName: "string?", ...TOK, amount: "number?", formula: "string?", armor: "boolean?", toChat: "boolean?" }, async run(a) {
+    const tg = findTarget(a); if (tg.error) return fail(404, "ship not found"); return SHIP.shipDamage(tg.actor, a); } },
+  getShip: { schema: { actorId: "string?", actorName: "string?", ...TOK }, async run(a) {
+    const tg = findTarget(a); if (tg.error) return fail(404, "ship not found"); return SHIP.getShip(tg.actor); } },
   // v0.6
   requestRoll: { schema: { user: "string", actorId: "string?", actorName: "string?", stat: "string", dr: "number", label: "string?", requestId: "string?", timeoutMs: "number?" },
     async run(a) { return F.requestRoll(a); } },
   turnStatus: { schema: {}, async run() { const t = F.turnStatus(); return ok({ active: !!t, ...(t ?? {}) }); } },
   recap: { schema: { since: "any?", max: "number?" }, async run(a) { return ok(await F.recap(a)); } },
-  rest: { schema: { actorId: "string?", actorName: "string?", length: "string?", food: "string?", infected: "boolean?" }, async run(a) {
-    const actor = findActor(a); if (!actor) return fail("NOT_FOUND", "actor not found"); return F.rest(actor, a); } },
+  rest: { schema: { actorId: "string?", actorName: "string?", ...TOK, length: "string?", food: "string?", infected: "boolean?" }, async run(a) {
+    const tg = findTarget(a); if (tg.error) return fail("NOT_FOUND", tg.error.error); return F.rest(tg.actor, a); } },
   speakBubble: { schema: { tokenId: "string?", tokenName: "string?", sceneId: "string?", text: "string", emote: "boolean?" }, async run(a) {
     const t = findToken(a); if (!t) return fail("NOT_FOUND", "token not found"); return F.speakBubble({ tokenId: t.id, text: a.text, emote: a.emote }); } },
   post: { schema: { content: "string", replyTo: "string?", speakerAlias: "string?", allowMultiple: "boolean?", ackEventIds: "array?" }, async run(a, ctx) {

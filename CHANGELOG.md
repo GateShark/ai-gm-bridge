@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.2
+- Fix: `setHP` (and `setResource`, `getResources`, `shipDamage`, `getShip`, `rest`) accept `tokenId`/`tokenName`; unlinked tokens (`actorLink:false`) are written through `token.actor` instead of the base actor. Linked tokens and actor-only calls are unchanged.
+- New "GM is thinking…" indicator: a bottom-right pill on every client (module socket, not a chat message) after a player message or roll is sent to the bot; cleared by the bot's next chat message, voice line or command, or after `thinkingTimeoutMs` (default 90 s). `thinkingIndicator` setting (default on). Localized as `AIGM.thinking`.
+
 ## 0.8.1
 - `move`: when the normal update doesn't reach the target (504), retry once with `TokenDocument.move` action `displace` and `constrainOptions {ignoreWalls, ignoreCost}`; replies add `via:"displace"` when used.
 - New `setBackground` command: Foundry v14 writes `scene.levels.contents[0]` `background.src`; older versions fall back to the scene.

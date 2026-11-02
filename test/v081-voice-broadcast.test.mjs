@@ -24,7 +24,7 @@ test("malformed voice socket data is ignored", () => {
 });
 test("player audio goes through the queue (so the unlock prompt covers it) and main routes voice", () => {
   const m = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
-  assert.match(m, /data\.type === "voice"\) return void onVoiceSocket/);
+  assert.match(m, /data\.type === "voice"\) \{ thinking\.hide\(\); return void onVoiceSocket/);
   const c = readFileSync(new URL("../scripts/commands.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(c, /loop: false \}, true\)/);
 });

@@ -21,6 +21,7 @@ import * as F from "./features.mjs";
 import { getContext } from "./context.mjs";
 import { cleanupContextJournals } from "./gmstore.mjs";
 import { turnText } from "./lib/turns.mjs";
+import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
 
 const ID = "ai-gm-bridge"; const SOCKET = `module.${ID}`;
 const S = { leader: null, dedupe: null, outbox: null, timers: [], lastBatch: null, batcher: null, voice: null, metrics: new Metrics(), ackedCtx: null, sent: new Map() };
@@ -29,6 +30,10 @@ const get = (k) => game.settings.get(ID, k);
 const enabled = () => !!get("enabled");
 const isBot = (u = game.user) => u.id === get("botUserId") || (!get("botUserId") && !!get("botUserName") && u.name?.toLowerCase().startsWith(get("botUserName").toLowerCase()));
 const amLeader = () => S.leader?.leaderId === game.user.id;
+// #14: one pill per client; label is localized when shown.
+const thinking = new ThinkingIndicator({ label: () => game.i18n?.localize?.("AIGM.thinking") || "GM is thinking…" });
+function thinkingOn() { if (!get("thinkingIndicator")) return; const ms = get("thinkingTimeoutMs"); thinking.show(ms); game.socket.emit(SOCKET, { type: "thinking", on: true, timeoutMs: ms }); }
+function thinkingOff({ broadcast = false } = {}) { thinking.hide(); if (broadcast) game.socket.emit(SOCKET, { type: "thinking", on: false }); }
 const log = (...a) => console.log(`${ID} |`, ...a);
 
 Hooks.once("init", () => {
@@ -58,6 +63,8 @@ Hooks.once("init", () => {
   reg("sessionLog", Boolean, true);
   // v0.8 house rule: pirateborg v1.9.0 ram ignores the target armour roll; on = subtract it
   reg("ramUsesArmor", Boolean, false);
+  // v0.8.2 #14 "GM is thinking…" indicator
+  reg("thinkingIndicator", Boolean, true); reg("thinkingTimeoutMs", Number, 90000);
   // v0.7 (GM-only: world setting, config menu is GM-only)
   // v0.7.0 stored the context journal list here. Kept hidden (config:false) only so v0.7.2 can clear it; never written otherwise.
   game.settings.register(ID, "contextJournals", { scope: "world", config: false, type: String, default: "" });
@@ -82,6 +89,7 @@ Hooks.once("ready", () => {
       if (!amLeader()) return fail(421, "not leader", { leader: S.leader?.leaderId ?? null });
       if (cmd?.commandId) { if (!S.dedupe.claim(`cmd:${cmd.commandId}`, Date.now())) { const e = S.dedupe.get(`cmd:${cmd.commandId}`); const done = e?.s === "acked";
           return fail(409, done ? "already done" : "in progress", { alreadyDone: done, prior: e?.res ?? null }); } await persistNow(); }
+      thinkingOff({ broadcast: true }); // #14: any bot action ends the wait
       const res = await runCommand(cmd, ctxFor());
       const rt = cmd?.args?.replyTo && game.messages?.get(String(cmd.args.replyTo).replace(/^chat:/, ""))?.timestamp;
       if (res.ok && rt) S.metrics.time("reply", Date.now() - rt);
@@ -168,11 +176,13 @@ function onSocket(data) {
   if (data.type === "heartbeat") { S.leader = applyHeartbeat(S.leader, data, Date.now()); return; }
   if (data.type === "turnPing") return F.onTurnPing(data);
   if (data.type === "bubble") return F.showBubble(data);
-  if (data.type === "voice") return void onVoiceSocket(data); // #12: players play bot voice locally
+  if (data.type === "voice") { thinking.hide(); return void onVoiceSocket(data); } // #12: players play bot voice locally
+  if (data.type === "thinking") { if (data.on) thinking.show(data.timeoutMs); else thinking.hide(); return; } // #14
   if (data.type === "ack" && amLeader() && Array.isArray(data.eventIds)) game.modules.get(ID).api.ack(data.eventIds);
 }
 
 Hooks.on("createChatMessage", async (msg) => {
+  if (enabled() && isBot(msg.author ?? msg.user ?? {})) thinking.hide(); // #14: bot spoke (runs on every client)
   if (!enabled() || !amLeader()) return;
   if (msg.flags?.[ID]?.local) return; // our own cards/replies never wake the bot
   if (isOwnShipCard(msg)) return; // v0.8 morale/ship cards we posted
@@ -278,6 +288,7 @@ function flush(opts = {}) {
     S.lastBatch = payload;
     game.socket.emit(SOCKET, { type: "events", batch: payload }); // relay (headless/bot client) consumes this
     Hooks.callAll(`${ID}.events`, payload);
+    if (shouldShowThinking(batch.events, batch.attempt)) thinkingOn(); // #14
     if (get("delivery") === "direct" && isBot() && get("webhookUrl")) {
       const api = game.modules.get(ID).api;
       deliverDirect(payload, { url: get("webhookUrl"), secret: get("webhookSecret"), header: get("webhookAuthHeader") || "Authorization",

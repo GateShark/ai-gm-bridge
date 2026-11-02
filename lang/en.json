@@ -136,10 +136,19 @@
       "ramUsesArmor": {
         "name": "Ram uses target armour (house rule)",
         "hint": "Off (default) matches the Pirate Borg system: a ram rolls the target's armour but does not subtract it. On subtracts the armour roll from ram damage."
+      },
+      "thinkingIndicator": {
+        "name": "\"GM is thinking…\" indicator",
+        "hint": "Show every client a small notice (bottom right, not in chat) after a player message or roll is sent to the bot, until the bot replies."
+      },
+      "thinkingTimeoutMs": {
+        "name": "Thinking indicator timeout (ms)",
+        "hint": "Hide the indicator after this long if the bot has not replied. 0 = only hide on reply."
       }
     },
     "audio": {
       "unlock": "Click to enable audio"
-    }
+    },
+    "thinking": "GM is thinking…"
   }
 }
