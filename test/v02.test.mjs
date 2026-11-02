@@ -8,7 +8,7 @@ test("audio queue is serial and dedupes by id", async () => {
   assert.deepEqual(log, ["A", "B"]); assert.equal(maxActive, 1); assert.ok(r[2].duplicate);
 });
 test("audio queue: failed clip can be retried", async () => {
-  let fail = true; const q = new AudioQueue({ gapMs: 0, play: async () => { if (fail) { fail = false; throw new Error("x"); } } });
+  let fail = true; const q = new AudioQueue({ gapMs: 0, retries: 0, play: async () => { if (fail) { fail = false; throw new Error("x"); } } });
   assert.equal((await q.enqueue("a", 1)).played, false); assert.equal((await q.enqueue("a", 1)).played, true);
 });
 test("voice falls back to text when audio missing or voice post fails", async () => {

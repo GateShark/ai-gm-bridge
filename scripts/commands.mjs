@@ -5,7 +5,7 @@ import { priorReply, recordReply } from "./lib/replies.mjs";
 import { waitForPosition } from "./lib/movewait.mjs";
 import { moveWithFallback, setSceneBackground, formatResult } from "./lib/v081.mjs";
 import { VoiceCache, shouldSkipTts } from "./lib/voicecache.mjs";
-import { AudioQueue, voiceOrText } from "./lib/audioqueue.mjs";
+import { AudioQueue, voiceOrText, showAudioUnlockPrompt } from "./lib/audioqueue.mjs";
 import { planUpload, DEFAULT_LIMITS, UPLOAD_ROOT } from "./lib/uploads.mjs";
 import { buildSpawn, LOCK_SCOPES } from "./lib/spawn.mjs";
 import * as F from "./features.mjs";
@@ -23,7 +23,9 @@ function extraLabel(actor) {
 function playClip({ src, volume = 0.8 }) {
   return new Promise(async (resolve, reject) => {
     try {
+      if (game.audio?.locked) { const e = new Error("autoplay blocked"); e.blocked = true; throw e; }
       const sound = await foundry.audio.AudioHelper.play({ src, volume, autoplay: true, loop: false }, true);
+      if (!sound) throw new Error("clip did not start");
       let done = false; const fin = () => { if (!done) { done = true; resolve(); } };
       sound?.addEventListener?.("end", fin);
       const ms = (sound?.duration && isFinite(sound.duration) ? sound.duration * 1000 : 30000) + 500;
@@ -31,7 +33,9 @@ function playClip({ src, volume = 0.8 }) {
     } catch (e) { reject(e); }
   });
 }
-export const audioQueue = new AudioQueue({ play: playClip });
+export const audioQueue = new AudioQueue({ play: playClip, onBlocked: () => showAudioUnlockPrompt({
+  queue: audioQueue, label: game.i18n?.localize?.("AIGM.audio.unlock") || "Click to enable audio",
+  beforeUnlock: async () => { await game.audio?.unlock; try { await game.audio?.context?.resume?.(); } catch {} } }) });
 const checkAudio = async (src) => { try { return (await fetch(src, { method: "HEAD" })).ok; } catch { return false; } };
 const speaker = (alias) => alias ? { alias } : ChatMessage.getSpeaker();
 async function ackAfter(ctx, ids) { if (Array.isArray(ids) && ids.length) await ctx.ack?.(ids); }

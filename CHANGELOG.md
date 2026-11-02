@@ -6,6 +6,8 @@
 - New `format` command and `api.format(reply)`: one readable line from a `{ok,result}` reply, so bots don't post raw JSON or `[object Object]`.
 - `shipAction ram` with `ramUsesArmor` off reports the rolled armour as `armorRoll` (not `armor`); `armor` means it was subtracted.
 - Docs: reading replies, the voice path (voiceLookup, your TTS, upload, postVoice), why `!` shortcuts typed by the bot user are ignored, burst grouping.
+- Audio queue: a clip that fails to play (e.g. collided with a dice sound) is retried up to 2 times with backoff instead of being dropped.
+- Audio autoplay: if the browser blocks autoplay (new session/relog), the queue pauses and shows a one-time "Click to enable audio" button; clicking unlocks audio and replays the held clip, then the rest in order.
 - Tests: burst retest (events closer than debounceMs group into one batch), move fallback, background, format.
 
 ## 0.8.0

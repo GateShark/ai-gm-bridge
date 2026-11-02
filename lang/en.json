@@ -137,6 +137,9 @@
         "name": "Ram uses target armour (house rule)",
         "hint": "Off (default) matches the Pirate Borg system: a ram rolls the target's armour but does not subtract it. On subtracts the armour roll from ram damage."
       }
+    },
+    "audio": {
+      "unlock": "Click to enable audio"
     }
   }
 }
