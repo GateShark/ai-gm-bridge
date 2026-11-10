@@ -48,7 +48,8 @@ test("0.8.8 deriveGmStatus and last-reply tooltip", () => {
   assert.equal(deriveGmStatus({ enabled: true, thinking: true, botActive: true }), "thinking");
   assert.equal(deriveGmStatus({ enabled: true, paused: true, botActive: true }), "paused");
   assert.equal(deriveGmStatus({ enabled: true, botActive: true }), "listening");
-  assert.equal(deriveGmStatus({ enabled: true, leaderIsBot: true, lastBeat: 1000, now: 2000, timeoutMs: 45000 }), "listening");
+  assert.equal(deriveGmStatus({ enabled: true, leaderIsBot: true, lastBeat: 1000, now: 2000, timeoutMs: 45000 }), "offline");
+  assert.equal(deriveGmStatus({ enabled: true, lastConfirmed: 1000, now: 2000, offlineAfterMs: 60000 }), "listening");
   assert.equal(deriveGmStatus({ enabled: true, leaderIsBot: true, lastBeat: 1000, now: 100000, timeoutMs: 45000 }), "offline");
   assert.equal(deriveGmStatus({}), "offline");
   assert.equal(formatLastReply(0), "");

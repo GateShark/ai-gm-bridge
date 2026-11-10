@@ -15,6 +15,45 @@ import * as SHIP from "./ship.mjs";
 import { targetActor, targetInfo, sceneTokenForActor } from "./lib/target.mjs";
 import { combatExpect } from "./lib/turns.mjs";
 import { liveSetupCheck } from "./lib/setupcheck.mjs";
+import { runLinkProbe, presenceSnapshot, findBotUser, callerConnectionError, PING_TIMEOUT_ERROR } from "./lib/presence.mjs";
+const MODULE_ID = "ai-gm-bridge";
+
+function settingOf(g, key, fallback = "") {
+  try { return g?.settings?.get?.(MODULE_ID, key) ?? fallback; } catch { return fallback; }
+}
+function livePresenceFields(now = Date.now()) {
+  const g = globalThis.game;
+  const botUserId = settingOf(g, "botUserId");
+  const botUserName = settingOf(g, "botUserName");
+  const bot = findBotUser(g?.users, { botUserId, botUserName });
+  let probe = null;
+  try { probe = g?.settings?.get?.(MODULE_ID, "linkProbe"); } catch { probe = null; }
+  return presenceSnapshot({
+    now, worldId: g?.world?.id ?? null, botUser: bot, probe, botUserId: bot?.id || botUserId
+  });
+}
+async function runPing() {
+  const g = globalThis.game;
+  const now = Date.now();
+  const fields = () => livePresenceFields(now);
+  const conn = callerConnectionError({ user: g?.user, socket: g?.socket, ready: g?.ready });
+  if (conn) return fail(503, conn, fields());
+  if (!g?.settings?.set || !g?.settings?.get) return fail(503, "Not connected: Foundry is not ready.", fields());
+  const botUserId = settingOf(g, "botUserId");
+  const botUserName = settingOf(g, "botUserName");
+  const bot = findBotUser(g?.users, { botUserId, botUserName });
+  const outcome = await runLinkProbe({
+    now,
+    userId: g.user?.id ?? "",
+    isBotWriter: !!(g.user && bot && g.user.id === bot.id),
+    setSetting: (v) => g.settings.set(MODULE_ID, "linkProbe", v),
+    getSetting: () => g.settings.get(MODULE_ID, "linkProbe")
+  });
+  const result = livePresenceFields(now);
+  if (outcome.ok) return ok(result);
+  return fail(504, outcome.error || PING_TIMEOUT_ERROR, result);
+}
+
 import { resolveResource, nextValue, summarize, parseAmount } from "./lib/pirateborg.mjs";
 
 // Class item's own label for extraResource (e.g. "Prayers"); field name varies, so search string fields.
@@ -270,7 +309,11 @@ export const COMMANDS = {
   requestRoll: { schema: { user: "string", actorId: "string?", actorName: "string?", stat: "string?", formula: "string?", dr: "number?", label: "string?", requestId: "string?", timeoutMs: "number?", combatId: "string?" },
     async run(a) { return F.requestRoll(a); } },
   cancelRoll: { schema: { requestId: "string" }, async run(a) { return F.cancelRollRequest(a.requestId); } },
-  turnStatus: { schema: {}, async run() { const t = F.turnStatus(); return ok({ active: !!t, ...(t ?? {}), expect: t?.expect ?? null }); } },
+  turnStatus: { schema: {}, async run() {
+    const t = F.turnStatus();
+    return ok({ active: !!t, ...(t ?? {}), expect: t?.expect ?? null, ...livePresenceFields() });
+  } },
+  ping: { schema: {}, async run() { return runPing(); } },
   setupCheck: { schema: {}, async run() {
     return ok(liveSetupCheck({ scene: globalThis.canvas?.scene ?? game.scenes?.viewed ?? game.scenes?.active, combat: game.combat, users: game.users?.contents ?? [] }));
   } },

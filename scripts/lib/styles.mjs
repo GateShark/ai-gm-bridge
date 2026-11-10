@@ -16,6 +16,9 @@ export const CSS = `
 .aigm-voice-replay{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin:0 6px 0 0;padding:0;border-radius:50%;cursor:pointer;font-size:11px;line-height:1;vertical-align:middle}
 .aigm-voice-more{margin-left:6px;cursor:pointer;background:none;border:0;text-decoration:underline;color:inherit;font:inherit}
 .aigm-panel{padding:8px;display:flex;flex-direction:column;gap:10px}
+.aigm-panel-brand{display:flex;align-items:center;gap:10px;margin:0 0 2px}
+.aigm-panel-logo{width:32px;height:32px;border-radius:8px;flex:0 0 auto;background:#fff}
+.aigm-panel-link{margin:0;font-weight:600;font-size:13px}
 .aigm-panel-actions{display:flex;flex-wrap:wrap;gap:6px}
 .aigm-panel-actions button{flex:1 1 40%;padding:8px;font-weight:600;cursor:pointer}
 .aigm-panel-stuck{margin:0;opacity:.85;font-size:12px}

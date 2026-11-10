@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.14
+- Link check: a cheap `ping` writes one tiny nonce into a hidden world setting (same key overwritten, no growth), reads it back, and only reports OK when the nonce matches. If Foundry never answers, it fails after about 5 seconds with a clear "connection may have dropped" error instead of hanging. `turnStatus`, `api.status()`, and Test connection expose `{serverTime, gmUserActive, lastSeen, worldId}` without an extra AI call. Test connection runs the same Foundry round-trip locally and does not add payload to the webhook.
+- Status light and AI GM panel: **AI GM offline** plus time since last seen when nothing server-confirmed has been heard for a configurable wait (Advanced: **AI GM offline after (ms)**, default 60000). The bot's own page does not trust its local "I'm still logged in" flag (that is what looked fine when the server had already dropped it). Other clients use Foundry's user list from the server, and everyone uses the last confirmed nonce time. The bot client overwrites that nonce every half-threshold (30 seconds at the default) so an idle but healthy link stays fresh.
+- Writes and other commands fail fast if this page has no logged-in user or the socket is already down, and otherwise time out (about 20 seconds; longer for `move` and waiting `playAudio`) instead of hanging forever.
+- Setup-check banner: also refreshes on token and actor create/update/delete, so it clears as soon as an unowned pirate token is removed.
+- Official logo (d20 with eyes on a white rounded tile): `assets/logo.png` and a 256px thumbnail, listed in `module.json` as icon/cover/setup art, centered at the top of the README (~160px), and shown in the in-game AI GM panel header.
+
 ## 0.8.13
 Alpha release. Credit: Gate (GateShark).
 

@@ -1,6 +1,7 @@
 // GM-only settings form: Basic page + collapsed Advanced. The secret is write-only here.
 import { BASIC_FIELDS, ADVANCED_FIELDS, testConnection } from "./lib/settingsui.mjs";
 import { liveSetupCheck, formatConnectionWithSetup } from "./lib/setupcheck.mjs";
+import { runLinkProbe, formatLinkCheckLine, presenceSnapshot } from "./lib/presence.mjs";
 const ID = "ai-gm-bridge";
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const ALL_FIELDS = [...BASIC_FIELDS, ...ADVANCED_FIELDS];
@@ -59,9 +60,29 @@ export function makeConfigApp() {
         const bot = game.users.get(botId) ?? game.users.find(u => u.isGM && botId && u.id === botId);
         const r = await testConnection({ url, secret, header, botActive: bot ? !!bot.active : null });
         const setup = liveSetupCheck({ scene: globalThis.canvas?.scene ?? game.scenes?.viewed, combat: game.combat, users: game.users?.contents ?? [] });
+        let linkLine = "";
+        try {
+          const userId = game.user?.id ?? "";
+          const probe = await runLinkProbe({
+            userId,
+            isBotWriter: !!(userId && botId && userId === botId),
+            setSetting: (v) => game.settings.set(ID, "linkProbe", v),
+            getSetting: () => game.settings.get(ID, "linkProbe")
+          });
+          let stored = null;
+          try { stored = game.settings.get(ID, "linkProbe"); } catch {}
+          const presence = presenceSnapshot({
+            now: Date.now(), worldId: game.world?.id ?? null, botUser: bot,
+            probe: stored, botUserId: botId
+          });
+          linkLine = formatLinkCheckLine(probe, presence, t);
+        } catch (e) {
+          linkLine = formatLinkCheckLine({ ok: false, error: e?.message || "Link check failed" }, {}, t);
+        }
         if (status) {
           const base = r.ok ? (r.message || t("AIGM.config.testOk", "OK")) : (r.error || t("AIGM.config.testFail", "Failed"));
-          status.textContent = formatConnectionWithSetup({ ...r, message: base, error: base }, setup);
+          const combined = [formatConnectionWithSetup({ ...r, message: base, error: base }, setup), linkLine].filter(Boolean).join(" ");
+          status.textContent = combined;
           status.dataset.ok = r.ok ? "1" : "0";
         }
       });

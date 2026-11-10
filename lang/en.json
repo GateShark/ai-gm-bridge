@@ -21,6 +21,10 @@
         "name": "Leader timeout (ms)",
         "hint": "Default 45000; a human GM takes over only after this."
       },
+      "offlineAfterMs": {
+        "name": "AI GM offline after (ms)",
+        "hint": "Show AI GM offline when the server has not confirmed the bot for this long (default 60000 ms). Minimum 5000, maximum 600000."
+      },
       "batchMs": {
         "name": "Batch interval (ms)",
         "hint": "Default 3500."
@@ -192,7 +196,8 @@
     "status": {
       "listening": "GM listening",
       "thinking": "GM thinking…",
-      "offline": "GM offline",
+      "offline": "AI GM offline",
+      "offlineSince": "AI GM offline (last seen {since})",
       "paused": "GM paused",
       "lastReply": "Last reply",
       "noReply": "No replies yet"
@@ -213,6 +218,8 @@
       "testing": "Testing…",
       "testOk": "OK",
       "testFail": "Failed",
+      "linkOk": "Link check OK (last seen {since}).",
+      "linkFail": "Link check failed: {error}",
       "save": "Save"
     },
     "panel": {

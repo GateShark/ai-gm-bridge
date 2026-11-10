@@ -145,7 +145,10 @@ test("speakBubble: broadcasts once to other clients and shows locally; strips HT
   assert.equal((await runCommand({ name: "speakBubble", args: { tokenId: "t1", text: "<i></i>" } }, {})).code, "BAD_ARGS");
 });
 test("turnStatus with no combat; rest (fallback path, no system import in node) reports changes", async () => {
-  assert.deepEqual((await runCommand({ name: "turnStatus", args: {} }, {})).result, { active: false, expect: null });
+  const ts = (await runCommand({ name: "turnStatus", args: {} }, {})).result;
+  assert.equal(ts.active, false);
+  assert.equal(ts.expect, null);
+  assert.ok("serverTime" in ts && "gmUserActive" in ts && "lastSeen" in ts && "worldId" in ts);
   const r = await runCommand({ name: "rest", args: { actorName: "Bart", length: "long" } }, {});
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.result.after.hp, 5); assert.equal(r.result.after.rituals, 0); assert.equal(r.result.after["Devil's Luck"], 3);

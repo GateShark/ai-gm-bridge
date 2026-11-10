@@ -1,4 +1,8 @@
-# AI GM Bridge (module id `ai-gm-bridge`) v0.8.13
+<p align="center">
+  <img src="assets/logo-256.webp" alt="AI GM Bridge" width="160" height="160" />
+</p>
+
+# AI GM Bridge (module id `ai-gm-bridge`) v0.8.14
 
 > ⚠️ **Alpha:** this is still in testing. Expect bugs and breaking changes.
 
@@ -17,7 +21,7 @@ Created by Gate (GateShark).
      Any logged-in user's scripts can still read it, so use the relay for shared worlds.
 
 ## At the table
-- A small status light (bottom right) shows **GM listening**, **GM thinking…**, **GM offline**, or **GM paused**. Click it to see when the GM last replied.
+- A small status light (bottom right) shows **GM listening**, **GM thinking…**, **AI GM offline** (with time since last seen), or **GM paused**. Click it to see when the GM last replied.
 - If your browser blocks sound, an **Enable sound** button appears; any click or key also unlocks voice.
 - Push-to-talk: a hold-to-talk mic button (bottom left) with a live mic light. Turn on **Push-to-talk (this browser)** to also use the key (default `` ` ``).
 - Roll requests use one large **Roll** button; after you roll, cancel, or the request expires, the card greys out.
@@ -25,8 +29,8 @@ Created by Gate (GateShark).
 - The GM has an in-game **AI GM** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, and a quick HP list of tokens on the current scene.
 - **Configure AI GM** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
-## What's new since 0.8.0 (0.8.1–0.8.13)
-These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.13**.
+## What's new since 0.8.0 (0.8.1–0.8.14)
+These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.14**.
 
 **Combat and turns**
 - Immediate combat start and end events, so the bot can stay with a fight.
@@ -38,6 +42,10 @@ These versions add table tools, more reliable combat, and fewer wasted bot calls
 - A setup check (`setupCheck`, the panel **Check setup** button, Test connection, or `!setup`) lists those unowned pirate-looking characters. It only warns; it never changes the world.
 
 **Reliability and usage**
+- A `ping` command writes a tiny nonce to a world setting and only reports OK when Foundry reads the same value back (about 5 seconds, then a clear timeout). `turnStatus` and Test connection also show that last-seen time and whether the AI GM user is logged in, without extra AI calls.
+- The status light and AI GM panel show **AI GM offline** (with time since last seen) after a configurable wait (default 60 seconds) with no server-confirmed sighting. Commands fail quickly if this page is not logged in, or time out instead of hanging if the socket has dropped.
+- The setup-check banner refreshes when tokens or actors are created, updated, or deleted, so it clears as soon as an unowned pirate is removed.
+- Official logo (a d20 with eyes) in the module listing, the README, and the in-game AI GM panel header.
 - In relay mode, chat, combat, turns, roll outcomes, and `pcDown` are marked received after they are handed to the relay, so they do not pile up in the outbox. Control events (pause, resume, redo, skip) still wait for an explicit ack.
 - HP, resources, and rest prefer the token on the viewed scene, so unlinked tokens use their own stats instead of the base actor sheet.
 - Pirate Borg HP is read from `system.attributes.hp`. Player-owned characters are labeled as PCs even if the token looks hostile.
@@ -76,7 +84,7 @@ Players can only change actors they own. `!music`, `!scene`, and `!setup` are GM
 - **Push-to-talk (v0.8.5, per player, off by default):** each player enables **Push-to-talk (this browser)** (`pushToTalk`, client setting) and holds the key (`pushToTalkKey`, default `Backquote`, the ` key) or the 🎤 button bottom-left. The browser's Web Speech API transcribes (language from Foundry's language setting) with a "Listening…" indicator showing live text; on release the transcript is posted as that player's normal chat message. The key is ignored while typing in a text field. Chrome/Edge only (no Firefox: one-time notice, no button); needs mic permission, which browsers allow only on HTTPS or localhost. Speech goes to the browser's own speech service (Chrome/Edge send audio to Google/Microsoft), nothing to this module's servers.
 
 ## API (bot GM user, on the leader client)
-`api.run({name, args, commandId?})`, `api.ack(eventIds)`, `api.status()`, `api.metrics()`, `api.clearDead()`, `api.clearStuck()`, `api.setupCheck()`, `api.turnStatus()`, `api.recap()`.
+`api.run({name, args, commandId?})`, `api.ack(eventIds)`, `api.status()`, `api.metrics()`, `api.clearDead()`, `api.clearStuck()`, `api.setupCheck()`, `api.turnStatus()`, `api.ping()`, `api.recap()`.
 See `docs/BOT-API.md`.
 
 ## Release

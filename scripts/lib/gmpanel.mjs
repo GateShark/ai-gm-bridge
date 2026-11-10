@@ -2,6 +2,7 @@
 // turn, pending roll cancel, and a quick HP list. Pure helpers are exported
 // for tests; the ApplicationV2 wrapper is created only when Foundry is present.
 import { readActorHp } from "./hp.mjs";
+import { formatPanelLink } from "./presence.mjs";
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 export function sceneTokens(scene) {
@@ -64,7 +65,9 @@ export function newestChatEventIds(messages = [], { limit = 5, skip } = {}) {
   return out;
 }
 
-export function panelHtml({ paused = false, turn = null, pending = [], hp = [], recapText = "", stuck = null, setup = null, t = (k, f) => f || k } = {}) {
+export const PANEL_LOGO_SRC = "modules/ai-gm-bridge/assets/logo-256.webp";
+
+export function panelHtml({ paused = false, turn = null, pending = [], hp = [], recapText = "", stuck = null, setup = null, link = null, logoSrc = PANEL_LOGO_SRC, t = (k, f) => f || k } = {}) {
   const turnLine = turn?.name
     ? (t("AIGM.panel.turnLine", "Round {round}: {name} is up.").replace("{round}", turn.round ?? "?").replace("{name}", turn.name) + (turn.next ? ` ${t("AIGM.panel.next", "Next: {name}.").replace("{name}", turn.next)}` : ""))
     : t("AIGM.panel.noCombat", "No active combat.");
@@ -80,7 +83,12 @@ export function panelHtml({ paused = false, turn = null, pending = [], hp = [], 
       `<span class="aigm-hp-bar" title="${esc(h.value)}/${esc(h.max ?? "?")}"><span style="width:${pct}%"></span></span>` +
       `<span>${esc(h.value)}${h.max != null ? `/${esc(h.max)}` : ""}</span></div>`;
   }).join("") || `<p class="hint">${esc(t("AIGM.panel.noHp", "No tokens with HP on this scene."))}</p>`;
+  const linkLine = formatPanelLink(link, t);
   return `<section class="aigm-panel">
+    <div class="aigm-panel-brand">
+      <img class="aigm-panel-logo" src="${esc(logoSrc)}" width="32" height="32" alt="">
+      ${linkLine ? `<p class="aigm-panel-link">${esc(linkLine)}</p>` : ""}
+    </div>
     <div class="aigm-panel-actions">
       <button type="button" data-aigm-action="${paused ? "resume" : "pause"}">${esc(paused ? t("AIGM.panel.resume", "Resume AI GM") : t("AIGM.panel.pause", "Pause AI GM"))}</button>
       <button type="button" data-aigm-action="redo">${esc(t("AIGM.panel.redo", "Redo last reply"))}</button>

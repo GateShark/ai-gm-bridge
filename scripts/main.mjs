@@ -12,6 +12,11 @@ import { Metrics } from "./lib/metrics.mjs";
 import { deliverDirect } from "./lib/direct.mjs";
 import { makeConfigApp } from "./config-app.mjs";
 import { fail } from "./lib/result.mjs";
+import {
+  callerConnectionError, withTimeout, commandTimeoutMs, COMMAND_TIMEOUT_ERROR,
+  runLinkProbe, resolveOfflineAfterMs, isLinkFresh, findBotUser, presenceSnapshot,
+  PING_TIMEOUT_MS
+} from "./lib/presence.mjs";
 import { runCommand, COMMANDS, onVoiceSocket, audioQueue } from "./commands.mjs";
 import { missedMessages } from "./lib/replies.mjs";
 import { lockBlocks } from "./lib/spawn.mjs";
@@ -44,16 +49,55 @@ const amLeader = () => S.leader?.leaderId === game.user.id;
 const thinking = new ThinkingIndicator({ label: () => game.i18n?.localize?.("AIGM.thinking") || "GM is thinking…", silent: true, onChange: () => refreshStatus() });
 let statusPill = null, settingsLive = false, panelApp = null;
 function loc(k, f) { const v = game.i18n?.localize?.(k); return v && v !== k ? v : (f || k); }
+function readPresenceFromGame(now = Date.now()) {
+  let probe = null;
+  try { probe = game.settings.get(ID, "linkProbe"); } catch {}
+  let botUserId = "", botUserName = "";
+  try { botUserId = get("botUserId"); botUserName = get("botUserName"); } catch {}
+  const bot = findBotUser(game.users, { botUserId, botUserName }) || game.users?.find?.(u => isBot(u));
+  const snap = presenceSnapshot({
+    now, worldId: game.world?.id ?? null, botUser: bot, probe, botUserId: bot?.id || botUserId
+  });
+  if (!snap.lastSeen && S.lastConfirmed) snap.lastSeen = S.lastConfirmed;
+  return { ...snap, bot, botActive: !!bot?.active };
+}
+function linkState(now = Date.now()) {
+  const p = readPresenceFromGame(now);
+  let offlineAfterMs = 60000;
+  try { offlineAfterMs = resolveOfflineAfterMs(get("offlineAfterMs")); } catch {}
+  const selfIsBot = isBot();
+  return {
+    ...p, selfIsBot, offlineAfterMs,
+    fresh: isLinkFresh({ botActive: p.botActive, lastConfirmed: p.lastSeen || 0, now, offlineAfterMs, selfIsBot })
+  };
+}
 function refreshStatus() {
   if (!statusPill) return;
   try {
-    const bot = game.users?.find?.(u => isBot(u));
+    const now = Date.now();
+    const link = linkState(now);
     statusPill.set(deriveGmStatus({
       thinking: thinking.visible, paused: !!get("aiPaused"), enabled: enabled(),
-      botActive: !!bot?.active, leaderIsBot: !!S.leader?.leaderIsBot,
-      lastBeat: S.leader?.lastBeat ?? 0, now: Date.now(), timeoutMs: get("heartbeatTimeoutMs")
-    }), { lastReplyAt: S.lastReplyAt });
+      botActive: link.botActive, lastConfirmed: link.lastSeen || 0, now,
+      offlineAfterMs: link.offlineAfterMs, selfIsBot: link.selfIsBot
+    }), { lastReplyAt: S.lastReplyAt, lastSeen: link.lastSeen, now });
   } catch {}
+}
+function maybeProbeLink(now = Date.now()) {
+  if (!enabled() || !isBot()) return;
+  let every = 30000;
+  try { every = Math.max(15000, Math.floor(resolveOfflineAfterMs(get("offlineAfterMs")) / 2)); } catch {}
+  if (S.nextProbeAt && now < S.nextProbeAt) return;
+  S.nextProbeAt = now + every;
+  runLinkProbe({
+    now, userId: game.user?.id ?? "", isBotWriter: true, timeoutMs: PING_TIMEOUT_MS,
+    setSetting: (v) => game.settings.set(ID, "linkProbe", v),
+    getSetting: () => game.settings.get(ID, "linkProbe")
+  }).then((r) => {
+    if (r.ok) S.lastConfirmed = Number(r.data?.lastBotAt) || r.at || now;
+    refreshStatus();
+    refreshPanel();
+  }).catch(() => { refreshStatus(); });
 }
 function thinkingOn() { if (!get("thinkingIndicator")) return; const ms = get("thinkingTimeoutMs"); thinking.show(ms); refreshStatus(); game.socket.emit(SOCKET, { type: "thinking", on: true, timeoutMs: ms }); }
 function thinkingOff({ broadcast = false } = {}) { thinking.hide(); refreshStatus(); if (broadcast) game.socket.emit(SOCKET, { type: "thinking", on: false, lastReplyAt: S.lastReplyAt ?? undefined }); }
@@ -137,7 +181,7 @@ Hooks.once("init", () => {
   reg("webhookUrl", String, "", { config: false }); reg("webhookAuthHeader", String, "Authorization", { config: false });
   game.settings.register(ID, "webhookSecret", { scope: "world", config: false, restricted: true, type: String, default: "" });
   game.settings.registerMenu(ID, "config", { name: "AI GM Bridge", label: "Configure AI GM", icon: "fas fa-robot", type: makeConfigApp(), restricted: true });
-  reg("heartbeatMs", Number, 10000); reg("heartbeatTimeoutMs", Number, 45000); reg("batchMs", Number, 3500);
+  reg("heartbeatMs", Number, 10000); reg("heartbeatTimeoutMs", Number, 45000); reg("offlineAfterMs", Number, 60000); reg("batchMs", Number, 3500);
   reg("keywords", String, ""); reg("hpPath", String, "system.attributes.hp.value");
   reg("alwaysVoiceUsers", String, ""); reg("unpauseOnStart", Boolean, true);
   // v0.3 speed/usage
@@ -171,6 +215,7 @@ Hooks.once("init", () => {
   game.settings.register(ID, "voiceCache", { scope: "world", config: false, type: Object, default: { entries: [] } });
   game.settings.register(ID, "dedupeState", { scope: "world", config: false, type: Object, default: { entries: [] } });
   game.settings.register(ID, "outboxState", { scope: "world", config: false, type: Object, default: { items: [], seq: 0 } });
+  game.settings.register(ID, "linkProbe", { scope: "world", config: false, type: Object, default: { nonce: "", at: 0, by: "", lastBotAt: 0 } });
 });
 
 Hooks.once("ready", () => {
@@ -185,7 +230,7 @@ Hooks.once("ready", () => {
   mod.api = {
     version: mod.version, ready: true, whenReady, commands: Object.keys(COMMANDS),
     status: () => ({ enabled: enabled(), leader: S.leader, amLeader: amLeader(), queued: S.outbox?.items.length ?? 0, dead: S.outbox?.dead().length ?? 0,
-      deadIds: S.outbox?.dead().map(i => i.event.eventId) ?? [] }),
+      deadIds: S.outbox?.dead().map(i => i.event.eventId) ?? [], ...readPresenceFromGame() }),
     metrics: () => S.metrics.snapshot(),
     format: (r) => formatResult(r),
     debug: { burstTest: (o = {}) => burstTest({ debounceMs: get("debounceMs"), maxWaitMs: get("maxWaitMs"), ...o }) },
@@ -196,25 +241,45 @@ Hooks.once("ready", () => {
     },
     run: async (cmd) => {
       if (!enabled()) return fail(503, "AI GM bridge disabled in this world");
+      const connErr = callerConnectionError({ user: game.user, socket: game.socket, ready: game.ready });
+      if (connErr) return fail(503, connErr);
       if (!game.user.isGM || !isBot()) return fail(403, "commands only accepted from the bot GM user");
-      if (!amLeader()) return fail(421, "not leader", { leader: S.leader?.leaderId ?? null });
-      if (cmd?.commandId) { if (!S.dedupe.claim(`cmd:${cmd.commandId}`, Date.now())) { const e = S.dedupe.get(`cmd:${cmd.commandId}`); const done = e?.s === "acked";
-          return fail(409, done ? "already done" : "in progress", { alreadyDone: done, prior: e?.res ?? null }); } await persistNow(); }
-      S.lastReplyAt = Date.now(); thinkingOff({ broadcast: true }); // #14: any bot action ends the wait
-      const res = await runCommand(cmd, ctxFor());
-      const rt = cmd?.args?.replyTo && game.messages?.get(String(cmd.args.replyTo).replace(/^chat:/, ""))?.timestamp;
-      if (res.ok && rt) S.metrics.time("reply", Date.now() - rt);
-      if (cmd?.commandId) S.dedupe.mark(`cmd:${cmd.commandId}`, res.ok ? "acked" : "failed", Date.now(), { res }); persistSoon();
-      return res;
+      if (cmd?.name !== "ping" && !amLeader()) return fail(421, "not leader", { leader: S.leader?.leaderId ?? null });
+      const work = async () => {
+        if (cmd?.commandId) { if (!S.dedupe.claim(`cmd:${cmd.commandId}`, Date.now())) { const e = S.dedupe.get(`cmd:${cmd.commandId}`); const done = e?.s === "acked";
+            return fail(409, done ? "already done" : "in progress", { alreadyDone: done, prior: e?.res ?? null }); } await persistNow(); }
+        if (cmd?.name !== "ping") { S.lastReplyAt = Date.now(); thinkingOff({ broadcast: true }); } // #14: any bot action ends the wait (ping is a health check)
+        const res = await runCommand(cmd, ctxFor());
+        const rt = cmd?.args?.replyTo && game.messages?.get(String(cmd.args.replyTo).replace(/^chat:/, ""))?.timestamp;
+        if (res.ok && rt) S.metrics.time("reply", Date.now() - rt);
+        if (cmd?.commandId) S.dedupe.mark(`cmd:${cmd.commandId}`, res.ok ? "acked" : "failed", Date.now(), { res }); persistSoon();
+        return res;
+      };
+      try { return await withTimeout(work(), commandTimeoutMs(cmd), COMMAND_TIMEOUT_ERROR); }
+      catch (e) { return fail(504, e?.message || COMMAND_TIMEOUT_ERROR); }
+    },
+    ping: async () => {
+      if (!game.user?.isGM) return fail(403, "GM only");
+      return runCommand({ name: "ping" }, ctxFor());
     },
     ack: (eventIds) => { thinkingOff({ broadcast: true }); onAcked(eventIds); const n = S.outbox?.ack(eventIds) ?? 0; S.metrics.inc("acked", n); for (const id of eventIds) S.dedupe?.mark(id, "acked", Date.now()); persistSoon(); return { ok: true, result: { acked: n } }; },
     // GM-only, returned to the caller only. Players get 403 and nothing is sent anywhere.
     context: (o = {}) => getContext(game, o),
-    turnStatus: () => F.turnStatus(), recap: (o) => F.recap(o),
+    turnStatus: () => {
+      const t = F.turnStatus();
+      return { active: !!t, ...(t ?? {}), expect: t?.expect ?? null, ...readPresenceFromGame() };
+    }, recap: (o) => F.recap(o),
     setupCheck: () => liveSetupCheck({ scene: globalThis.canvas?.scene ?? game.scenes?.viewed, combat: game.combat, users: game.users?.contents ?? [] }),
     takeBatch: () => S.lastBatch, // relay stub can poll this on the headless client
     paused: () => !!get("aiPaused"),
-    gmStatus: () => statusPill?.state ?? deriveGmStatus({ thinking: thinking.visible, paused: !!get("aiPaused"), enabled: enabled() }),
+    gmStatus: () => {
+      const link = linkState();
+      return statusPill?.state ?? deriveGmStatus({
+        thinking: thinking.visible, paused: !!get("aiPaused"), enabled: enabled(),
+        botActive: link.botActive, lastConfirmed: link.lastSeen || 0, now: Date.now(),
+        offlineAfterMs: link.offlineAfterMs, selfIsBot: link.selfIsBot
+      });
+    },
   };
   try { globalThis.__aigmReady?.(mod.api); } catch {}
   game.socket.on(SOCKET, onSocket);
@@ -231,7 +296,17 @@ Hooks.once("ready", () => {
           const scene = globalThis.canvas?.scene ?? game.scenes?.viewed;
           const tokens = sceneTokens(scene);
           const setup = liveSetupCheck({ scene, combat: game.combat, users: game.users?.contents ?? [], tokens });
-          return { paused: !!get("aiPaused"), turn: F.turnStatus(), pending: F.pendingRequests(), hp: collectHp(tokens, { hpPath: get("hpPath") }), setup, stuck: { queued, dead } };
+          const now = Date.now();
+          const link = linkState(now);
+          const linkUi = {
+            state: deriveGmStatus({
+              thinking: thinking.visible, paused: !!get("aiPaused"), enabled: enabled(),
+              botActive: link.botActive, lastConfirmed: link.lastSeen || 0, now,
+              offlineAfterMs: link.offlineAfterMs, selfIsBot: link.selfIsBot
+            }),
+            lastSeen: link.lastSeen, now, gmUserActive: link.gmUserActive
+          };
+          return { paused: !!get("aiPaused"), turn: F.turnStatus(), pending: F.pendingRequests(), hp: collectHp(tokens, { hpPath: get("hpPath") }), setup, stuck: { queued, dead }, link: linkUi };
         },
         confirm: async (msg) => {
           try {
@@ -252,6 +327,12 @@ Hooks.once("ready", () => {
   }
   settingsLive = true; refreshStatus();
   Hooks.on("userConnected", () => refreshStatus()); Hooks.on("userDisconnected", () => refreshStatus());
+  Hooks.on("updateUser", () => { refreshStatus(); if (enabled()) refreshPanel(); });
+  Hooks.on("updateSetting", (setting) => {
+    const key = setting?.key ?? setting?.id ?? "";
+    if (key === `${ID}.linkProbe` || key === "linkProbe" || String(key).endsWith(".linkProbe")) { refreshStatus(); refreshPanel(); }
+  });
+  try { setInterval(() => { try { refreshStatus(); } catch {} }, 15000); } catch {}
 });
 
 function ctxFor() {
@@ -305,6 +386,7 @@ function emitEvent(ev, { urgent = false, evenIfPaused = false } = {}) {
 
 function tickLeader() {
   const now = Date.now(); S.batcher?.check();
+  maybeProbeLink(now);
   const d = decideLeader({ now, selfId: game.user.id, selfIsBot: isBot(), selfIsGM: game.user.isGM, state: S.leader, timeoutMs: get("heartbeatTimeoutMs") });
   if (d.action === "passive") return;
   const wasLeader = amLeader();
@@ -365,7 +447,11 @@ Hooks.on("createChatMessage", async (msg) => {
 Hooks.on("updateChatMessage", (msg) => { if (enabled() && msg.flags?.[ID]?.rollRequest) refreshPanel(); });
 Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCard(msg, html); enhanceVoiceMessage(msg, html, { t: loc, replay: (src) => audioQueue.enqueue(`replay:${src}:${Date.now()}`, { src }) }); } });
 Hooks.on("updateActor", (a, change) => { if (enabled() && amLeader()) F.onActorUpdate(a, change); if (enabled()) refreshPanel(); });
-Hooks.on("createActor", (a) => { if (enabled() && amLeader()) F.onActorUpdate(a, {}); });
+Hooks.on("createActor", (a) => { if (enabled() && amLeader()) F.onActorUpdate(a, {}); if (enabled()) refreshPanel(); });
+Hooks.on("deleteActor", () => { if (enabled()) refreshPanel(); });
+Hooks.on("createToken", () => { if (enabled()) refreshPanel(); });
+Hooks.on("updateToken", () => { if (enabled()) refreshPanel(); });
+Hooks.on("deleteToken", () => { if (enabled()) refreshPanel(); });
 Hooks.on("createItem", (i) => { if (enabled() && amLeader()) F.onItemCreate(i); });
 Hooks.on("deleteCombat", (c) => { if (enabled()) thinking.hide(); if (enabled()) refreshStatus(); if (enabled() && amLeader()) { F.onCombatDelete(c); F.cancelCombatRolls(c).catch(e => log("cancelCombatRolls", e?.message)); combatState(c, "end"); } }); // v0.8.6: hide runs on every client
 // v0.8.3: only the leader (bot user, else active GM) sends; eventId dedupe means one start/end per combat.
