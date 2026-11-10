@@ -156,10 +156,15 @@
       "pushToTalkKey": {
         "name": "Push-to-talk key",
         "hint": "KeyboardEvent code or key, e.g. Backquote, KeyV, F2. Ignored while typing in a text box."
+      },
+      "aiPaused": {
+        "name": "Pause the AI GM",
+        "hint": "When on, player chat is not sent to the AI GM. Use the in-game AI GM panel to pause or resume."
       }
     },
     "audio": {
-      "unlock": "Click to enable audio"
+      "unlock": "Enable sound",
+      "enableSound": "Enable sound"
     },
     "thinking": "GM is thinking…",
     "ptt": {
@@ -167,6 +172,50 @@
       "button": "Hold to talk",
       "unavailable": "Push-to-talk needs a browser with speech recognition (Chrome or Edge). It is turned off here.",
       "denied": "Microphone access was blocked. Allow the mic for this site to use push-to-talk."
+    },
+    "status": {
+      "listening": "GM listening",
+      "thinking": "GM thinking…",
+      "offline": "GM offline",
+      "paused": "GM paused",
+      "lastReply": "Last reply",
+      "noReply": "No replies yet"
+    },
+    "voice": {
+      "replay": "Replay",
+      "more": "Show more",
+      "less": "Show less"
+    },
+    "config": {
+      "basic": "Basic",
+      "advanced": "Advanced",
+      "botUser": "Bot GM user (preferred leader, runs commands)",
+      "webhookSecret": "Webhook secret (direct mode)",
+      "secretHint": "Write-only here. World settings are readable by scripts of any logged-in user, so prefer the relay (env-only secret) for shared worlds.",
+      "clearSecret": "Clear stored secret",
+      "testConnection": "Test connection",
+      "testing": "Testing…",
+      "testOk": "OK",
+      "testFail": "Failed",
+      "save": "Save"
+    },
+    "panel": {
+      "title": "AI GM",
+      "pause": "Pause AI GM",
+      "resume": "Resume AI GM",
+      "redo": "Redo last reply",
+      "skip": "Skip last reply",
+      "recap": "Recap",
+      "turn": "Current turn",
+      "turnLine": "Round {round}: {name} is up.",
+      "next": "Next: {name}.",
+      "noCombat": "No active combat.",
+      "pendingRolls": "Pending rolls",
+      "noRolls": "No pending rolls.",
+      "cancelRoll": "Cancel",
+      "hp": "HP",
+      "noHp": "No actors with HP.",
+      "open": "Open AI GM panel"
     }
   }
 }

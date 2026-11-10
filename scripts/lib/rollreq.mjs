@@ -20,10 +20,11 @@ export const reqIdFrom = (requestId, seed) => requestId || `rr-${seed}`;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 export function cardHtml(req) {
   const title = req.label || (req.formula ? req.formula : `${cap(req.stat)} test`); const dr = req.dr != null ? ` — DR ${req.dr}` : "";
-  const head = `<div class="aigm-rollreq" data-request-id="${esc(req.id)}"><b>${esc(title)}</b>${dr}<br>${esc(req.actorName)} (${esc(req.userName)})`;
-  if (req.status === "pending") return `${head}<br><button type="button" data-aigm-roll="${esc(req.id)}">Roll ${req.formula ? esc(req.formula) : cap(req.stat)}</button></div>`;
+  const head = `<div class="aigm-rollreq" data-request-id="${esc(req.id)}" data-status="${esc(req.status)}"><b>${esc(title)}</b>${dr}<br>${esc(req.actorName)} (${esc(req.userName)})`;
+  if (req.status === "pending") return `${head}<br><button type="button" class="aigm-roll-btn" data-aigm-roll="${esc(req.id)}">Roll ${req.formula ? esc(req.formula) : cap(req.stat)}</button></div>`;
   if (req.status === "expired") return `${head}<br><i>Expired.</i></div>`;
-  if (req.status === "timeout") return `${head}<br><i>No roll yet.</i> <button type="button" data-aigm-roll="${esc(req.id)}" data-gm-only="1">GM: roll for them</button></div>`;
+  if (req.status === "cancelled") return `${head}<br><i>Cancelled.</i></div>`;
+  if (req.status === "timeout") return `${head}<br><i>No roll yet.</i> <button type="button" class="aigm-roll-btn" data-aigm-roll="${esc(req.id)}" data-gm-only="1">GM: roll for them</button></div>`;
   const r = req.result; return `${head}<br>${r.breakdown ? `${esc(r.breakdown)} → ` : ""}<b>${r.total}</b>${r.success === null || r.success === undefined ? "" : ` → ${r.crit ? "CRIT " : r.fumble ? "FUMBLE " : ""}${r.success ? "success" : "fail"}`}${req.answeredBy ? ` <small>(${esc(req.answeredBy)})</small>` : ""}</div>`;
 }
 const cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
@@ -42,7 +43,7 @@ export function abilityOf(msg, rolls = rollsOf(msg)) {
   for (const r of rolls) { const m = /@?abilities\.(\w+)/.exec(r.raw || r.formula); if (m) return normStat(m[1]); }
   const m = STAT_RE.exec(`${msg.flavor ?? ""} ${String(msg.content ?? "").replace(/<[^>]+>/g, " ")}`); return m ? m[1].toLowerCase() : null;
 }
-export const isOpen = (p, now) => p.status !== "done" && p.status !== "expired" && !(p.expireAt && now >= p.expireAt);
+export const isOpen = (p, now) => p.status !== "done" && p.status !== "expired" && p.status !== "cancelled" && !(p.expireAt && now >= p.expireAt);
 // Is this chat message the answer to an open request? Explicit flag wins (card button). Otherwise (sheet roll or Pixels) the
 // d20 roll must come from the requested player (or a GM rolling for the card's actor), after the card, and:
 //   1. if the message speaks for an actor, only cards for that actor;  2. if the ability is known, only cards for that ability;

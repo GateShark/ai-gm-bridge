@@ -20,18 +20,23 @@ export class PushToTalk {
     Object.assign(this, { win, doc, post, notify, t, lang, key, onceNotice }); this.Ctor = speechCtor(win); this.active = false; this.text = { final: "", interim: "" };
   }
   get available() { return !!this.Ctor; }
-  install() {
-    if (!this.available) { if (this.onceNotice()) this.notify?.(this.t("AIGM.ptt.unavailable")); return false; }
-    this.onDown = (ev) => { if (ev.repeat || !matchesKey(ev, this.key) || isTypingTarget(ev.target ?? this.doc?.activeElement)) return; ev.preventDefault?.(); this.start(); };
-    this.onUp = (ev) => { if (matchesKey(ev, this.key) && this.active) { ev.preventDefault?.(); this.stop(); } };
-    this.doc.addEventListener("keydown", this.onDown); this.doc.addEventListener("keyup", this.onUp);
-    const b = this.button = this.doc.createElement("button"); b.type = "button"; b.id = "aigm-ptt-button"; b.title = this.t("AIGM.ptt.button"); b.textContent = "🎤";
-    b.style.cssText = "position:fixed;left:8px;bottom:8px;z-index:100;width:36px;height:36px;border-radius:50%;cursor:pointer";
+  install(opts = {}) {
+    const keyboard = opts.keyboard !== false, notifyIfMissing = opts.notifyIfMissing !== false;
+    if (!this.available) { if (notifyIfMissing && this.onceNotice()) this.notify?.(this.t("AIGM.ptt.unavailable")); return false; }
+    if (keyboard) {
+      this.onDown = (ev) => { if (ev.repeat || !matchesKey(ev, this.key) || isTypingTarget(ev.target ?? this.doc?.activeElement)) return; ev.preventDefault?.(); this.start(); };
+      this.onUp = (ev) => { if (matchesKey(ev, this.key) && this.active) { ev.preventDefault?.(); this.stop(); } };
+      this.doc.addEventListener("keydown", this.onDown); this.doc.addEventListener("keyup", this.onUp);
+    } else { this.onDown = null; this.onUp = null; }
+    const b = this.button = this.doc.createElement("button"); b.type = "button"; b.id = "aigm-ptt-button"; b.className = "aigm-ptt-btn";
+    b.title = this.t("AIGM.ptt.button"); b.setAttribute?.("aria-label", this.t("AIGM.ptt.button"));
+    b.innerHTML = '<span class="aigm-ptt-icon">🎤</span><span class="aigm-ptt-dot" aria-hidden="true"></span>';
+    b.style.cssText = "position:fixed;left:12px;bottom:12px;z-index:100;width:48px;height:48px;border-radius:50%;cursor:pointer";
     const down = (e) => { e.preventDefault?.(); this.start(); }, up = () => this.stop();
     b.addEventListener("pointerdown", down); b.addEventListener("pointerup", up); b.addEventListener("pointerleave", up);
     this.doc.body.appendChild(b); return true;
   }
-  uninstall() { this.doc?.removeEventListener?.("keydown", this.onDown); this.doc?.removeEventListener?.("keyup", this.onUp); this.button?.remove?.(); this.button = null; this.stop(true); }
+  uninstall() { if (this.onDown) this.doc?.removeEventListener?.("keydown", this.onDown); if (this.onUp) this.doc?.removeEventListener?.("keyup", this.onUp); this.button?.remove?.(); this.button = null; this.stop(true); }
   start() {
     if (this.active || !this.available) return; this.active = true; this.text = { final: "", interim: "" };
     const r = this.rec = new this.Ctor(); r.lang = this.lang; r.continuous = true; r.interimResults = true;
@@ -51,6 +56,7 @@ export class PushToTalk {
       el.style.cssText = "position:fixed;left:52px;bottom:8px;z-index:100;max-width:40vw;padding:4px 8px;border-radius:6px;background:rgba(0,0,0,.75);color:#fff;font-size:13px;pointer-events:none"; this.doc.body.appendChild(el); }
     const live = [this.text.final, this.text.interim].filter(Boolean).join(" ");
     el.textContent = live ? `${this.t("AIGM.ptt.listening")} ${live}` : this.t("AIGM.ptt.listening");
+    if (this.button) this.button.className = "aigm-ptt-btn aigm-ptt-live";
   }
-  hide() { this.ind?.remove?.(); this.ind = null; }
+  hide() { if (this.button) this.button.className = "aigm-ptt-btn"; this.ind?.remove?.(); this.ind = null; }
 }

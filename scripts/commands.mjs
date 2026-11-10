@@ -36,7 +36,7 @@ function playClip({ src, volume = 0.8 }) {
   });
 }
 export const audioQueue = new AudioQueue({ play: playClip, onBlocked: () => showAudioUnlockPrompt({
-  queue: audioQueue, label: game.i18n?.localize?.("AIGM.audio.unlock") || "Click to enable audio",
+  queue: audioQueue, label: game.i18n?.localize?.("AIGM.audio.enableSound") || game.i18n?.localize?.("AIGM.audio.unlock") || "Enable sound",
   beforeUnlock: async () => { await game.audio?.unlock; try { await game.audio?.context?.resume?.(); } catch {} } }) });
 // #12: the core AudioHelper broadcast (play(data, true)) did not reach player clients in v14 and bypassed their
 // queue/unlock prompt. Instead emit on the module socket; every client (players included) plays through its own audioQueue.
@@ -262,6 +262,7 @@ export const COMMANDS = {
   // v0.6
   requestRoll: { schema: { user: "string", actorId: "string?", actorName: "string?", stat: "string?", formula: "string?", dr: "number?", label: "string?", requestId: "string?", timeoutMs: "number?" },
     async run(a) { return F.requestRoll(a); } },
+  cancelRoll: { schema: { requestId: "string" }, async run(a) { return F.cancelRollRequest(a.requestId); } },
   turnStatus: { schema: {}, async run() { const t = F.turnStatus(); return ok({ active: !!t, ...(t ?? {}) }); } },
   recap: { schema: { since: "any?", max: "number?" }, async run(a) { return ok(await F.recap(a)); } },
   rest: { schema: { actorId: "string?", actorName: "string?", ...TOK, length: "string?", food: "string?", infected: "boolean?" }, async run(a) {

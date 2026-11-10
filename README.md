@@ -1,4 +1,4 @@
-# AI GM Bridge (module id `ai-gm-bridge`) v0.8.7
+# AI GM Bridge (module id `ai-gm-bridge`) v0.8.8
 
 > ⚠️ **Alpha:** still in testing. Expect bugs and breaking changes.
 
@@ -13,6 +13,15 @@ batched chat events to your bot's webhook, and your bot sends typed JSON command
    - Relay: see `relay/RUN.md`. It is configured by env only, so the secret never goes into Foundry.
    - Direct: the bot GM's browser POSTs to the webhook. The secret is kept in a world setting, which is write-only in the form.
      Any logged-in user's scripts can still read it, so use the relay for shared worlds.
+
+## At the table (v0.8.8)
+- A small status light (bottom right) shows **GM listening**, **GM thinking…**, or **GM offline**. Click it to see when the GM last replied.
+- If your browser blocks sound, an **Enable sound** button appears; any click also unlocks voice.
+- Push-to-talk: a hold-to-talk mic button (bottom left) with a live mic light. Turn on **Push-to-talk (this browser)** to also use the key (default `` ` ``).
+- Roll requests use one large **Roll** button; after you roll, the card greys out.
+- Voice lines have a ▶ replay button, and long lines can be expanded.
+- The GM has an in-game **AI GM** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap, see whose turn it is, cancel pending rolls, and a quick HP list.
+- **Configure AI GM** now opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section.
 
 ## What it does
 - **Exactly once:** one leader client handles events (the bot GM user is preferred), with persisted dedupe and acked retries.

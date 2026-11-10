@@ -17,6 +17,10 @@ export class AudioQueue {
   get length() { return this.q.length; }
   // Call from a user gesture (click) after onBlocked: resumes the queue, replaying the held clip.
   unlock() { if (!this.blocked) return false; this.blocked = false; this._drain(); return true; }
+  // 0.8.8: replay a clip even if it was already played (new id, not stored in seen).
+  replay(clip, now = Date.now()) {
+    return new Promise((resolve) => { this.q.push({ id: `replay:${now}`, clip, resolve, tries: 0 }); this._drain(); });
+  }
   async _drain() {
     if (this.running || this.blocked) return; this.running = true;
     try {

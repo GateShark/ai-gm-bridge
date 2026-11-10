@@ -17,7 +17,7 @@ import { missedMessages } from "./lib/replies.mjs";
 import { lockBlocks } from "./lib/spawn.mjs";
 import { burstTest } from "./lib/bursttest.mjs";
 import { formatResult, sceneBackgroundSrc } from "./lib/v081.mjs";
-import { installAudioResume } from "./lib/audioqueue.mjs";
+import { installAudioResume, showAudioUnlockPrompt } from "./lib/audioqueue.mjs";
 import * as F from "./features.mjs";
 import { getContext } from "./context.mjs";
 import { cleanupContextJournals } from "./gmstore.mjs";
@@ -26,6 +26,10 @@ import { combatEvent, startedNow } from "./lib/combatevents.mjs";
 import { rollBreakdown } from "./lib/rollreq.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
 import { PushToTalk, speechLang } from "./lib/ptt.mjs";
+import { GmStatusPill, deriveGmStatus } from "./lib/gmstatus.mjs";
+import { makeGmPanel, collectHp, installSidebarButton, makeControlEvent } from "./lib/gmpanel.mjs";
+import { enhanceVoiceMessage } from "./lib/voiceui.mjs";
+import { injectStyles } from "./lib/styles.mjs";
 
 const ID = "ai-gm-bridge"; const SOCKET = `module.${ID}`;
 const S = { leader: null, dedupe: null, outbox: null, timers: [], lastBatch: null, batcher: null, voice: null, metrics: new Metrics(), ackedCtx: null, sent: new Map() };
@@ -35,25 +39,62 @@ const enabled = () => !!get("enabled");
 const isBot = (u = game.user) => u.id === get("botUserId") || (!get("botUserId") && !!get("botUserName") && u.name?.toLowerCase().startsWith(get("botUserName").toLowerCase()));
 const amLeader = () => S.leader?.leaderId === game.user.id;
 // #14: one pill per client; label is localized when shown.
-const thinking = new ThinkingIndicator({ label: () => game.i18n?.localize?.("AIGM.thinking") || "GM is thinking…" });
-function thinkingOn() { if (!get("thinkingIndicator")) return; const ms = get("thinkingTimeoutMs"); thinking.show(ms); game.socket.emit(SOCKET, { type: "thinking", on: true, timeoutMs: ms }); }
-function thinkingOff({ broadcast = false } = {}) { thinking.hide(); if (broadcast) game.socket.emit(SOCKET, { type: "thinking", on: false }); }
+const thinking = new ThinkingIndicator({ label: () => game.i18n?.localize?.("AIGM.thinking") || "GM is thinking…", silent: true, onChange: () => refreshStatus() });
+let statusPill = null, settingsLive = false, panelApp = null;
+function loc(k, f) { const v = game.i18n?.localize?.(k); return v && v !== k ? v : (f || k); }
+function refreshStatus() {
+  if (!statusPill) return;
+  try {
+    const bot = game.users?.find?.(u => isBot(u));
+    statusPill.set(deriveGmStatus({
+      thinking: thinking.visible, paused: !!get("aiPaused"), enabled: enabled(),
+      botActive: !!bot?.active, leaderIsBot: !!S.leader?.leaderIsBot,
+      lastBeat: S.leader?.lastBeat ?? 0, now: Date.now(), timeoutMs: get("heartbeatTimeoutMs")
+    }), { lastReplyAt: S.lastReplyAt });
+  } catch {}
+}
+function thinkingOn() { if (!get("thinkingIndicator")) return; const ms = get("thinkingTimeoutMs"); thinking.show(ms); refreshStatus(); game.socket.emit(SOCKET, { type: "thinking", on: true, timeoutMs: ms }); }
+function thinkingOff({ broadcast = false } = {}) { thinking.hide(); refreshStatus(); if (broadcast) game.socket.emit(SOCKET, { type: "thinking", on: false, lastReplyAt: S.lastReplyAt ?? undefined }); }
+function onAiPausedChange(paused) {
+  if (!settingsLive) return;
+  thinkingOff({ broadcast: true });
+  refreshStatus();
+  if (amLeader()) emitControl(paused ? "pause" : "resume");
+}
+function emitControl(action, extra = {}) { return emitEvent(makeControlEvent(action, extra), { urgent: true, evenIfPaused: true }); }
+function handleGmControl(data) {
+  if (!data?.action) return;
+  if (data.action === "redo") { emitControl("redo", { targetEventIds: S.lastWake?.eventIds ?? data.targetEventIds ?? [], replyTo: S.lastWake?.eventIds?.[0] ?? null }); thinkingOn(); }
+  else if (data.action === "skip") { thinkingOff({ broadcast: true }); emitControl("skip", { targetEventIds: S.lastWake?.eventIds ?? data.targetEventIds ?? [] }); }
+  else if (data.action === "cancelRoll" && data.requestId) F.cancelRollRequest(data.requestId);
+}
+async function panelAction(action, data = {}) {
+  if (action === "pause") return game.settings.set(ID, "aiPaused", true);
+  if (action === "resume") return game.settings.set(ID, "aiPaused", false);
+  if (action === "redo" || action === "skip" || action === "cancelRoll") {
+    if (amLeader()) handleGmControl({ action, ...data });
+    else game.socket.emit(SOCKET, { type: "gmControl", action, ...data });
+    return;
+  }
+  if (action === "recap") return F.recap({ max: 40 });
+}
 const log = (...a) => console.log(`${ID} |`, ...a);
 
 let pttInst = null;
 function setupPtt() {
-  pttInst?.uninstall(); pttInst = null; if (!game.settings.get(ID, "pushToTalk")) return;
+  pttInst?.uninstall(); pttInst = null;
+  const keyOn = !!game.settings.get(ID, "pushToTalk");
   pttInst = new PushToTalk({ win: window, doc: document, t: (k) => game.i18n.localize(k), lang: speechLang(game.i18n.lang, navigator.language), key: game.settings.get(ID, "pushToTalkKey"),
     notify: (m) => ui.notifications?.info(m),
     onceNotice: () => { if (game.settings.get(ID, "pushToTalkNoticeShown")) return false; game.settings.set(ID, "pushToTalkNoticeShown", true); return true; },
     post: (text) => ChatMessage.create({ content: text, speaker: ChatMessage.getSpeaker() }) });
-  pttInst.install();
+  pttInst.install({ keyboard: keyOn, notifyIfMissing: keyOn });
 }
 Hooks.once("init", () => {
   // 0.8.7: pre-ready stub so macros/scripts that run early can wait instead of throwing.
   { const mod = game.modules?.get?.(ID); let res; const p = new Promise(r => (res = r)); globalThis.__aigmReady = res;
     if (mod) mod.api = { version: mod.version, ready: false, whenReady: () => p }; }
-  const reg = (k, type, def, extra = {}) => game.settings.register(ID, k, { scope: "world", config: true, restricted: true, type, default: def,
+  const reg = (k, type, def, extra = {}) => game.settings.register(ID, k, { scope: "world", config: false, restricted: true, type, default: def,
     name: `AIGM.settings.${k}.name`, hint: `AIGM.settings.${k}.hint`, ...extra });
   reg("enabled", Boolean, false, { onChange: () => restart() });
   reg("botUserId", String, "", { config: false }); reg("botUserName", String, "");
@@ -88,6 +129,7 @@ Hooks.once("init", () => {
   game.settings.register(ID, "pushToTalkKey", { scope: "client", config: true, type: String, default: "Backquote", name: "AIGM.settings.pushToTalkKey.name", hint: "AIGM.settings.pushToTalkKey.hint", onChange: ptt });
   game.settings.register(ID, "pushToTalkNoticeShown", { scope: "client", config: false, type: Boolean, default: false });
   reg("thinkingIndicator", Boolean, true); reg("thinkingTimeoutMs", Number, 90000);
+  reg("aiPaused", Boolean, false, { config: false, onChange: (v) => { try { onAiPausedChange(v); } catch {} } });
   // v0.7 (GM-only: world setting, config menu is GM-only)
   // v0.7.0 stored the context journal list here. Kept hidden (config:false) only so v0.7.2 can clear it; never written otherwise.
   game.settings.register(ID, "contextJournals", { scope: "world", config: false, type: String, default: "" });
@@ -98,9 +140,12 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", () => {
   try { setupPtt(); } catch (e) { console.warn(`${ID} | push-to-talk`, e); }
+  try { injectStyles(); } catch {}
+  try { statusPill = new GmStatusPill({ t: loc, onClick: (tip) => ui.notifications?.info?.(tip) }); statusPill.mount(); } catch {}
   const mod = game.modules.get(ID);
   const whenReady = mod.api?.whenReady ?? (() => Promise.resolve(mod.api));
   try { installAudioResume({ queue: audioQueue, beforeUnlock: async () => { await game.audio?.unlock; try { await game.audio?.context?.resume?.(); } catch {} } }); } catch {}
+  try { if (game.audio?.locked) showAudioUnlockPrompt({ queue: audioQueue, label: loc("AIGM.audio.enableSound", "Enable sound"), beforeUnlock: async () => { await game.audio?.unlock; try { await game.audio?.context?.resume?.(); } catch {} } }); } catch {}
   mod.api = {
     version: mod.version, ready: true, whenReady, commands: Object.keys(COMMANDS),
     status: () => ({ enabled: enabled(), leader: S.leader, amLeader: amLeader(), queued: S.outbox?.items.length ?? 0, dead: S.outbox?.dead().length ?? 0,
@@ -115,7 +160,7 @@ Hooks.once("ready", () => {
       if (!amLeader()) return fail(421, "not leader", { leader: S.leader?.leaderId ?? null });
       if (cmd?.commandId) { if (!S.dedupe.claim(`cmd:${cmd.commandId}`, Date.now())) { const e = S.dedupe.get(`cmd:${cmd.commandId}`); const done = e?.s === "acked";
           return fail(409, done ? "already done" : "in progress", { alreadyDone: done, prior: e?.res ?? null }); } await persistNow(); }
-      thinkingOff({ broadcast: true }); // #14: any bot action ends the wait
+      S.lastReplyAt = Date.now(); thinkingOff({ broadcast: true }); // #14: any bot action ends the wait
       const res = await runCommand(cmd, ctxFor());
       const rt = cmd?.args?.replyTo && game.messages?.get(String(cmd.args.replyTo).replace(/^chat:/, ""))?.timestamp;
       if (res.ok && rt) S.metrics.time("reply", Date.now() - rt);
@@ -127,12 +172,28 @@ Hooks.once("ready", () => {
     context: (o = {}) => getContext(game, o),
     turnStatus: () => F.turnStatus(), recap: (o) => F.recap(o),
     takeBatch: () => S.lastBatch, // relay stub can poll this on the headless client
+    paused: () => !!get("aiPaused"),
+    gmStatus: () => statusPill?.state ?? deriveGmStatus({ thinking: thinking.visible, paused: !!get("aiPaused"), enabled: enabled() }),
   };
   try { globalThis.__aigmReady?.(mod.api); } catch {}
   game.socket.on(SOCKET, onSocket);
   if (game.user.isGM && game.users.activeGM?.id === game.user.id) cleanupContextJournals(game).then(r => r.cleared && log("v0.7.2: the context journal list is no longer stored in the world (players could read it). Set AIGM_CONTEXT_JOURNALS on the relay or pass journals per getContext call. Old value:", r.old)).catch(e => log("migrate", e?.message));
   F.initFeatures({ get, amLeader, log, voice: (t) => S.voice?.get(t) ?? null, emit: emitEvent });
   restart();
+  if (game.user.isGM) {
+    try {
+      const Panel = makeGmPanel({
+        t: loc,
+        gather: () => ({ paused: !!get("aiPaused"), turn: F.turnStatus(), pending: F.pendingRequests(), hp: collectHp(game.actors?.contents ?? [], { hpPath: get("hpPath") }) }),
+        onAction: panelAction
+      });
+      const openPanel = () => { panelApp ??= new Panel(); panelApp.render(true); };
+      const install = () => installSidebarButton({ doc: document, label: loc("AIGM.panel.title", "AI GM"), open: openPanel });
+      install(); Hooks.on("renderSidebar", install);
+    } catch (e) { log("gm panel", e?.message); }
+  }
+  settingsLive = true; refreshStatus();
+  Hooks.on("userConnected", () => refreshStatus()); Hooks.on("userDisconnected", () => refreshStatus());
 });
 
 function ctxFor() {
@@ -161,8 +222,9 @@ function restart() {
   F.seedSnapshots();
 }
 // v0.6: one feature event into the outbox (idempotent by eventId).
-function emitEvent(ev, { urgent = false } = {}) {
-  if (!enabled() || !amLeader() || !S.outbox) return false; const now = Date.now();
+function emitEvent(ev, { urgent = false, evenIfPaused = false } = {}) {
+  if (!enabled() || !amLeader() || !S.outbox) return false;
+  if (!evenIfPaused && get("aiPaused")) return false; const now = Date.now();
   if (!S.dedupe.claim(ev.eventId, now)) return false;
   S.outbox.enqueue(ev, now); S.dedupe.mark(ev.eventId, "sent", now); persistNow(); S.metrics.inc("woke"); S.batcher?.push({ urgent, at: now }); return true;
 }
@@ -200,27 +262,30 @@ function persistSoon() {
 
 function onSocket(data) {
   if (!enabled() || !data?.type) return;
-  if (data.type === "heartbeat") { S.leader = applyHeartbeat(S.leader, data, Date.now()); return; }
+  if (data.type === "heartbeat") { S.leader = applyHeartbeat(S.leader, data, Date.now()); refreshStatus(); return; }
   if (data.type === "turnPing") return F.onTurnPing(data);
   if (data.type === "bubble") return F.showBubble(data);
+  if (data.type === "voice") { S.lastReplyAt = Date.now(); }
   if (data.type === "voice") { thinking.hide(); return void onVoiceSocket(data); } // #12: players play bot voice locally
-  if (data.type === "thinking") { if (data.on) thinking.show(data.timeoutMs); else thinking.hide(); return; } // #14
+  if (data.type === "thinking") { if (data.on) thinking.show(data.timeoutMs); else thinking.hide(); if (data.lastReplyAt) S.lastReplyAt = data.lastReplyAt; refreshStatus(); return; } // #14
+  if (data.type === "gmControl" && amLeader()) return void handleGmControl(data);
   if (data.type === "ack" && amLeader() && Array.isArray(data.eventIds)) game.modules.get(ID).api.ack(data.eventIds);
 }
 
 Hooks.on("createChatMessage", async (msg) => {
   if (enabled() && isBot(msg.author ?? msg.user ?? {})) thinking.hide(); // #14: bot spoke (runs on every client)
+  if (enabled() && isBot(msg.author ?? msg.user ?? {})) { S.lastReplyAt = Date.now(); refreshStatus(); }
   if (!enabled() || !amLeader()) return;
   if (msg.flags?.[ID]?.local) return; // our own cards/replies never wake the bot
   if (isOwnShipCard(msg)) return; // v0.8 morale/ship cards we posted
   if ((msg.rolls?.length || msg.flags?.pirateborg?.outcomes?.length) && await F.onRollMessage(msg).catch(e => (log("rollRequest", e?.message), false))) return;
   handleChat(msg);
 });
-Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) F.bindRollCard(msg, html); });
+Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCard(msg, html); enhanceVoiceMessage(msg, html, { t: loc, replay: (src) => audioQueue.enqueue(`replay:${src}:${Date.now()}`, { src }) }); } });
 Hooks.on("updateActor", (a, change) => { if (enabled() && amLeader()) F.onActorUpdate(a, change); });
 Hooks.on("createActor", (a) => { if (enabled() && amLeader()) F.onActorUpdate(a, {}); });
 Hooks.on("createItem", (i) => { if (enabled() && amLeader()) F.onItemCreate(i); });
-Hooks.on("deleteCombat", (c) => { if (enabled()) thinking.hide(); if (enabled() && amLeader()) { F.onCombatDelete(c); combatState(c, "end"); } }); // v0.8.6: hide runs on every client
+Hooks.on("deleteCombat", (c) => { if (enabled()) thinking.hide(); if (enabled()) refreshStatus(); if (enabled() && amLeader()) { F.onCombatDelete(c); combatState(c, "end"); } }); // v0.8.6: hide runs on every client
 // v0.8.3: only the leader (bot user, else active GM) sends; eventId dedupe means one start/end per combat.
 function combatState(c, state) {
   if (!enabled() || !amLeader() || !get("combatEvents")) return;
@@ -241,6 +306,7 @@ function handleChat(msg) {
   S.metrics.inc("seen");
   if (get("unpauseOnStart") && /^\s*start\s*$/i.test(plain) && game.paused) game.togglePause(false, { broadcast: true });
   if (authorId !== botId && get("localCommands") && tryLocal(msg, plain, author)) return;
+  if (get("aiPaused")) return;
   const ev = { eventId, type: "chat", authorId, author: author?.name,
     speaker: msg.speaker?.alias ?? null, whisper: msg.whisper ?? [], text: msg.content ?? "",
     rolls: (msg.rolls ?? []).map(r => { const b = rollBreakdown(r); return { formula: r.formula, total: r.total, ...(b ? { breakdown: b.text, dice: b.dice, modifier: b.modifier } : {}) }; }), // v0.8.6
@@ -324,7 +390,7 @@ function flush(opts = {}) {
     S.lastBatch = payload;
     game.socket.emit(SOCKET, { type: "events", batch: payload }); // relay (headless/bot client) consumes this
     Hooks.callAll(`${ID}.events`, payload);
-    if (shouldShowThinking(batch.events, batch.attempt)) thinkingOn(); // #14
+    if (shouldShowThinking(batch.events, batch.attempt)) { S.lastWake = { eventIds: batch.events.filter(e => ["chat", "rollResult"].includes(e.type)).map(e => e.eventId), at: Date.now() }; thinkingOn(); } // #14
     if (get("delivery") === "direct" && isBot() && get("webhookUrl")) {
       const api = game.modules.get(ID).api;
       deliverDirect(payload, { url: get("webhookUrl"), secret: get("webhookSecret"), header: get("webhookAuthHeader") || "Authorization",

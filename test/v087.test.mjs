@@ -28,5 +28,7 @@ test("0.8.7 any gesture or tab refocus resumes a blocked audio queue", async () 
 test("0.8.7 no hardcoded old version; pre-ready api stub", () => {
   const main = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(main, /v0\.8\.0/); assert.match(main, /whenReady/); assert.match(main, /ready: true/);
-  assert.equal(JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version, "0.8.7");
+  const ver = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version;
+  assert.equal(ver, JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
+  assert.match(ver, /^\d+\.\d+\.\d+/);
 });

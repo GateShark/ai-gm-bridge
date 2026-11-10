@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.8
+- Settings: Configure AI GM now has a short Basic page (Enabled, bot GM user, webhook URL/secret, voice-for-players, push-to-talk key, combat events) plus a **Test connection** button, and a collapsed Advanced section for the rest. Existing setting keys and defaults are unchanged; internal state (dedupe, outbox, voice cache, notices) stays hidden. World settings no longer fill Foundry's long module-settings list.
+- Everyone sees a floating GM status light: green "GM listening", amber "GM thinking…", red "GM offline" (and grey "GM paused"). Click it for the time of the last reply. It reuses the existing heartbeat and thinking events (no extra polling of the AI).
+- Players: an **Enable sound** toast if the browser is blocking audio; a clearer hold-to-talk mic button with a live mic light (the button is shown whenever the browser supports speech recognition; the keyboard shortcut still needs the push-to-talk setting); roll-request cards have one large Roll button and grey out after rolling.
+- GM panel (sidebar robot button, GM only): pause and resume the AI GM, redo or skip the last reply, recap, current turn, cancel pending roll requests, and a quick HP list.
+- Chat: each GM voice line has a small ▶ replay button; long lines collapse behind Show more.
+- Additive bot events (old bots can ignore them): `{type:"control", action:"pause"|"resume"|"redo"|"skip", targetEventIds?, replyTo?}` and `{type:"rollCancelled", requestId}`. New command `cancelRoll {requestId}`. New world setting `aiPaused` (default off).
+- Tests for the new settings layout, status light, panel, voice chrome, connection test and cancel/roll helpers.
+
+
 ## 0.8.7
 - Audio: any click/keypress, or returning to the Foundry tab, now resumes voice blocked by the browser's autoplay policy (after a reload or while the tab was in the background); the "Click to enable audio" button still appears.
 - Grey map: on scene load the GM gets a warning if the scene has no background image or the file is missing (checks the v14 level background first, then the scene's).

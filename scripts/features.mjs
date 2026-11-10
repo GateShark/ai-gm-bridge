@@ -15,7 +15,7 @@ const findUser = (u) => game.users.get(u) ?? game.users.find(x => x.name?.toLowe
 // ---------- requestRoll ----------
 const timers = new Map();
 const reqMessages = () => game.messages.contents.slice(-300).filter(m => m.flags?.[ID]?.rollRequest);
-export const pendingRequests = () => reqMessages().map(m => ({ ...m.flags[ID].rollRequest, messageId: m.id })).filter(r => r.status !== "done" && r.status !== "expired");
+export const pendingRequests = () => reqMessages().map(m => ({ ...m.flags[ID].rollRequest, messageId: m.id })).filter(r => r.status !== "done" && r.status !== "expired" && r.status !== "cancelled");
 export async function requestRoll(a) {
   const id = reqIdFrom(a.requestId, foundry.utils.randomID()); // idempotent: same requestId returns the existing card/result
   const prior = reqMessages().find(m => m.flags[ID].rollRequest.id === id);
@@ -67,8 +67,19 @@ export async function onRollMessage(msg) {
   return true;
 }
 // Any client: wire the card button.
+export async function cancelRollRequest(requestId) {
+  const m = reqMessages().find(x => x.flags[ID].rollRequest.id === requestId);
+  if (!m) return fail("NOT_FOUND", `roll request ${requestId} not found`);
+  const r = m.flags[ID].rollRequest;
+  if (r.status === "done" || r.status === "expired" || r.status === "cancelled") return ok({ requestId, messageId: m.id, status: r.status, noop: true });
+  const next = { ...r, status: "cancelled" };
+  clearTimeout(timers.get(r.id));
+  await m.update({ content: cardHtml(next), [`flags.${ID}.rollRequest`]: next });
+  D.emit({ eventId: `rollreq:${r.id}:cancel`, type: "rollCancelled", requestId: r.id, actor: r.actorName, user: r.userName }, { urgent: false });
+  return ok({ requestId: r.id, messageId: m.id, status: "cancelled" });
+}
 export function bindRollCard(msg, html) {
-  const req = msg.flags?.[ID]?.rollRequest; if (!req || req.status === "done") return;
+  const req = msg.flags?.[ID]?.rollRequest; if (!req || req.status === "done" || req.status === "cancelled" || req.status === "expired") return;
   const root = html?.[0] ?? html; const btn = root?.querySelector?.(`[data-aigm-roll]`); if (!btn) return;
   if (!canClick(req, game.user) || (btn.dataset.gmOnly && !game.user.isGM)) { btn.disabled = true; return; }
   btn.addEventListener("click", async (ev) => {

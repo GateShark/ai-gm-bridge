@@ -193,3 +193,26 @@ Optional per-turn events: `turnWake` (default off) sends `{type:"turn", combat:{
 
 ## Push-to-talk (v0.8.5)
 No new command or event. Push-to-talk (v0.8.5, per player, off by default): each player enables **Push-to-talk (this browser)** (`pushToTalk`, client setting) and holds the key (`pushToTalkKey`, default `Backquote`, the ` key) or the 🎤 button bottom-left. The browser's Web Speech API transcribes (language from Foundry's language setting) with a "Listening…" indicator showing live text; on release the transcript is posted as that player's normal chat message. The key is ignored while typing in a text field. Chrome/Edge only (no Firefox: one-time notice, no button); needs mic permission, which browsers allow only on HTTPS or localhost. Speech goes to the browser's own speech service (Chrome/Edge send audio to Google/Microsoft), nothing to this module's servers. For the bot it arrives exactly like typed chat (normal `chat` event from that user).
+
+
+## v0.8.8 notes (UI polish; additive events)
+These events are new. Older bots that only handle `chat` / `rollResult` / `combat` / `turn` can ignore them.
+
+### Control events (from the GM panel)
+When the world GM pauses, resumes, redos or skips, the leader sends an urgent event:
+```json
+{ "eventId": "control:redo:1731180000000", "type": "control", "action": "redo", "targetEventIds": ["chat:abc"], "replyTo": "chat:abc" }
+```
+`action` is one of `pause`, `resume`, `redo`, `skip`. `targetEventIds` (redo/skip) are the last player chat/roll events that were sent to you. Treat `redo` as "please answer those again" and `skip` as "do not answer them". `pause` means stop answering until `resume`. The module also stops sending normal chat events while the world setting `aiPaused` is true.
+
+### Cancelled rolls
+`{"name":"cancelRoll","args":{"requestId":"..."}}` marks a pending roll card cancelled (no longer answerable) and emits:
+```json
+{ "eventId": "rollreq:<id>:cancel", "type": "rollCancelled", "requestId": "<id>", "actor": "Name", "user": "Player" }
+```
+
+### Test connection
+The settings **Test connection** button POSTs `{ "type": "testConnection", "ping": true }` to the webhook URL (same auth header, no `events` array and no `batchId`). Answer `2xx` if you can; any HTTP response is treated as "reached the server". In relay mode with no URL stored in Foundry, the button checks that the bot user is connected instead.
+
+### Status light
+There is no extra bot API for the status light. It is derived from the existing leader heartbeat, the thinking socket, whether the bot user is connected, and `aiPaused`.
