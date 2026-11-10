@@ -429,11 +429,11 @@ Hooks.on("updateCombat", (c, change) => {
   if (startedNow(c, change)) combatState(c, "start"); // combatStart only fires on the starting client
   F.onCombatUpdate(c, change);
   if (get("turnPrompts")) F.turnPrompt(c).catch(e => log("turnPrompt", e?.message));
-  if (!shouldWakeOnTurn(c, get("turnWake"))) return; // NPC/monster turns only; PC turns stay local
+  if (!shouldWakeOnTurn(c, get("turnWake"), game.users?.contents ?? [])) return; // NPC/monster turns only; PC turns stay local
   const eventId = `combat:${c.id}:${c.round}.${c.turn}`; const now = Date.now();
   if (!S.dedupe.claim(eventId, now)) return;
   S.outbox.enqueue({ eventId, type: "turn", combat: { id: c.id, round: c.round, turn: c.turn }, combatant: c.combatant?.name ?? null,
-    isNPC: combatantIsNpc(c.combatant) }, now);
+    isNPC: combatantIsNpc(c.combatant, game.users?.contents ?? []) }, now);
   S.dedupe.mark(eventId, "sent", now); persistNow(); S.batcher?.push({ urgent: true });
 });
 

@@ -118,11 +118,11 @@ test("0.8.11 ending a combat emits combat/end and cancels pending rolls tied to 
 
 test("0.8.11 version, wiring and i18n", () => {
   const ver = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version;
-  assert.equal(ver, "0.8.11");
-  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.8.11");
+  assert.match(ver, /^0\.8\.\d+$/);
+  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, ver);
   const main = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
   assert.match(main, /reg\("turnWake", Boolean, true\)/);
-  assert.match(main, /shouldWakeOnTurn\(c, get\("turnWake"\)\)/);
+  assert.match(main, /shouldWakeOnTurn\(c, get\("turnWake"\)/);
   assert.match(main, /cancelCombatRolls\(c\)/);
   assert.match(main, /deleteCombat[^\n]*combatState\(c, "end"\)/);
   const cmds = readFileSync(new URL("../scripts/commands.mjs", import.meta.url), "utf8");
@@ -132,6 +132,6 @@ test("0.8.11 version, wiring and i18n", () => {
   assert.equal(en.settings.turnWake.name, "Wake on NPC/monster turns");
   assert.match(en.settings.turnWake.hint, /Player-character turns stay local/);
   assert.match(readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8"), /## 0\.8\.11/);
-  assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /v0\.8\.11/);
+  assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), new RegExp(`v${ver.replaceAll(".", "\\.")}`));
   assert.match(readFileSync(new URL("../docs/BOT-API.md", import.meta.url), "utf8"), /v0\.8\.11/);
 });

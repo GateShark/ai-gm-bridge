@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.8.12
+- `turnStatus` (and the in-game turn prompt) now uses the same PC/NPC helper as turn-wake events: Foundry's `combatant.isNPC`, `hasPlayerOwner`, `character` type, the token actor, and `combatant.players`. An unlinked player token like Tempus is no longer reported as a monster with no owner just because `testUserPermission` failed on the synthetic actor.
+
 ## 0.8.11
 - `turnWake` now defaults on and only wakes the bot for NPC/monster turns (never for player-character turns). The setting is labeled **Wake on NPC/monster turns**. Worlds that already saved the setting stay as they are (an explicit off is not flipped on); worlds that never stored a value pick up the new default.
 - `turnStatus` returns a ready-made `expect: {combatId, round, turn}` to pass straight to `nextTurn`. Missing or stale `expect` errors now say what the current combatant and round/turn actually are.
