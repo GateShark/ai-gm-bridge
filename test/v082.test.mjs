@@ -30,9 +30,10 @@ test("#13 setHP on an unlinked token writes the token's actor, not the base acto
   assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(r.result.via, "token"); assert.equal(r.result.before, 6); assert.equal(r.result.after, 4);
   assert.equal(synth.system.attributes.hp.value, 4); assert.equal(base.updates.length, 0); assert.equal(base.system.attributes.hp.value, 10);
 });
-test("#13 setHP without a token still writes the base actor; linked token writes base", async () => {
+test("#13 setHP by actorName prefers the scene token's actor; linked token writes base", async () => {
   let r = await runCommand({ name: "setHP", args: { actorName: "Hero", value: 9 } }, ctx);
-  assert.equal(r.ok, true); assert.equal(base.system.attributes.hp.value, 9); assert.equal(r.result.tokenId, undefined);
+  assert.equal(r.ok, true); assert.equal(synth.system.attributes.hp.value, 9); assert.equal(r.result.via, "token");
+  assert.equal(base.system.attributes.hp.value, 10);
   r = await runCommand({ name: "setHP", args: { tokenId: "T2", value: 7 } }, ctx);
   assert.equal(r.ok, true); assert.equal(linkedBase.system.attributes.hp.value, 7); assert.equal(r.result.via, "actor");
 });

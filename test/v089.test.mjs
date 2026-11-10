@@ -5,9 +5,10 @@ import { Outbox, relayAutoAckIds, relayStaleChatIds, RELAY_AUTO_ACK_TYPES } from
 import { resolveWakeEventIds, newestChatEventIds, collectHp, sceneTokens, panelHtml } from "../scripts/lib/gmpanel.mjs";
 import { recap, recapStamp } from "../scripts/lib/sessionlog.mjs";
 
-test("0.8.9 relayAutoAckIds is chat-only and skips incomplete events", () => {
-  assert.deepEqual(RELAY_AUTO_ACK_TYPES, ["chat"]);
-  assert.deepEqual(relayAutoAckIds([
+test("0.8.9 relayAutoAckIds includes chat, never control, and skips incomplete events", () => {
+  assert.ok(RELAY_AUTO_ACK_TYPES.includes("chat"));
+  assert.ok(!RELAY_AUTO_ACK_TYPES.includes("control"));
+  const ids = relayAutoAckIds([
     { eventId: "chat:a", type: "chat" },
     { eventId: "control:pause:1", type: "control" },
     { eventId: "combat:x:start", type: "combat" },
@@ -16,7 +17,10 @@ test("0.8.9 relayAutoAckIds is chat-only and skips incomplete events", () => {
     { type: "chat" },
     { eventId: "chat:b" },
     null
-  ]), ["chat:a"]);
+  ]);
+  assert.ok(ids.includes("chat:a"));
+  assert.ok(!ids.includes("control:pause:1"));
+  assert.ok(!ids.includes("chat:b"));
 });
 
 test("0.8.9 relayStaleChatIds is already-flushed chat only", () => {
@@ -77,11 +81,11 @@ test("0.8.9 main wiring: relay acks chat after emit without thinkingOff; direct 
 
 test("0.8.9 version, changelog and public credits", () => {
   const ver = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version;
-  assert.equal(ver, "0.8.9");
-  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.8.9");
+  assert.match(ver, /^0\.8\.\d+$/);
+  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, ver);
   assert.match(readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8"), /## 0\.8\.9/);
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
-  assert.match(readme, /v0\.8\.9/);
+  assert.match(readme, new RegExp(`v${ver.replaceAll(".", "\\.")}`));
   assert.match(readme, /Gate \(GateShark\)/);
   assert.doesNotMatch(readme, /Kevin|Allen/);
   assert.match(readFileSync(new URL("../docs/BOT-API.md", import.meta.url), "utf8"), /v0\.8\.9/);

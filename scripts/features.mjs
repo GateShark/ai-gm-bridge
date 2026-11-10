@@ -4,7 +4,7 @@ import { ok, fail } from "./lib/result.mjs";
 import { normStat, formulaFor, evaluate, evaluateFormula, reqFormula, canClick, reqIdFrom, cardHtml, matchRoll, naturalOf, d20Of, rollBreakdown, rollsOf, isOpen } from "./lib/rollreq.mjs";
 import { turnInfo, turnText, voiceUsersFrom } from "./lib/turns.mjs";
 import { actorChanges, lineHtml, parseLines, recap as recapLines, TRACKED, stamp } from "./lib/sessionlog.mjs";
-import { planRest, clampHp, diffReport } from "./lib/pbrest.mjs";
+import { planRest, clampHp, diffReport, canRestoreResource } from "./lib/pbrest.mjs";
 
 const ID = "ai-gm-bridge"; const SOCKET = `module.${ID}`;
 const D = { emit: () => {}, get: () => undefined, voice: () => null, amLeader: () => true, log: () => {} };
@@ -170,10 +170,10 @@ export async function rest(actor, args = {}) {
     else if (s.step === "damage") await hpDelta(s.formula, -1, s.why);
     else if (s.step === "grogHours" && grog && G?.decrementGrogHours) { await G.decrementGrogHours(actor, 1); used.push("decrementGrogHours"); }
     else if (s.step === "clearGrog" && grog && G?.clearGrogEffects) { await G.clearGrogEffects(actor); used.push("clearGrogEffects"); }
-    else if (s.step === "rituals") {
+    else if (s.step === "rituals" && canRestoreResource(actor, "rituals")) {
       if (A?.characterRitualsPerDayAction) { const o = await A.characterRitualsPerDayAction(actor, { silent: true }); used.push("characterRitualsPerDayAction"); if (o?.roll) rolls.push(`rituals ${o.formula ?? ""}=${o.roll.total}`); }
       else { const r = await new Roll("max(d4 + @abilities.spirit.value, 0)", actor.getRollData()).evaluate(); await actor.update({ "system.attributes.rituals.value": r.total, "system.attributes.rituals.max": r.total }); }
-    } else if (s.step === "extraResource" && actor.useExtraResource) {
+    } else if (s.step === "extraResource" && canRestoreResource(actor, "extraResource")) {
       if (A?.characterExtraResourcePerDayAction) { const o = await A.characterExtraResourcePerDayAction(actor, { silent: true }); used.push("characterExtraResourcePerDayAction"); if (o?.roll) rolls.push(`${actor.extraResourceNamePlural || "extra"} ${o.formula ?? ""}=${o.roll.total}`); }
       else { const r = await new Roll(`max(${actor.extraResourceFormula}, 0)`, actor.getRollData()).evaluate(); await actor.update({ "system.attributes.extraResource.value": r.total, "system.attributes.extraResource.max": r.total }); }
     } else if (s.step === "luckIfZero" && (actor.system.attributes.luck?.value ?? 0) === 0 && actor.luckDie) {

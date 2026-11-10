@@ -148,7 +148,8 @@ test("turnStatus with no combat; rest (fallback path, no system import in node) 
   assert.deepEqual((await runCommand({ name: "turnStatus", args: {} }, {})).result, { active: false });
   const r = await runCommand({ name: "rest", args: { actorName: "Bart", length: "long" } }, {});
   assert.equal(r.ok, true, JSON.stringify(r));
-  assert.equal(r.result.after.hp, 5); assert.equal(r.result.after.rituals, 3); assert.equal(r.result.after["Devil's Luck"], 3);
+  assert.equal(r.result.after.hp, 5); assert.equal(r.result.after.rituals, 0); assert.equal(r.result.after["Devil's Luck"], 3);
   assert.match(r.result.report, /hp 2→5/);
+  assert.doesNotMatch(r.result.report, /rituals/);
   assert.equal((await runCommand({ name: "rest", args: { actorName: "Bart", length: "nap" } }, {})).code, "BAD_ARGS");
 });

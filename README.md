@@ -1,4 +1,4 @@
-# AI GM Bridge (module id `ai-gm-bridge`) v0.8.9
+# AI GM Bridge (module id `ai-gm-bridge`) v0.8.10
 
 > ⚠️ **Alpha:** still in testing. Expect bugs and breaking changes.
 
@@ -20,13 +20,13 @@ batched chat events to your bot's webhook, and your bot sends typed JSON command
 - Push-to-talk: a hold-to-talk mic button (bottom left) with a live mic light. Turn on **Push-to-talk (this browser)** to also use the key (default `` ` ``).
 - Roll requests use one large **Roll** button; after you roll, the card greys out.
 - Voice lines have a ▶ replay button, and long lines can be expanded.
-- The GM has an in-game **AI GM** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap, see whose turn it is, cancel pending rolls, and a quick HP list.
+- The GM has an in-game **AI GM** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap, see whose turn it is, cancel pending rolls, clear stuck events, and a quick HP list.
 - **Configure AI GM** now opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section.
 
 ## What it does
 - **Exactly once:** one leader client handles events (the bot GM user is preferred), with persisted dedupe and acked retries.
   A `batchId` always stands for the same set of events.
-- **Relay chat ack (v0.8.9):** in relay mode, player chat is marked received after it is handed to the relay (socket + hook), so it is not retried. Other event types still wait for `api.ack`. Redo/skip fall back to the newest player chat ids when the last wake is unknown.
+- **Relay ack (v0.8.10):** in relay mode, player chat, combat start/end, turns, and roll-request outcomes are marked received after they are handed to the relay (socket + hook), so they are not retried. Control events still wait for `api.ack`. Redo/skip fall back to the newest player chat ids when the last wake is unknown.
 - **Fewer wakes:** chat bursts are grouped into one batch. Noise is filtered out (OOC, the bot's own posts, plain rolls,
   ignored users). Simple `!` commands are handled locally.
 - **Small payloads:** text is plain and trimmed, empty fields are dropped, and combat/scene context is sent only when it changes.
@@ -42,7 +42,7 @@ Local commands (no bot call): `!roll 2d6`, `!music <playlist>` or `!music <playl
 - **Push-to-talk (v0.8.5, per player, off by default):** each player enables **Push-to-talk (this browser)** (`pushToTalk`, client setting) and holds the key (`pushToTalkKey`, default `Backquote`, the ` key) or the 🎤 button bottom-left. The browser's Web Speech API transcribes (language from Foundry's language setting) with a "Listening…" indicator showing live text; on release the transcript is posted as that player's normal chat message. The key is ignored while typing in a text field. Chrome/Edge only (no Firefox: one-time notice, no button); needs mic permission, which browsers allow only on HTTPS or localhost. Speech goes to the browser's own speech service (Chrome/Edge send audio to Google/Microsoft), nothing to this module's servers.
 
 ## API (bot GM user, on the leader client)
-`api.run({name, args, commandId?})`, `api.ack(eventIds)`, `api.status()`, `api.metrics()`, `api.clearDead()`.
+`api.run({name, args, commandId?})`, `api.ack(eventIds)`, `api.status()`, `api.metrics()`, `api.clearDead()`, `api.clearStuck()`.
 See `docs/BOT-API.md`.
 
 ## Release

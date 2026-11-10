@@ -27,7 +27,8 @@ import { rollBreakdown } from "./lib/rollreq.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
 import { PushToTalk, speechLang } from "./lib/ptt.mjs";
 import { GmStatusPill, deriveGmStatus } from "./lib/gmstatus.mjs";
-import { makeGmPanel, collectHp, sceneTokens, installSidebarButton, makeControlEvent, resolveWakeEventIds, newestChatEventIds } from "./lib/gmpanel.mjs";
+import { makeGmPanel, collectHp, sceneTokens, installSidebarButton, makeControlEvent, resolveWakeEventIds, newestChatEventIds, formatClearedStuck } from "./lib/gmpanel.mjs";
+import { DEFAULT_HP_PATH, LEGACY_HP_PATH } from "./lib/hp.mjs";
 import { enhanceVoiceMessage } from "./lib/voiceui.mjs";
 import { injectStyles } from "./lib/styles.mjs";
 
@@ -72,6 +73,17 @@ function handleGmControl(data) {
   if (data.action === "redo") { const ids = wakeTargetIds(data); emitControl("redo", { targetEventIds: ids, replyTo: ids[0] ?? null }); thinkingOn(); }
   else if (data.action === "skip") { thinkingOff({ broadcast: true }); emitControl("skip", { targetEventIds: wakeTargetIds(data) }); }
   else if (data.action === "cancelRoll" && data.requestId) F.cancelRollRequest(data.requestId);
+  else if (data.action === "clearStuck") doClearStuck();
+}
+function doClearStuck() {
+  thinkingOff({ broadcast: true });
+  const ids = (S.outbox?.items ?? []).map(i => i.event.eventId);
+  const n = S.outbox?.ack(ids) ?? 0;
+  for (const id of ids) S.dedupe?.mark(id, "acked", Date.now());
+  persistNow();
+  refreshPanel();
+  try { game.socket.emit(SOCKET, { type: "stuckCleared", count: n }); } catch {}
+  return { ok: true, result: { cleared: n } };
 }
 function refreshPanel() { try { if (panelApp?.rendered) panelApp.render(); } catch {} }
 async function panelAction(action, data = {}) {
@@ -83,6 +95,15 @@ async function panelAction(action, data = {}) {
     return;
   }
   if (action === "recap") return F.recap({ max: 40 });
+  if (action === "clearStuck") {
+    if (amLeader()) {
+      const r = doClearStuck();
+      ui.notifications?.info?.(formatClearedStuck(r.result.cleared, loc));
+      return r;
+    }
+    game.socket.emit(SOCKET, { type: "gmControl", action: "clearStuck" });
+    return;
+  }
 }
 const log = (...a) => console.log(`${ID} |`, ...a);
 
@@ -110,7 +131,7 @@ Hooks.once("init", () => {
   game.settings.register(ID, "webhookSecret", { scope: "world", config: false, restricted: true, type: String, default: "" });
   game.settings.registerMenu(ID, "config", { name: "AI GM Bridge", label: "Configure AI GM", icon: "fas fa-robot", type: makeConfigApp(), restricted: true });
   reg("heartbeatMs", Number, 10000); reg("heartbeatTimeoutMs", Number, 45000); reg("batchMs", Number, 3500);
-  reg("keywords", String, ""); reg("hpPath", String, "system.hp.value");
+  reg("keywords", String, ""); reg("hpPath", String, "system.attributes.hp.value");
   reg("alwaysVoiceUsers", String, ""); reg("unpauseOnStart", Boolean, true);
   // v0.3 speed/usage
   reg("debounceMs", Number, 1200); reg("maxWaitMs", Number, 3500);
@@ -152,6 +173,7 @@ Hooks.once("ready", () => {
   const whenReady = mod.api?.whenReady ?? (() => Promise.resolve(mod.api));
   try { installAudioResume({ queue: audioQueue, beforeUnlock: async () => { await game.audio?.unlock; try { await game.audio?.context?.resume?.(); } catch {} } }); } catch {}
   try { if (game.audio?.locked) showAudioUnlockPrompt({ queue: audioQueue, label: loc("AIGM.audio.enableSound", "Enable sound"), beforeUnlock: async () => { await game.audio?.unlock; try { await game.audio?.context?.resume?.(); } catch {} } }); } catch {}
+  try { if (game.user?.isGM && get("hpPath") === LEGACY_HP_PATH) game.settings.set(ID, "hpPath", DEFAULT_HP_PATH); } catch {}
   mod.api = {
     version: mod.version, ready: true, whenReady, commands: Object.keys(COMMANDS),
     status: () => ({ enabled: enabled(), leader: S.leader, amLeader: amLeader(), queued: S.outbox?.items.length ?? 0, dead: S.outbox?.dead().length ?? 0,
@@ -160,6 +182,10 @@ Hooks.once("ready", () => {
     format: (r) => formatResult(r),
     debug: { burstTest: (o = {}) => burstTest({ debounceMs: get("debounceMs"), maxWaitMs: get("maxWaitMs"), ...o }) },
     clearDead: () => { thinkingOff({ broadcast: true }); const ids = S.outbox?.clearDead() ?? []; persistSoon(); return { ok: true, result: { cleared: ids } }; },
+    clearStuck: () => {
+      if (!amLeader()) { game.socket.emit(SOCKET, { type: "gmControl", action: "clearStuck" }); return { ok: true, result: { cleared: 0, forwarded: true } }; }
+      return doClearStuck();
+    },
     run: async (cmd) => {
       if (!enabled()) return fail(503, "AI GM bridge disabled in this world");
       if (!game.user.isGM || !isBot()) return fail(403, "commands only accepted from the bot GM user");
@@ -190,7 +216,21 @@ Hooks.once("ready", () => {
     try {
       const Panel = makeGmPanel({
         t: loc,
-        gather: () => ({ paused: !!get("aiPaused"), turn: F.turnStatus(), pending: F.pendingRequests(), hp: collectHp(sceneTokens(canvas?.scene ?? game.scenes?.viewed), { hpPath: get("hpPath") }) }),
+        gather: () => {
+          const dead = S.outbox?.dead().length ?? 0;
+          const queued = Math.max(0, (S.outbox?.items.length ?? 0) - dead);
+          return { paused: !!get("aiPaused"), turn: F.turnStatus(), pending: F.pendingRequests(), hp: collectHp(sceneTokens(canvas?.scene ?? game.scenes?.viewed), { hpPath: get("hpPath") }), stuck: { queued, dead } };
+        },
+        confirm: async (msg) => {
+          try {
+            const Dlg = foundry?.applications?.api?.DialogV2;
+            if (Dlg?.confirm) {
+              const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+              return !!(await Dlg.confirm({ window: { title: loc("AIGM.panel.clearStuck", "Clear stuck") }, content: `<p>${esc(msg)}</p>` }));
+            }
+          } catch {}
+          return typeof globalThis.confirm === "function" ? globalThis.confirm(msg) : true;
+        },
         onAction: panelAction
       });
       const openPanel = () => { panelApp ??= new Panel(); panelApp.render(true); };
@@ -291,6 +331,11 @@ function onSocket(data) {
   if (data.type === "voice") { S.lastReplyAt = Date.now(); }
   if (data.type === "voice") { thinking.hide(); return void onVoiceSocket(data); } // #12: players play bot voice locally
   if (data.type === "thinking") { if (data.on) thinking.show(data.timeoutMs); else thinking.hide(); if (data.lastReplyAt) S.lastReplyAt = data.lastReplyAt; refreshStatus(); return; } // #14
+  if (data.type === "stuckCleared") {
+    if (game.user?.isGM) ui.notifications?.info?.(formatClearedStuck(data.count, loc));
+    refreshPanel();
+    return;
+  }
   if (data.type === "gmControl" && amLeader()) return void handleGmControl(data);
   if (data.type === "ack" && amLeader() && Array.isArray(data.eventIds)) game.modules.get(ID).api.ack(data.eventIds);
 }
@@ -417,7 +462,7 @@ function flush(opts = {}) {
     game.socket.emit(SOCKET, { type: "events", batch: payload }); // relay (headless/bot client) consumes this
     Hooks.callAll(`${ID}.events`, payload);
     if (shouldShowThinking(batch.events, batch.attempt)) { S.lastWake = { eventIds: batch.events.filter(e => ["chat", "rollResult"].includes(e.type)).map(e => e.eventId), at: Date.now() }; thinkingOn(); } // #14
-    // Relay: chat is handed to the GM via the socket/hook (and often a separate /wait of Foundry chat). Mark it received so it is not retried. Do not clear thinking — the GM has not replied yet. Other event types still wait for api.ack (official relay after webhook 2xx). Direct mode unchanged.
+    // Relay: chat, combat, turns, and roll-request outcomes are handed to the GM via the socket/hook. Mark them received so they are not retried. Do not clear thinking — the GM has not replied yet. Control still waits for api.ack. Direct mode unchanged.
     if (get("delivery") === "relay") ackRelayChatIds(relayAutoAckIds(payload.events));
     if (get("delivery") === "direct" && isBot() && get("webhookUrl")) {
       const api = game.modules.get(ID).api;

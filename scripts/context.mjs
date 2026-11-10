@@ -3,9 +3,9 @@
 // Never creates chat messages, never emits on the socket, never renders anything. `g` is the Foundry `game` object
 // (injectable for tests).
 import { ok, fail } from "./lib/result.mjs";
-import { buildSections, ContextCache, parseList, journalIncluded, contextAllowed } from "./lib/context.mjs";
+import { buildSections, ContextCache, parseList, journalIncluded, contextAllowed, tokenStance } from "./lib/context.mjs";
+import { readActorHp } from "./lib/hp.mjs";
 export const cache = new ContextCache(); // memory only
-const DISP = { "-2": "secret", "-1": "hostile", "0": "neutral", "1": "friendly" };
 const find = (coll, key) => key == null ? null : (coll?.get?.(key) ?? coll?.getName?.(key) ?? coll?.find?.(d => d.name?.toLowerCase() === String(key).toLowerCase()) ?? null);
 function pagesOf(entry, pageKey) {
   const all = entry?.pages?.contents ?? [];
@@ -21,9 +21,11 @@ export function collectData(g, { scene, journals } = {}) {
     const pins = (sc.notes?.contents ?? []).map(n => n.text || n.entry?.name || n.label).filter(Boolean);
     if (pins.length) notes.push(`Map notes: ${pins.join(", ")}`);
     data.scene = { name: sc.name, notes: notes.join("\n") };
+    const hpPath = g.settings?.get?.("ai-gm-bridge", "hpPath");
     data.tokens = (sc.tokens?.contents ?? []).map(t => {
-      const hp = t.actor?.system?.hp; return { name: t.name, hidden: !!t.hidden, disposition: DISP[String(t.disposition)] ?? "",
-        hp: hp && hp.value != null ? { value: hp.value, max: hp.max } : null, defeated: !!t.combatant?.defeated };
+      const hp = readActorHp(t.actor, hpPath);
+      return { name: t.name, hidden: !!t.hidden, disposition: tokenStance(t, t.actor),
+        hp, defeated: !!t.combatant?.defeated };
     });
   }
   const c = g.combat;

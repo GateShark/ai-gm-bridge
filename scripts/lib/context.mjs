@@ -15,6 +15,11 @@ export function journalIncluded(entry, list) {
   const hit = (d) => d && (L.includes(String(d.id).toLowerCase()) || L.includes(String(d.name ?? "").toLowerCase()));
   if (hit(entry)) return true; for (let f = entry.folder; f; f = f.folder) if (hit(f)) return true; return false;
 }
+export const TOKEN_DISP = { "-2": "secret", "-1": "hostile", "0": "neutral", "1": "friendly" };
+export function tokenStance(token = {}, actor = token?.actor) {
+  if (actor?.hasPlayerOwner || token?.hasPlayerOwner || actor?.type === "character") return "pc";
+  return TOKEN_DISP[String(token?.disposition)] ?? "";
+}
 function tokenLine(t) {
   const hp = t.hp ? ` HP ${t.hp.value}${t.hp.max != null ? "/" + t.hp.max : ""}` : "";
   return `${t.name}${t.disposition ? ` (${t.disposition})` : ""}${hp}${t.defeated ? " defeated" : ""}`;

@@ -75,7 +75,7 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | format | result (any command reply); returns {text}, a one-line readable version |
 | tokenUpdate | tokenId or tokenName, hidden?, elevation?, rotation?, alpha? |
 | setHP | actorId or actorName, or tokenId/tokenName (+sceneId); value or delta, path? |
-| getResources / setResource | actorId or actorName, resource (hp, luck, rituals, prayers, hull, crew, ...), value or delta |
+| getResources / setResource | actorId or actorName, or tokenId/tokenName (+sceneId); resource (hp, luck, rituals, prayers, hull, crew, ...), value or delta. If you only pass an actor name/id, an unlinked token of that actor on the viewed scene is preferred (same as setHP/rest) |
 | nextTurn / endCombat | expect: {combatId, round, turn}; 409 if stale |
 | scene | sceneId or sceneName, activate? |
 | music | playlist, sound?, action: play or stop |
@@ -87,7 +87,7 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | requestRoll | user (name or id), actorId? or actorName? (default: the user's character), stat (strength/agility/presence/toughness/spirit, or str/agi/pre/tou/spi), dr, label?, requestId?, timeoutMs? (default setting, 120000). Posts a card with a Roll button only that player or a GM can use. Any d20 roll by that player after the card (button, sheet, or Pixels dice) answers it. Returns {requestId, messageId, status}; the same requestId returns the existing card and result with duplicate:true. You get one `rollResult` event. On timeout you get `rollTimeout` and a GM-only "roll for them" button appears. **v0.8.4 any formula:** pass `formula` (any Foundry formula, e.g. `1d6`, `2d4+1`, `1d20+@abilities.agility.value`, evaluated with the actor's roll data) with `label`; then `stat` and `dr` are optional. Same button and same `rollResult` event, plus `formula` and `label`; `success` is null when no `dr` was given (true/false vs `dr` otherwise). Non-d20 formula requests are answered only by their card button. Errors: BAD_FORMULA, BAD_STAT, BAD_ARGS (stat test without dr) |
 | turnStatus | none; returns {active, round, turn, name, ownerNames, next, isNPC} |
 | recap | since? (ms epoch or ISO), max? (40); returns {count, counts, summary, lines} from the GM-only "AI GM Session Log" journal. Lines are newest first; each starts with Today, Yesterday, or the date, plus the time |
-| rest | actorId or actorName, length?: short or long (default long), food?: eat, starve or donteat (default eat), infected?. Pirate Borg rules (see below); returns before, after, report and rolls, and posts a summary card |
+| rest | actorId or actorName, or tokenId/tokenName (+sceneId); length?: short or long (default long; `kind` is accepted as an alias), food?: eat, starve or donteat (default eat), infected?. Unknown rest types are rejected (`length must be short or long`) instead of doing a long rest. Rituals and class resources are skipped when the actor has none (`max` is 0). Pirate Borg rules (see below); returns before, after, report and rolls, and posts a summary card |
 | speakBubble | tokenId or tokenName, sceneId?, text (plain, max 300), emote?. Shows a chat bubble over the token on every client (one socket message, no chat message) |
 
 ### v0.6 local features (no bot wake)
@@ -228,3 +228,11 @@ Chat that was already flushed at least once (including dead items) is also acked
 
 Redo/skip `targetEventIds` still prefer the last player chat/roll batch that was sent to you. If that list is empty (for example after a reload), the module falls back to the newest player chat event ids instead of sending `[]`.
 
+## v0.8.10: scene HP, rest safety, broader relay ack
+`getContext` / game summary reads live Pirate Borg HP at `system.attributes.hp` (not a leftover `system.hp` of 0). Player-owned or `character` tokens are labeled as PCs even if the token disposition is hostile.
+
+`getResources`, `setResource`, `setHP`, and `rest` prefer the viewed scene token's actor when only `actorId`/`actorName` is given, so unlinked token stats are used.
+
+In **relay** delivery, `chat`, `combat`, `turn`, `rollResult`, `rollTimeout`, and `rollCancelled` are marked received after emit. `control` still waits for `api.ack`. The official `relay/` still acks after a webhook 2xx; a second ack is a no-op.
+
+The GM panel **Clear stuck** button (and `api.clearStuck()`) acks every remaining outbox item (queued and dead). Non-leader GMs forward the request so the leader persists the empty queue.

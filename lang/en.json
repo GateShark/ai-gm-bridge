@@ -31,7 +31,7 @@
       },
       "hpPath": {
         "name": "HP data path",
-        "hint": "Actor data path for HP (Pirate Borg: system.hp.value)."
+        "hint": "Actor data path for HP (Pirate Borg: system.attributes.hp.value). Worlds still set to the old system.hp.value path are updated automatically."
       },
       "alwaysVoiceUsers": {
         "name": "Always-voice users",
@@ -231,6 +231,11 @@
       "cancelRoll": "Cancel",
       "hp": "HP",
       "noHp": "No tokens with HP on this scene.",
+      "clearStuck": "Clear stuck",
+      "clearStuckConfirm": "Clear {n} stuck event(s) that were never marked received?",
+      "stuckCount": "{total} stuck ({queued} queued, {dead} dead).",
+      "noStuck": "No stuck events.",
+      "clearedStuck": "Cleared {n} stuck event(s).",
       "open": "Open AI GM panel"
     }
   }

@@ -1,8 +1,8 @@
 // 0.8.8 in-game GM panel: pause/resume, redo/skip last reply, recap, current
 // turn, pending roll cancel, and a quick HP list. Pure helpers are exported
 // for tests; the ApplicationV2 wrapper is created only when Foundry is present.
+import { readActorHp } from "./hp.mjs";
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const get = (o, p) => String(p ?? "").split(".").reduce((x, k) => x?.[k], o);
 
 export function sceneTokens(scene) {
   const col = scene?.tokens;
@@ -11,12 +11,6 @@ export function sceneTokens(scene) {
   if (Array.isArray(col.contents)) return col.contents.filter(Boolean);
   try { return [...col].filter(Boolean); } catch { return []; }
 }
-function readHp(actor, hpPath) {
-  const hpObj = actor?.system?.attributes?.hp;
-  if (hpObj && typeof hpObj === "object" && "value" in hpObj) return { value: hpObj.value, max: hpObj.max ?? null };
-  const p = hpPath || "system.hp.value";
-  return { value: get(actor, p), max: get(actor, p.replace(/\.value$/, ".max")) };
-}
 // Tokens on the viewed scene. Prefer token.actor so unlinked tokens show their own HP (including 0).
 // Bare actors (no .actor) still work so older callers/tests keep passing.
 export function collectHp(tokens, { hpPath = "system.attributes.hp.value" } = {}) {
@@ -24,11 +18,26 @@ export function collectHp(tokens, { hpPath = "system.attributes.hp.value" } = {}
   for (const t of tokens ?? []) {
     const actor = t?.actor ?? (t?.system ? t : null);
     if (!actor) continue;
-    const { value, max } = readHp(actor, hpPath);
-    if (value == null && max == null) continue;
-    list.push({ id: t.id ?? actor.id, name: t.name || actor.name, value: value ?? null, max: max ?? null, pc: !!(actor.hasPlayerOwner ?? t.hasPlayerOwner) });
+    const hp = readActorHp(actor, hpPath);
+    if (!hp || (hp.value == null && hp.max == null)) continue;
+    list.push({ id: t.id ?? actor.id, name: t.name || actor.name, value: hp.value ?? null, max: hp.max ?? null, pc: !!(actor.hasPlayerOwner ?? t.hasPlayerOwner) });
   }
   return list.sort((a, b) => (Number(b.pc) - Number(a.pc)) || String(a.name ?? "").localeCompare(String(b.name ?? "")));
+}
+export function stuckCounts(counts = {}) {
+  const src = counts && typeof counts === "object" ? counts : {};
+  const q = Math.max(0, Number(src.queued) || 0);
+  const d = Math.max(0, Number(src.dead) || 0);
+  return { queued: q, dead: d, total: q + d };
+}
+export function formatStuckCount(counts, t = (k, f) => f || k) {
+  const c = stuckCounts(counts);
+  if (!c.total) return t("AIGM.panel.noStuck", "No stuck events.");
+  return t("AIGM.panel.stuckCount", "{total} stuck ({queued} queued, {dead} dead).")
+    .replace("{total}", String(c.total)).replace("{queued}", String(c.queued)).replace("{dead}", String(c.dead));
+}
+export function formatClearedStuck(n, t = (k, f) => f || k) {
+  return t("AIGM.panel.clearedStuck", "Cleared {n} stuck event(s).").replace("{n}", String(Number(n) || 0));
 }
 
 export function makeControlEvent(action, extra = {}, now = Date.now()) {
@@ -55,7 +64,7 @@ export function newestChatEventIds(messages = [], { limit = 5, skip } = {}) {
   return out;
 }
 
-export function panelHtml({ paused = false, turn = null, pending = [], hp = [], recapText = "", t = (k, f) => f || k } = {}) {
+export function panelHtml({ paused = false, turn = null, pending = [], hp = [], recapText = "", stuck = null, t = (k, f) => f || k } = {}) {
   const turnLine = turn?.name
     ? (t("AIGM.panel.turnLine", "Round {round}: {name} is up.").replace("{round}", turn.round ?? "?").replace("{name}", turn.name) + (turn.next ? ` ${t("AIGM.panel.next", "Next: {name}.").replace("{name}", turn.next)}` : ""))
     : t("AIGM.panel.noCombat", "No active combat.");
@@ -77,7 +86,9 @@ export function panelHtml({ paused = false, turn = null, pending = [], hp = [], 
       <button type="button" data-aigm-action="redo">${esc(t("AIGM.panel.redo", "Redo last reply"))}</button>
       <button type="button" data-aigm-action="skip">${esc(t("AIGM.panel.skip", "Skip last reply"))}</button>
       <button type="button" data-aigm-action="recap">${esc(t("AIGM.panel.recap", "Recap"))}</button>
+      <button type="button" data-aigm-action="clearStuck"${stuckCounts(stuck).total ? "" : " disabled"}>${esc(t("AIGM.panel.clearStuck", "Clear stuck"))}</button>
     </div>
+    <p class="aigm-panel-stuck">${esc(formatStuckCount(stuck, t))}</p>
     <h3>${esc(t("AIGM.panel.turn", "Current turn"))}</h3>
     <p class="aigm-panel-turn">${esc(turnLine)}</p>
     <h3>${esc(t("AIGM.panel.pendingRolls", "Pending rolls"))}</h3>
@@ -119,6 +130,14 @@ export function makeGmPanel(deps = {}) {
         btn.addEventListener("click", async (ev) => {
           ev.preventDefault();
           const action = btn.dataset.aigmAction;
+          if (action === "clearStuck") {
+            const n = stuckCounts(deps.gather?.()?.stuck).total;
+            if (n > 0) {
+              const msg = t("AIGM.panel.clearStuckConfirm", "Clear {n} stuck event(s) that were never marked received?").replace("{n}", String(n));
+              const yes = deps.confirm ? await deps.confirm(msg) : (typeof globalThis.confirm === "function" ? globalThis.confirm(msg) : true);
+              if (!yes) return;
+            }
+          }
           const result = await deps.onAction?.(action, { requestId: btn.dataset.requestId });
           if (action === "recap" && result) {
             this.recapText = typeof result === "string" ? result : [result.summary, ...(result.lines ?? [])].filter(Boolean).join("\n");

@@ -12,7 +12,7 @@ import { buildSpawn, LOCK_SCOPES } from "./lib/spawn.mjs";
 import * as F from "./features.mjs";
 import { getContext } from "./context.mjs";
 import * as SHIP from "./ship.mjs";
-import { targetActor, targetInfo } from "./lib/target.mjs";
+import { targetActor, targetInfo, sceneTokenForActor } from "./lib/target.mjs";
 import { resolveResource, nextValue, summarize, parseAmount } from "./lib/pirateborg.mjs";
 
 // Class item's own label for extraResource (e.g. "Prayers"); field name varies, so search string fields.
@@ -61,7 +61,11 @@ const TOK = { tokenId: "string?", tokenName: "string?", sceneId: "string?" };
 function findTarget(a) {
   if (a.tokenId || a.tokenName) { const t = findToken(a); if (!t) return { error: fail(404, "token not found") };
     const base = (a.actorId || a.actorName) ? findActor(a) : null; const r = targetActor({ token: t, baseActor: base }); return r ?? { error: fail(404, "actor not found") }; }
-  const r = targetActor({ baseActor: findActor(a) }); return r ?? { error: fail(404, "actor not found") };
+  const base = (a.actorId || a.actorName) ? findActor(a) : null;
+  const scene = a.sceneId ? game.scenes.get(a.sceneId) : globalThis.canvas?.scene ?? game.scenes?.viewed ?? game.scenes?.active;
+  const tok = sceneTokenForActor(scene?.tokens, { actor: base, actorId: a.actorId, actorName: a.actorName });
+  if (tok) { const r = targetActor({ token: tok, baseActor: base }); if (r) return r; }
+  const r = targetActor({ baseActor: base }); return r ?? { error: fail(404, "actor not found") };
 }
 function findToken(a) {
   const scene = a.sceneId ? game.scenes.get(a.sceneId) : canvas?.scene ?? game.scenes.active;
@@ -265,8 +269,8 @@ export const COMMANDS = {
   cancelRoll: { schema: { requestId: "string" }, async run(a) { return F.cancelRollRequest(a.requestId); } },
   turnStatus: { schema: {}, async run() { const t = F.turnStatus(); return ok({ active: !!t, ...(t ?? {}) }); } },
   recap: { schema: { since: "any?", max: "number?" }, async run(a) { return ok(await F.recap(a)); } },
-  rest: { schema: { actorId: "string?", actorName: "string?", ...TOK, length: "string?", food: "string?", infected: "boolean?" }, async run(a) {
-    const tg = findTarget(a); if (tg.error) return fail("NOT_FOUND", tg.error.error); return F.rest(tg.actor, a); } },
+  rest: { schema: { actorId: "string?", actorName: "string?", ...TOK, length: "string?", kind: "string?", food: "string?", infected: "boolean?" }, async run(a) {
+    const tg = findTarget(a); if (tg.error) return fail("NOT_FOUND", tg.error.error); return F.rest(tg.actor, { ...a, length: a.length ?? a.kind }); } },
   speakBubble: { schema: { tokenId: "string?", tokenName: "string?", sceneId: "string?", text: "string", emote: "boolean?" }, async run(a) {
     const t = findToken(a); if (!t) return fail("NOT_FOUND", "token not found"); return F.speakBubble({ tokenId: t.id, text: unwrapText(a.text), emote: a.emote }); } },
   post: { schema: { content: "string", replyTo: "string?", speakerAlias: "string?", allowMultiple: "boolean?", ackEventIds: "array?" }, async run(a, ctx) { if ("content" in a) a.content = unwrapText(a.content);

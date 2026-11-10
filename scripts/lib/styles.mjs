@@ -18,6 +18,7 @@ export const CSS = `
 .aigm-panel{padding:8px;display:flex;flex-direction:column;gap:10px}
 .aigm-panel-actions{display:flex;flex-wrap:wrap;gap:6px}
 .aigm-panel-actions button{flex:1 1 40%;padding:8px;font-weight:600;cursor:pointer}
+.aigm-panel-stuck{margin:0;opacity:.85;font-size:12px}
 .aigm-panel h3{margin:8px 0 4px;font-size:13px;text-transform:uppercase;opacity:.8}
 .aigm-hp-row,.aigm-roll-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0}
 .aigm-hp-bar{height:6px;background:#333;border-radius:3px;overflow:hidden;flex:1}

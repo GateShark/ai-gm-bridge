@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.10
+- Game summary (`getContext`): HP is read from Pirate Borg's live `system.attributes.hp` (falling back to `system.hp`, then the `hpPath` setting). The default `hpPath` is now `system.attributes.hp.value`. Worlds still saved as the stale `system.hp.value` are migrated on ready. Player-owned or `character` tokens are always labeled as PCs, even when their token disposition is hostile.
+- Resource reads, rest, and other actor-targeted commands prefer the viewed scene token's actor when the caller only passed `actorId`/`actorName`, so unlinked tokens (like a wounded Tempus at 2/10) are used instead of the base sheet.
+- Rest: `kind` is accepted as an alias for `length`. Unknown or malformed rest types are rejected with "length must be short or long" instead of silently doing a long rest. Rituals, slots, and other class resources are not restored when the actor has none (`max` is 0).
+- GM panel: **Clear stuck** empties un-acked and dead outbox events (with a confirm and a toast of how many were cleared). The panel shows the stuck count. Non-leader GMs forward the clear to the leader so it is persisted.
+- Relay mode now also marks `combat`, `turn`, `rollResult`, `rollTimeout`, and `rollCancelled` received after emit, so those events do not sit in the queue until they die. `control` still waits for an explicit `api.ack`.
+
 ## 0.8.9
 - Relay mode: chat events are marked received after the batch is emitted on the module socket and the `ai-gm-bridge.events` hook, so they are not retried. Relays that read Foundry chat themselves (for example a `/wait` loop) no longer leave player chat sitting in the outbox until it dies. Other event types still wait for `api.ack` (the official relay still acks after webhook 2xx). Direct delivery is unchanged (ack after 2xx). Chat that was already flushed at least once is also acked when the leader starts up, so old unacked chat does not re-send after a reload.
 - Redo/skip: if the last wake ids are empty (for example after a reload), the control event falls back to the newest player chat event ids instead of sending `targetEventIds: []`.
