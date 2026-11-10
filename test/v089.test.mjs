@@ -2,7 +2,8 @@
 import test from "node:test"; import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Outbox, relayAutoAckIds, relayStaleChatIds, RELAY_AUTO_ACK_TYPES } from "../scripts/lib/outbox.mjs";
-import { resolveWakeEventIds, newestChatEventIds } from "../scripts/lib/gmpanel.mjs";
+import { resolveWakeEventIds, newestChatEventIds, collectHp, sceneTokens, panelHtml } from "../scripts/lib/gmpanel.mjs";
+import { recap, recapStamp } from "../scripts/lib/sessionlog.mjs";
 
 test("0.8.9 relayAutoAckIds is chat-only and skips incomplete events", () => {
   assert.deepEqual(RELAY_AUTO_ACK_TYPES, ["chat"]);
@@ -84,4 +85,70 @@ test("0.8.9 version, changelog and public credits", () => {
   assert.match(readme, /Gate \(GateShark\)/);
   assert.doesNotMatch(readme, /Kevin|Allen/);
   assert.match(readFileSync(new URL("../docs/BOT-API.md", import.meta.url), "utf8"), /v0\.8\.9/);
+});
+
+test("0.8.9 panel HP comes from scene tokens (unlinked HP, including 0; no off-scene actors)", () => {
+  const baseTempus = { id: "tempus", name: "Tempus", hasPlayerOwner: true, system: { attributes: { hp: { value: 10, max: 10 } } } };
+  const tokens = [
+    { id: "tok-tempus", name: "Tempus", actorLink: false, actor: { ...baseTempus, system: { attributes: { hp: { value: 2, max: 10 } } } } },
+    { id: "tok-skel", name: "Skeleton", actorLink: false, actor: { id: "skel", name: "Skeleton", hasPlayerOwner: false, system: { attributes: { hp: { value: 0, max: 4 } } } } }
+  ];
+  const hp = collectHp(tokens);
+  assert.deepEqual(hp.map(h => [h.name, h.value, h.max]), [["Tempus", 2, 10], ["Skeleton", 0, 4]]);
+  assert.ok(!hp.some(h => h.name === "Bilge Rats"));
+  const html = panelHtml({ hp });
+  assert.match(html, /2\/10/);
+  assert.match(html, /0\/4/);
+  assert.match(html, /aigm-hp-dead/);
+  assert.deepEqual(sceneTokens({ tokens: { contents: tokens } }).map(t => t.id), ["tok-tempus", "tok-skel"]);
+  assert.deepEqual(sceneTokens({ tokens }).map(t => t.id), ["tok-tempus", "tok-skel"]);
+  assert.deepEqual(sceneTokens(null), []);
+  // off-scene actor is not passed in, so it cannot appear
+  const onlyScene = collectHp(sceneTokens({ tokens: { contents: tokens } }));
+  assert.equal(onlyScene.length, 2);
+});
+
+test("0.8.9 main refreshes an open panel on roll-request chat changes and reads scene tokens", () => {
+  const m = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
+  assert.match(m, /collectHp\(sceneTokens\(canvas\?\.scene \?\? game\.scenes\?\.viewed\)/);
+  assert.match(m, /function refreshPanel/);
+  assert.match(m, /msg\.flags\?\.\[ID\]\?\.rollRequest\) refreshPanel\(\)/);
+  assert.match(m, /Hooks\.on\("updateChatMessage"/);
+  assert.match(m, /Hooks\.on\("createChatMessage"/);
+  assert.match(m, /Hooks\.on\("deleteChatMessage"/);
+  const cfg = readFileSync(new URL("../scripts/config-app.mjs", import.meta.url), "utf8");
+  assert.match(cfg, /delivery: "Delivery"/);
+  assert.match(cfg, /webhookUrl: "Webhook URL"/);
+});
+
+test("0.8.9 settings i18n names/hints for delivery, webhookUrl, botNames, webhookAuthHeader", () => {
+  const en = JSON.parse(readFileSync(new URL("../lang/en.json", import.meta.url), "utf8")).AIGM;
+  for (const k of ["delivery", "webhookUrl", "botNames", "webhookAuthHeader"]) {
+    assert.ok(en.settings[k]?.name, k);
+    assert.ok(!String(en.settings[k].name).includes("AIGM."), k);
+    assert.ok(en.settings[k].hint, k);
+  }
+  assert.equal(en.settings.delivery.name, "Delivery");
+  assert.equal(en.settings.webhookUrl.name, "Webhook URL");
+  assert.equal(en.settings.botNames.name, "Bot names");
+  assert.equal(en.settings.webhookAuthHeader.name, "Webhook auth header");
+});
+
+test("0.8.9 recap is newest-first with Today/Yesterday or date plus time", () => {
+  const now = new Date(2026, 10, 9, 22, 0, 0).getTime();
+  const today = new Date(2026, 10, 9, 7, 59, 0).getTime();
+  const yest = new Date(2026, 10, 8, 12, 0, 0).getTime();
+  const older = new Date(2026, 10, 7, 8, 0, 0).getTime();
+  assert.equal(recapStamp(today, now), "Today 07:59:00");
+  assert.equal(recapStamp(yest, now), "Yesterday 12:00:00");
+  assert.equal(recapStamp(older, now), "2026-11-07 08:00:00");
+  const r = recap([
+    { at: older, kind: "heal", text: "oldest" },
+    { at: yest, kind: "heal", text: "yesterday-line" },
+    { at: today, kind: "heal", text: "today-line" }
+  ], { max: 2, now });
+  assert.equal(r.lines.length, 2);
+  assert.equal(r.lines[0], "[Today 07:59:00] today-line");
+  assert.equal(r.lines[1], "[Yesterday 12:00:00] yesterday-line");
+  assert.ok(!r.lines.join("\n").includes("oldest"));
 });

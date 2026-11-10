@@ -12,7 +12,7 @@ export function makeConfigApp() {
     async _renderHTML() {
       const g = (k) => game.settings.get(ID, k);
       const t = (k, f) => { const v = game.i18n?.localize?.(k); return v && v !== k ? v : (f || k); };
-      const labelFor = (k, fallback) => t(`AIGM.settings.${k}.name`, fallback);
+      const labelFor = (k, fallback) => t(`AIGM.settings.${k}.name`, fallback || ({ delivery: "Delivery", webhookUrl: "Webhook URL", botNames: "Bot names", webhookAuthHeader: "Webhook auth header" }[k]));
       const gms = game.users.filter(u => u.isGM);
       const row = ([k, type, opts]) => {
         const v = g(k);

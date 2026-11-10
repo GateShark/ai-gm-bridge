@@ -3,6 +3,10 @@
 ## 0.8.9
 - Relay mode: chat events are marked received after the batch is emitted on the module socket and the `ai-gm-bridge.events` hook, so they are not retried. Relays that read Foundry chat themselves (for example a `/wait` loop) no longer leave player chat sitting in the outbox until it dies. Other event types still wait for `api.ack` (the official relay still acks after webhook 2xx). Direct delivery is unchanged (ack after 2xx). Chat that was already flushed at least once is also acked when the leader starts up, so old unacked chat does not re-send after a reload.
 - Redo/skip: if the last wake ids are empty (for example after a reload), the control event falls back to the newest player chat event ids instead of sending `targetEventIds: []`.
+- Panel HP list reads tokens on the viewed scene (`token.actor`), so unlinked tokens show their own HP (including 0) and off-scene actors are omitted.
+- The pending-rolls list in an open GM panel refreshes when a roll is requested, rolled, cancelled, or expires.
+- Settings labels for delivery, webhook URL, bot names, and webhook auth header are localized (they no longer show raw i18n keys).
+- Recap lists the newest lines first and stamps each line with Today, Yesterday, or the date, plus the time.
 
 
 ## 0.8.8

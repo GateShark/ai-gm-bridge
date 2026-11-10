@@ -27,7 +27,7 @@ import { rollBreakdown } from "./lib/rollreq.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
 import { PushToTalk, speechLang } from "./lib/ptt.mjs";
 import { GmStatusPill, deriveGmStatus } from "./lib/gmstatus.mjs";
-import { makeGmPanel, collectHp, installSidebarButton, makeControlEvent, resolveWakeEventIds, newestChatEventIds } from "./lib/gmpanel.mjs";
+import { makeGmPanel, collectHp, sceneTokens, installSidebarButton, makeControlEvent, resolveWakeEventIds, newestChatEventIds } from "./lib/gmpanel.mjs";
 import { enhanceVoiceMessage } from "./lib/voiceui.mjs";
 import { injectStyles } from "./lib/styles.mjs";
 
@@ -73,6 +73,7 @@ function handleGmControl(data) {
   else if (data.action === "skip") { thinkingOff({ broadcast: true }); emitControl("skip", { targetEventIds: wakeTargetIds(data) }); }
   else if (data.action === "cancelRoll" && data.requestId) F.cancelRollRequest(data.requestId);
 }
+function refreshPanel() { try { if (panelApp?.rendered) panelApp.render(); } catch {} }
 async function panelAction(action, data = {}) {
   if (action === "pause") return game.settings.set(ID, "aiPaused", true);
   if (action === "resume") return game.settings.set(ID, "aiPaused", false);
@@ -189,7 +190,7 @@ Hooks.once("ready", () => {
     try {
       const Panel = makeGmPanel({
         t: loc,
-        gather: () => ({ paused: !!get("aiPaused"), turn: F.turnStatus(), pending: F.pendingRequests(), hp: collectHp(game.actors?.contents ?? [], { hpPath: get("hpPath") }) }),
+        gather: () => ({ paused: !!get("aiPaused"), turn: F.turnStatus(), pending: F.pendingRequests(), hp: collectHp(sceneTokens(canvas?.scene ?? game.scenes?.viewed), { hpPath: get("hpPath") }) }),
         onAction: panelAction
       });
       const openPanel = () => { panelApp ??= new Panel(); panelApp.render(true); };
@@ -297,12 +298,14 @@ function onSocket(data) {
 Hooks.on("createChatMessage", async (msg) => {
   if (enabled() && isBot(msg.author ?? msg.user ?? {})) thinking.hide(); // #14: bot spoke (runs on every client)
   if (enabled() && isBot(msg.author ?? msg.user ?? {})) { S.lastReplyAt = Date.now(); refreshStatus(); }
+  if (enabled() && msg.flags?.[ID]?.rollRequest) refreshPanel();
   if (!enabled() || !amLeader()) return;
   if (msg.flags?.[ID]?.local) return; // our own cards/replies never wake the bot
   if (isOwnShipCard(msg)) return; // v0.8 morale/ship cards we posted
   if ((msg.rolls?.length || msg.flags?.pirateborg?.outcomes?.length) && await F.onRollMessage(msg).catch(e => (log("rollRequest", e?.message), false))) return;
   handleChat(msg);
 });
+Hooks.on("updateChatMessage", (msg) => { if (enabled() && msg.flags?.[ID]?.rollRequest) refreshPanel(); });
 Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCard(msg, html); enhanceVoiceMessage(msg, html, { t: loc, replay: (src) => audioQueue.enqueue(`replay:${src}:${Date.now()}`, { src }) }); } });
 Hooks.on("updateActor", (a, change) => { if (enabled() && amLeader()) F.onActorUpdate(a, change); });
 Hooks.on("createActor", (a) => { if (enabled() && amLeader()) F.onActorUpdate(a, {}); });
@@ -371,6 +374,7 @@ Hooks.on("preUpdateToken", (doc, change, _o, userId) => {
 });
 // Deleted chat message: drop its queued event so the bot never sees it.
 Hooks.on("deleteChatMessage", (msg) => {
+  if (enabled() && msg.flags?.[ID]?.rollRequest) refreshPanel();
   if (!enabled() || !amLeader() || !S.outbox) return;
   if (S.outbox.dropWhere(e => e.eventId === `chat:${msg.id}`).length) { S.metrics.inc("dropDeleted"); persistNow(); }
 });

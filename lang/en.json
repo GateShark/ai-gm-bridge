@@ -160,6 +160,22 @@
       "aiPaused": {
         "name": "Pause the AI GM",
         "hint": "When on, player chat is not sent to the AI GM. Use the in-game AI GM panel to pause or resume."
+      },
+      "delivery": {
+        "name": "Delivery",
+        "hint": "How events reach your bot: relay (recommended; the secret stays in the relay env) or direct (the bot user's browser POSTs to the webhook)."
+      },
+      "webhookUrl": {
+        "name": "Webhook URL",
+        "hint": "Used in direct mode. Leave blank for relay — the relay has its own env-only URL."
+      },
+      "botNames": {
+        "name": "Bot names",
+        "hint": "Comma-separated names that count as mentioning the GM (for example gm, ai gm)."
+      },
+      "webhookAuthHeader": {
+        "name": "Webhook auth header",
+        "hint": "HTTP header name that carries the webhook secret (default Authorization)."
       }
     },
     "audio": {
@@ -214,7 +230,7 @@
       "noRolls": "No pending rolls.",
       "cancelRoll": "Cancel",
       "hp": "HP",
-      "noHp": "No actors with HP.",
+      "noHp": "No tokens with HP on this scene.",
       "open": "Open AI GM panel"
     }
   }

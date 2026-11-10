@@ -15,6 +15,15 @@ export function actorChanges(name, before, change, { extraLabel = "", hpPath } =
 }
 const pad = (n) => String(n).padStart(2, "0");
 export const stamp = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+const ymd = (dt) => `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+export function recapStamp(ms, now = Date.now()) {
+  const d = new Date(ms), n = new Date(now);
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  if (ymd(d) === ymd(n)) return `Today ${time}`;
+  const yest = new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1);
+  if (ymd(d) === ymd(yest)) return `Yesterday ${time}`;
+  return `${ymd(d)} ${time}`;
+}
 const esc = (s) => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
 export const lineHtml = (at, kind, text) => `<p data-t="${at}" data-k="${kind}">[${stamp(at)}] ${esc(text)}</p>`;
 export function parseLines(html) {
@@ -22,12 +31,12 @@ export function parseLines(html) {
   while ((m = re.exec(String(html ?? "")))) out.push({ at: Number(m[1]), kind: m[2], text: m[3].replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&") });
   return out;
 }
-export function recap(lines, { since = 0, max = 40 } = {}) {
+export function recap(lines, { since = 0, max = 40, now = Date.now() } = {}) {
   const s = typeof since === "string" ? Date.parse(since) : since; const L = lines.filter(l => l.at >= (s || 0));
   const counts = {}; for (const l of L) counts[l.kind] = (counts[l.kind] ?? 0) + 1;
   const key = L.filter(l => ["death", "combat", "item"].includes(l.kind));
   const rest = L.filter(l => !key.includes(l));
   const pick = [...key, ...rest.slice(-Math.max(0, max - key.length))].sort((a, b) => a.at - b.at).slice(-max);
-  return { since: s || 0, count: L.length, counts, lines: pick.map(l => `[${stamp(l.at).slice(11)}] ${l.text}`),
+  return { since: s || 0, count: L.length, counts, lines: pick.slice().sort((a, b) => b.at - a.at).map(l => `[${recapStamp(l.at, now)}] ${l.text}`),
     summary: Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(", ") || "nothing logged" };
 }

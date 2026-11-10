@@ -4,19 +4,29 @@
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const get = (o, p) => String(p ?? "").split(".").reduce((x, k) => x?.[k], o);
 
-export function collectHp(actors, { hpPath = "system.attributes.hp.value" } = {}) {
+export function sceneTokens(scene) {
+  const col = scene?.tokens;
+  if (!col) return [];
+  if (Array.isArray(col)) return col.filter(Boolean);
+  if (Array.isArray(col.contents)) return col.contents.filter(Boolean);
+  try { return [...col].filter(Boolean); } catch { return []; }
+}
+function readHp(actor, hpPath) {
+  const hpObj = actor?.system?.attributes?.hp;
+  if (hpObj && typeof hpObj === "object" && "value" in hpObj) return { value: hpObj.value, max: hpObj.max ?? null };
+  const p = hpPath || "system.hp.value";
+  return { value: get(actor, p), max: get(actor, p.replace(/\.value$/, ".max")) };
+}
+// Tokens on the viewed scene. Prefer token.actor so unlinked tokens show their own HP (including 0).
+// Bare actors (no .actor) still work so older callers/tests keep passing.
+export function collectHp(tokens, { hpPath = "system.attributes.hp.value" } = {}) {
   const list = [];
-  for (const a of actors ?? []) {
-    const hpObj = a?.system?.attributes?.hp;
-    let value, max;
-    if (hpObj && typeof hpObj === "object" && "value" in hpObj) { value = hpObj.value; max = hpObj.max ?? null; }
-    else {
-      const p = hpPath || "system.hp.value";
-      value = get(a, p);
-      max = get(a, p.replace(/\.value$/, ".max"));
-    }
+  for (const t of tokens ?? []) {
+    const actor = t?.actor ?? (t?.system ? t : null);
+    if (!actor) continue;
+    const { value, max } = readHp(actor, hpPath);
     if (value == null && max == null) continue;
-    list.push({ id: a.id, name: a.name, value: value ?? null, max: max ?? null, pc: !!a.hasPlayerOwner });
+    list.push({ id: t.id ?? actor.id, name: t.name || actor.name, value: value ?? null, max: max ?? null, pc: !!(actor.hasPlayerOwner ?? t.hasPlayerOwner) });
   }
   return list.sort((a, b) => (Number(b.pc) - Number(a.pc)) || String(a.name ?? "").localeCompare(String(b.name ?? "")));
 }
@@ -57,10 +67,10 @@ export function panelHtml({ paused = false, turn = null, pending = [], hp = [], 
   }).join("") || `<p class="hint">${esc(t("AIGM.panel.noRolls", "No pending rolls."))}</p>`;
   const hps = (hp ?? []).map(h => {
     const pct = h.max ? Math.max(0, Math.min(100, Math.round((Number(h.value) / Number(h.max)) * 100))) : 0;
-    return `<div class="aigm-hp-row" data-actor-id="${esc(h.id)}"><span>${esc(h.name)}${h.pc ? " ★" : ""}</span>` +
+    return `<div class="aigm-hp-row${h.value != null && Number(h.value) <= 0 ? " aigm-hp-dead" : ""}" data-actor-id="${esc(h.id)}"><span>${esc(h.name)}${h.pc ? " ★" : ""}</span>` +
       `<span class="aigm-hp-bar" title="${esc(h.value)}/${esc(h.max ?? "?")}"><span style="width:${pct}%"></span></span>` +
       `<span>${esc(h.value)}${h.max != null ? `/${esc(h.max)}` : ""}</span></div>`;
-  }).join("") || `<p class="hint">${esc(t("AIGM.panel.noHp", "No actors with HP."))}</p>`;
+  }).join("") || `<p class="hint">${esc(t("AIGM.panel.noHp", "No tokens with HP on this scene."))}</p>`;
   return `<section class="aigm-panel">
     <div class="aigm-panel-actions">
       <button type="button" data-aigm-action="${paused ? "resume" : "pause"}">${esc(paused ? t("AIGM.panel.resume", "Resume AI GM") : t("AIGM.panel.pause", "Pause AI GM"))}</button>
