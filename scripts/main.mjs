@@ -15,7 +15,7 @@ import { fail } from "./lib/result.mjs";
 import {
   callerConnectionError, withTimeout, commandTimeoutMs, COMMAND_TIMEOUT_ERROR,
   runLinkProbe, resolveOfflineAfterMs, isLinkFresh, findBotUser, publicPresence,
-  shouldProbeLink, presenceFreshOpts, PING_TIMEOUT_MS
+  shouldProbeLink, presenceFreshOpts, isPresenceSuspended, shouldForceResumeProbe, PING_TIMEOUT_MS
 } from "./lib/presence.mjs";
 import { runCommand, COMMANDS, onVoiceSocket, audioQueue } from "./commands.mjs";
 import { missedMessages } from "./lib/replies.mjs";
@@ -95,10 +95,52 @@ function refreshStatus() {
     statusPill.set(pillState(link), { lastReplyAt: S.lastReplyAt, lastSeen: link.lastSeen, now });
   } catch {}
 }
+let presenceResumeTimer = null;
+function clearPresenceResumeTimer() {
+  if (presenceResumeTimer != null) { clearTimeout(presenceResumeTimer); presenceResumeTimer = null; }
+}
+function forceResumePresence(now = Date.now()) {
+  S.presenceWasSuspended = false;
+  S.nextProbeAt = 0;
+  maybeProbeLink(now);
+  refreshStatus();
+  refreshPanel();
+}
+function armPresenceResumeTimer(until = readSuspendUntil(), now = Date.now()) {
+  clearPresenceResumeTimer();
+  if (!isPresenceSuspended(until, now)) return;
+  S.presenceWasSuspended = true;
+  presenceResumeTimer = setTimeout(() => {
+    presenceResumeTimer = null;
+    forceResumePresence(Date.now());
+  }, Math.max(0, Number(until) - now) + 25);
+}
+function onPresenceSuspendSetting() {
+  const until = readSuspendUntil();
+  const now = Date.now();
+  if (isPresenceSuspended(until, now)) {
+    armPresenceResumeTimer(until, now);
+    refreshStatus();
+    refreshPanel();
+    return;
+  }
+  clearPresenceResumeTimer();
+  forceResumePresence(now);
+}
 function maybeProbeLink(now = Date.now()) {
   let every = 30000;
   try { every = Math.max(15000, Math.floor(resolveOfflineAfterMs(get("offlineAfterMs")) / 2)); } catch {}
-  if (!shouldProbeLink({ enabled: enabled(), isBot: isBot(), now, nextProbeAt: S.nextProbeAt, suspendUntil: readSuspendUntil() })) return;
+  const until = readSuspendUntil();
+  const suspended = isPresenceSuspended(until, now);
+  if (suspended) {
+    S.presenceWasSuspended = true;
+    return;
+  }
+  if (shouldForceResumeProbe({ suspended, wasSuspended: !!S.presenceWasSuspended })) {
+    S.presenceWasSuspended = false;
+    S.nextProbeAt = 0;
+  }
+  if (!shouldProbeLink({ enabled: enabled(), isBot: isBot(), now, nextProbeAt: S.nextProbeAt, suspendUntil: until })) return;
   S.nextProbeAt = now + every;
   runLinkProbe({
     now, userId: game.user?.id ?? "", isBotWriter: true, timeoutMs: PING_TIMEOUT_MS,
@@ -163,11 +205,15 @@ function handleGmControl(data) {
   else if (data.action === "cancelRoll" && data.requestId) F.cancelRollRequest(data.requestId);
   else if (data.action === "clearStuck") doClearStuck();
 }
-function doClearStuck() {
-  thinkingOff({ broadcast: true });
+function clearLocalOutbox() {
   const ids = (S.outbox?.items ?? []).map(i => i.event.eventId);
   const n = S.outbox?.ack(ids) ?? 0;
   for (const id of ids) S.dedupe?.mark(id, "acked", Date.now());
+  return n;
+}
+function doClearStuck() {
+  thinkingOff({ broadcast: true });
+  const n = clearLocalOutbox();
   persistNow();
   refreshPanel();
   try { game.socket.emit(SOCKET, { type: "stuckCleared", count: n }); } catch {}
@@ -190,6 +236,8 @@ async function panelAction(action, data = {}) {
       return r;
     }
     game.socket.emit(SOCKET, { type: "gmControl", action: "clearStuck" });
+    clearLocalOutbox();
+    refreshPanel();
     return;
   }
   if (action === "setupCheck") {
@@ -300,7 +348,12 @@ Hooks.once("ready", () => {
     },
     clearDead: () => { thinkingOff({ broadcast: true }); const ids = S.outbox?.clearDead() ?? []; persistSoon(); return { ok: true, result: { cleared: ids } }; },
     clearStuck: () => {
-      if (!amLeader()) { game.socket.emit(SOCKET, { type: "gmControl", action: "clearStuck" }); return { ok: true, result: { cleared: 0, forwarded: true } }; }
+      if (!amLeader()) {
+        game.socket.emit(SOCKET, { type: "gmControl", action: "clearStuck" });
+        const n = clearLocalOutbox();
+        refreshPanel();
+        return { ok: true, result: { cleared: n, forwarded: true } };
+      }
       return doClearStuck();
     },
     run: async (cmd) => {
@@ -390,10 +443,21 @@ Hooks.once("ready", () => {
   Hooks.on("userConnected", () => refreshStatus()); Hooks.on("userDisconnected", () => refreshStatus());
   Hooks.on("updateUser", () => { refreshStatus(); if (enabled()) refreshPanel(); });
   Hooks.on("updateSetting", (setting) => {
-    const key = setting?.key ?? setting?.id ?? "";
-    if (key === `${ID}.linkProbe` || key === "linkProbe" || String(key).endsWith(".linkProbe")
-      || key === `${ID}.presenceSuspendUntil` || key === "presenceSuspendUntil" || String(key).endsWith(".presenceSuspendUntil")) {
+    const key = String(setting?.key ?? setting?.id ?? "");
+    if (key === `${ID}.linkProbe` || key === "linkProbe" || key.endsWith(".linkProbe")) {
       refreshStatus(); refreshPanel();
+    }
+    if (key === `${ID}.presenceSuspendUntil` || key === "presenceSuspendUntil" || key.endsWith(".presenceSuspendUntil")) {
+      onPresenceSuspendSetting();
+    }
+    if (key === `${ID}.outboxState` || key === "outboxState" || key.endsWith(".outboxState")) {
+      if (!amLeader()) {
+        try {
+          const ob = get("outboxState") ?? {};
+          S.outbox = new Outbox({ items: ob.items ?? [], seq: ob.seq ?? 0 });
+        } catch {}
+      }
+      refreshPanel();
     }
   });
   try { setInterval(() => { try { refreshStatus(); if (panelApp?.rendered) refreshPanel(); } catch {} }, 15000); } catch {}
@@ -439,6 +503,7 @@ function restart() {
   tickLeader();
   ackRelayStaleChat();
   F.seedSnapshots();
+  try { armPresenceResumeTimer(readSuspendUntil()); } catch {}
 }
 // v0.6: one feature event into the outbox (idempotent by eventId).
 function emitEvent(ev, { urgent = false, evenIfPaused = false } = {}) {
@@ -490,6 +555,7 @@ function onSocket(data) {
   if (data.type === "voice") { thinking.hide(); return void onVoiceSocket(data); } // #12: players play bot voice locally
   if (data.type === "thinking") { if (data.on) thinking.show(data.timeoutMs); else thinking.hide(); if (data.lastReplyAt) S.lastReplyAt = data.lastReplyAt; refreshStatus(); return; } // #14
   if (data.type === "stuckCleared") {
+    if (!amLeader()) clearLocalOutbox();
     if (game.user?.isGM) ui.notifications?.info?.(formatClearedStuck(data.count, loc));
     refreshPanel();
     return;

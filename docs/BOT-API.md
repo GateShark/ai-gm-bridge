@@ -288,3 +288,12 @@ In relay mode `shipCombat` is marked received after emit (same as combat/turn/`p
 `api.status()`, `api.turnStatus()`, and `ping` include a plain `bot: {id, name, active}` (and `botActive`). They never embed the raw Foundry User document.
 
 `debugSuspendPresence` / `api.debugSuspendPresence(seconds)` is a GM-only debug hook (hidden setting `presenceSuspendUntil`, cap 600 seconds, `0` cancels). It pauses the bot's periodic nonce refresh so the **AI GM offline** light can be tested after the usual offline wait, then auto-resumes. While it is running, other clients also stop treating "bot user still listed as connected" as enough to stay green. It is off by default and is not shown on the Basic settings page.
+
+## v0.8.16: recap PCs/pets, Clear stuck controls, prompt presence resume, unified targets
+Session recap (`saveSession` / `loadSession` / panel) lists only player characters and pets. Monster HP is omitted from the recap text. The stored snapshot may still include other tokens (PCs and pets are kept first if the 24-token cap is hit). The combat line may still name whoever was up.
+
+**Clear stuck** / `api.clearStuck()` acks every remaining outbox item, including held `control` start/pause events. Non-leader GMs forward to the leader and also clear their local queue so the panel count updates immediately.
+
+`debugSuspendPresence(0)` (and timer expiry) trigger an immediate nonce refresh and panel/status recheck (`nextProbeAt` is cleared). No extra steady-state polling is added.
+
+`giveLoot` and `applyDamage` accept the same target arguments: `tokenId`, `tokenName`, `tokenIds`, `actorId`, `actorName`, `actorIds`, `sceneId`, plus selected-token fallback. Older call shapes keep working. `giveLoot` with multiple ids uses the first resolved target and resolves the recipient before drawing the table. `applyDamage` applies to every resolved target.

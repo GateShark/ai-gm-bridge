@@ -57,7 +57,7 @@ async function runPing() {
 import { resolveResource, nextValue, summarize, parseAmount } from "./lib/pirateborg.mjs";
 import { collectSessionSnapshot, formatSessionRecap, applySessionHpPlan } from "./lib/session.mjs";
 import { readPetFlag, petFlagData, listPetsFrom, planPetPlacement } from "./lib/pets.mjs";
-import { listTables, planDamage, planLoot, summarizeDraw } from "./lib/quickgm.mjs";
+import { listTables, planDamage, planLoot, summarizeDraw, normalizeTargetArgs } from "./lib/quickgm.mjs";
 import { collectShips, crewTracker, planShipFight } from "./lib/shiptrack.mjs";
 import { sceneTokens } from "./lib/gmpanel.mjs";
 import { readActorHp } from "./lib/hp.mjs";
@@ -105,6 +105,7 @@ const liveCombat = (c) => c ? { combatId: c.id, round: c.round, turn: c.turn } :
 const findActor = (a) => game.actors.get(a.actorId) ?? game.actors.getName?.(a.actorName) ?? null;
 // #13: tokenId/tokenName target that token; unlinked tokens are written through token.actor, not the base actor.
 const TOK = { tokenId: "string?", tokenName: "string?", sceneId: "string?" };
+const TARGET = { ...TOK, tokenIds: "array?", tokenNames: "array?", actorId: "string?", actorName: "string?", actorIds: "array?", actorNames: "array?" };
 function findTarget(a) {
   if (a.tokenId || a.tokenName) { const t = findToken(a); if (!t) return { error: fail(404, "token not found") };
     const base = (a.actorId || a.actorName) ? findActor(a) : null; const r = targetActor({ token: t, baseActor: base }); return r ?? { error: fail(404, "actor not found") }; }
@@ -437,18 +438,23 @@ export const COMMANDS = {
     const results = [...(draw?.results ?? [])].map(r => ({ text: r.text, name: r.name, type: r.type, documentId: r.documentId, documentUuid: r.documentUuid }));
     return ok({ tableId: table.id, table: table.name, ...summarizeDraw(results, table.name), results });
   } },
-  giveLoot: { schema: { tableId: "string?", tableName: "string?", actorId: "string?", actorName: "string?", ...TOK }, async run(a) {
+  giveLoot: { schema: { tableId: "string?", tableName: "string?", ...TARGET }, async run(a) {
     const table = game.tables?.get?.(a.tableId) ?? game.tables?.getName?.(a.tableName);
     if (!table) return fail(404, "roll table not found");
-    const draw = await table.draw({ displayChat: true });
-    const planned = planLoot([...(draw?.results ?? [])]);
+    const refs = normalizeTargetArgs(a);
     let actor = null;
-    if (a.actorId || a.actorName || a.tokenId || a.tokenName) {
-      const tg = findTarget(a); if (tg.error) return tg.error; actor = tg.actor;
+    if (refs.hasExplicit) {
+      const tg = findTarget({
+        tokenId: refs.tokenIds[0], tokenName: refs.tokenNames[0],
+        actorId: refs.actorIds[0], actorName: refs.actorNames[0], sceneId: refs.sceneId
+      });
+      if (tg.error) return tg.error; actor = tg.actor;
     } else {
       actor = (globalThis.canvas?.tokens?.controlled ?? [])[0]?.actor ?? null;
     }
     if (!actor) return fail(400, "select a token or pass actor/token");
+    const draw = await table.draw({ displayChat: true });
+    const planned = planLoot([...(draw?.results ?? [])]);
     const added = [];
     for (const it of planned.items) {
       let item = null;
@@ -458,27 +464,32 @@ export const COMMANDS = {
     }
     return ok({ actorId: actor.id, name: actor.name, added, texts: planned.texts, table: table.name });
   } },
-  applyDamage: { schema: { amount: "number", tokenIds: "array?", actorIds: "array?" }, async run(a) {
+  applyDamage: { schema: { amount: "number", ...TARGET }, async run(a) {
     const planned = planDamage([{ id: "x", hp: { value: 1 } }], a.amount);
     if (planned.error) return fail(400, planned.error);
-    let targets = [];
-    if (a.tokenIds?.length) {
-      const scene = currentScene();
-      for (const id of a.tokenIds) {
-        const tok = scene?.tokens?.get?.(id);
-        if (tok?.actor) targets.push({ id: tok.actor.id, name: tok.name, actor: tok.actor, hp: readActorHp(tok.actor) });
-      }
-    } else if (a.actorIds?.length) {
-      for (const id of a.actorIds) {
-        const actor = game.actors?.get?.(id);
-        if (actor) targets.push({ id: actor.id, name: actor.name, actor, hp: readActorHp(actor) });
-      }
+    const refs = normalizeTargetArgs(a);
+    const targets = [];
+    const seen = new Set();
+    const addActor = (actor, name) => {
+      if (!actor || seen.has(actor.id)) return;
+      seen.add(actor.id);
+      targets.push({ id: actor.id, name: name || actor.name, actor, hp: readActorHp(actor) });
+    };
+    const addFrom = (args) => {
+      const tg = findTarget(args);
+      if (!tg.error) addActor(tg.actor, tg.actor?.name);
+    };
+    if (refs.hasExplicit) {
+      for (const id of refs.tokenIds) addFrom({ tokenId: id, sceneId: refs.sceneId });
+      for (const name of refs.tokenNames) addFrom({ tokenName: name, sceneId: refs.sceneId });
+      for (const id of refs.actorIds) addFrom({ actorId: id, sceneId: refs.sceneId });
+      for (const name of refs.actorNames) addFrom({ actorName: name, sceneId: refs.sceneId });
     } else {
       for (const tok of (globalThis.canvas?.tokens?.controlled ?? [])) {
-        if (tok?.actor) targets.push({ id: tok.actor.id, name: tok.name, actor: tok.actor, hp: readActorHp(tok.actor) });
+        if (tok?.actor) addActor(tok.actor, tok.name);
       }
     }
-    if (!targets.length) return fail(400, "select tokens or pass tokenIds/actorIds");
+    if (!targets.length) return fail(400, "select tokens or pass tokenId/tokenName/tokenIds/actorId/actorName/actorIds");
     const next = planDamage(targets, a.amount);
     const updated = [];
     for (const u of next.updates) {

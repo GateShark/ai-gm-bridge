@@ -150,6 +150,13 @@ export function shouldProbeLink({
   return true;
 }
 
+// True on the one-shot transition out of a debug suspend (cancel or expiry).
+// Callers should clear leftover nextProbeAt and probe immediately, then leave
+// the regular cadence alone (no extra steady-state polling).
+export function shouldForceResumeProbe({ suspended = false, wasSuspended = false } = {}) {
+  return !suspended && !!wasSuspended;
+}
+
 // While suspended, do not trust user.active — only the last confirmed nonce
 // (same rule as the bot's own page). After the offline threshold the light
 // can show "AI GM offline" even if the bot user is still listed as connected.

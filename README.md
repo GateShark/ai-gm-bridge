@@ -2,7 +2,7 @@
   <img src="assets/logo-256.webp" alt="AI GM Bridge" width="160" height="160" />
 </p>
 
-# AI GM Bridge (module id `ai-gm-bridge`) v0.8.15
+# AI GM Bridge (module id `ai-gm-bridge`) v0.8.16
 
 > ⚠️ **Alpha:** this is still in testing. Expect bugs and breaking changes.
 
@@ -29,8 +29,14 @@ Created by Gate (GateShark).
 - The GM has an in-game **AI GM** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
-## What's new since 0.8.0 (0.8.1–0.8.15)
-These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.15**.
+## What's new since 0.8.0 (0.8.1–0.8.16)
+These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.16**.
+
+**Session recap and command targets (0.8.16)**
+- Session recap lists only player characters and pets (monster HP such as "Skeleton 2 0/4" is omitted). PCs and pets are kept first if a busy scene hits the snapshot cap.
+- **Clear stuck** drops held start/pause `control` events too, and updates the queue on every GM client (not only the leader).
+- After a debug offline-light test is cancelled or expires, the bot writes a nonce immediately so the light can go green without waiting for the next 30-second refresh. No extra idle polling was added.
+- `applyDamage` and `giveLoot` accept the same target shapes (`tokenId` / `tokenName` / `tokenIds` and `actorId` / `actorName` / `actorIds`). Older call shapes still work.
 
 **Session, pets, and ships (0.8.15)**
 - Save a compact "where we left off" snapshot (scene, HP, a few key items, open GM notes) and get a spoiler-free recap when you resume. Pets marked with an owner flag can be placed next to their owner; a house-rule note can remind the table that a pet takes one simple action.

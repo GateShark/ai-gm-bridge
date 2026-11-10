@@ -1,4 +1,5 @@
 // 0.8.15: pure helpers for in-game GM table / loot / damage buttons.
+// 0.8.16: giveLoot and applyDamage share the same target-argument shapes.
 
 function toList(col) {
   if (!col) return [];
@@ -49,4 +50,37 @@ export function summarizeDraw(results = [], tableName = null) {
   const list = Array.isArray(results) ? results : [];
   const text = list.map(r => r.text || r.name || r.documentName).filter(Boolean).join("; ");
   return { table: tableName || null, text };
+}
+
+function asIdList(v) {
+  if (v == null || v === "") return [];
+  if (Array.isArray(v)) return v.flatMap(asIdList);
+  return [String(v)].filter(Boolean);
+}
+
+function uniqueIds(xs) {
+  const out = [];
+  const seen = new Set();
+  for (const x of xs) {
+    if (x == null || x === "") continue;
+    const s = String(x);
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+// Union of the giveLoot (singular token/actor + scene) and applyDamage
+// (tokenIds/actorIds arrays) shapes. Extra keys are ignored.
+export function normalizeTargetArgs(a = {}) {
+  const tokenIds = uniqueIds([...asIdList(a.tokenIds), ...asIdList(a.tokenId)]);
+  const tokenNames = uniqueIds([...asIdList(a.tokenNames), ...asIdList(a.tokenName)]);
+  const actorIds = uniqueIds([...asIdList(a.actorIds), ...asIdList(a.actorId)]);
+  const actorNames = uniqueIds([...asIdList(a.actorNames), ...asIdList(a.actorName)]);
+  return {
+    tokenIds, tokenNames, actorIds, actorNames,
+    sceneId: a.sceneId || null,
+    hasExplicit: !!(tokenIds.length || tokenNames.length || actorIds.length || actorNames.length)
+  };
 }

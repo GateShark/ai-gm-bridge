@@ -1,6 +1,8 @@
 // 0.8.15: compact "where we left off" snapshot. Notes are stored for the GM/bot
 // but never appear in the spoiler-free recap text (Foundry still syncs world
 // settings to every client — same limit as other world data).
+// 0.8.16: recap lists only player characters and pets (monster HP omitted).
+// PCs and pets are kept first if the 24-actor cap is hit.
 import { recapStamp } from "./sessionlog.mjs";
 import { readActorHp } from "./hp.mjs";
 
@@ -28,13 +30,27 @@ export function keyItemNames(actor, { limit = MAX_SESSION_ITEMS } = {}) {
   return out;
 }
 
+export function recapVisibleActors(actors = []) {
+  return (actors ?? []).filter(a => a && (a.pc || a.pet));
+}
+
+export function prioritizeSessionActors(rows = [], limit = MAX_SESSION_ACTORS) {
+  const pcs = [], pets = [], other = [];
+  for (const r of rows ?? []) {
+    if (!r) continue;
+    if (r.pc) pcs.push(r);
+    else if (r.pet) pets.push(r);
+    else other.push(r);
+  }
+  return [...pcs, ...pets, ...other].slice(0, Math.max(0, Number(limit) || 0));
+}
+
 export function collectSessionSnapshot({
   scene = null, combat = null, tokens = [], notes = "", now = Date.now(),
   readHp = readActorHp, readPet = null
 } = {}) {
-  const actors = [];
+  const rows = [];
   for (const tok of tokens ?? []) {
-    if (actors.length >= MAX_SESSION_ACTORS) break;
     const actor = tok?.actor ?? (tok?.system ? tok : null);
     if (!actor) continue;
     const hp = readHp?.(actor);
@@ -49,8 +65,9 @@ export function collectSessionSnapshot({
     };
     if (items.length) row.items = items;
     if (pet) row.pet = pet;
-    actors.push(row);
+    rows.push(row);
   }
+  const actors = prioritizeSessionActors(rows, MAX_SESSION_ACTORS);
   return {
     savedAt: now,
     scene: scene ? { id: scene.id ?? null, name: scene.name ?? null } : null,
@@ -72,7 +89,7 @@ export function formatSessionRecap(snap, { now = Date.now() } = {}) {
   const combat = snap.combat?.who
     ? ` Combat was in progress (round ${snap.combat.round}, ${snap.combat.who} was up).`
     : " No active combat.";
-  const people = (snap.actors ?? []).map(a => {
+  const people = recapVisibleActors(snap.actors).map(a => {
     const hp = a.hp && (a.hp.value != null || a.hp.max != null)
       ? ` ${a.hp.value ?? "?"}${a.hp.max != null ? `/${a.hp.max}` : ""} HP`
       : "";

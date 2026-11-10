@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.16
+- Session recap (`saveSession` / `loadSession` / the in-game recap) lists only player characters and pets. Monster HP (for example "Skeleton 2 0/4 HP") is omitted from that text. The stored snapshot may still include other tokens so `applyHp` can restore them; player characters and pets are kept first if the 24-actor cap is hit.
+- **Clear stuck** (and `api.clearStuck()`) still acks every remaining outbox item, including held `control` start/pause events. Non-leader GMs forward the clear to the leader and also empty their local queue, so the panel count updates immediately instead of leaving those two control events visible.
+- `debugSuspendPresence(0)` and timer expiry trigger an immediate nonce refresh and panel/status recheck (`nextProbeAt` is cleared). A one-shot timer covers expiry; the existing heartbeat still catches a missed timer after a reload. No extra steady-state polling was added.
+- `giveLoot` and `applyDamage` accept the same target arguments: `tokenId`, `tokenName`, `tokenIds`, `actorId`, `actorName`, `actorIds`, `sceneId`, plus selected-token fallback. Older call shapes keep working. `giveLoot` with several ids uses the first resolved target and resolves the recipient before drawing the table (so a missing target does not consume a roll). `applyDamage` applies to every resolved target.
+
+
 ## 0.8.15
 - Session save and recap: `saveSession` overwrites one hidden world setting (`sessionSnapshot`) with a compact snapshot — current scene, combat if started, up to 24 tokens (HP, a few key item names, pet flag), and optional GM notes (capped). `loadSession` returns a spoiler-free "where we left off" recap (notes are never included in that text, or in chat when `toChat` is set). Pets are placed beside their owner by default; HP is not rewritten unless you pass `applyHp: true`. The same leak caveat as other world settings applies: stored notes sync to every client.
 - Pets: `setPet` records `flags["ai-gm-bridge"].pet = { ownerId, ownerName, ownerActorId, simpleAction }` on the companion actor (`simpleAction` defaults to true). `placePets` / resume moves or creates the pet token in a neighboring square. Turn text, `turnStatus`, and `turn` events surface `isPet` / `simpleAction` / `petOwner` so the table can apply the house rule (one simple action, not a full turn). Combat is not rewritten or auto-skipped.

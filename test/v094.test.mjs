@@ -212,8 +212,8 @@ test("0.8.14 panel header logo and offline line; settings and wiring", () => {
 
 test("0.8.14 version, logo files, and module.json media", () => {
   const mj = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8"));
-  assert.match(mj.version, /^0\.8\.1[45]$/);
-  assert.match(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, /^0\.8\.1[45]$/);
+  assert.match(mj.version, /^0\.8\.1[456]$/);
+  assert.match(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, /^0\.8\.1[456]$/);
   assert.ok(Array.isArray(mj.media));
   const types = mj.media.map(m => m.type);
   assert.ok(types.includes("icon"));
@@ -225,7 +225,7 @@ test("0.8.14 version, logo files, and module.json media", () => {
   assert.match(readme, /assets\/logo/);
   assert.match(readme, /width="160"/);
   assert.match(readme, /align="center"/);
-  assert.match(readme, /v0\.8\.1[45]/);
+  assert.match(readme, /v0\.8\.1[456]/);
   assert.match(readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8"), /## 0\.8\.14/);
   assert.match(readFileSync(new URL("../docs/BOT-API.md", import.meta.url), "utf8"), /ping/);
 });
