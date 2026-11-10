@@ -15,7 +15,7 @@ import * as SHIP from "./ship.mjs";
 import { targetActor, targetInfo, sceneTokenForActor } from "./lib/target.mjs";
 import { combatExpect } from "./lib/turns.mjs";
 import { liveSetupCheck } from "./lib/setupcheck.mjs";
-import { runLinkProbe, presenceSnapshot, findBotUser, callerConnectionError, PING_TIMEOUT_ERROR } from "./lib/presence.mjs";
+import { runLinkProbe, findBotUser, callerConnectionError, PING_TIMEOUT_ERROR, publicPresence, resolvePresenceSuspendSeconds } from "./lib/presence.mjs";
 const MODULE_ID = "ai-gm-bridge";
 
 function settingOf(g, key, fallback = "") {
@@ -28,7 +28,7 @@ function livePresenceFields(now = Date.now()) {
   const bot = findBotUser(g?.users, { botUserId, botUserName });
   let probe = null;
   try { probe = g?.settings?.get?.(MODULE_ID, "linkProbe"); } catch { probe = null; }
-  return presenceSnapshot({
+  return publicPresence({
     now, worldId: g?.world?.id ?? null, botUser: bot, probe, botUserId: bot?.id || botUserId
   });
 }
@@ -352,6 +352,12 @@ export const COMMANDS = {
     return ok({ active: !!t, ...(t ?? {}), expect: t?.expect ?? null, ...livePresenceFields() });
   } },
   ping: { schema: {}, async run() { return runPing(); } },
+  debugSuspendPresence: { schema: { seconds: "number" }, async run(a) {
+    const seconds = resolvePresenceSuspendSeconds(a.seconds);
+    const until = seconds ? Date.now() + seconds * 1000 : 0;
+    await game.settings.set(MODULE_ID, "presenceSuspendUntil", until);
+    return ok({ seconds, until, resumed: seconds === 0 });
+  } },
 
   saveSession: { schema: { notes: "string?" }, async run(a) {
     const scene = currentScene();

@@ -111,6 +111,62 @@ export function presenceSnapshot({
   };
 }
 
+// Never put a Foundry User/Actor document on an API or event payload (circular refs).
+export function plainUser(user) {
+  if (!user || typeof user !== "object") return null;
+  const id = user.id ?? null;
+  const name = user.name == null ? null : String(user.name);
+  if (id == null && (name == null || name === "")) return null;
+  return { id, name, active: !!user.active };
+}
+
+export function publicPresence({
+  now = Date.now(), worldId = null, botUser = null, probe = null, botUserId = "", lastConfirmed = 0
+} = {}) {
+  const snap = presenceSnapshot({ now, worldId, botUser, probe, botUserId });
+  if (!snap.lastSeen && lastConfirmed) snap.lastSeen = lastConfirmed;
+  return { ...snap, bot: plainUser(botUser), botActive: !!botUser?.active };
+}
+
+export const MAX_PRESENCE_SUSPEND_S = 600;
+
+export function resolvePresenceSuspendSeconds(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(MAX_PRESENCE_SUSPEND_S, Math.floor(n));
+}
+
+export function isPresenceSuspended(until, now = Date.now()) {
+  return Number(until) > Number(now);
+}
+
+// Periodic nonce refresh: skip while a GM debug suspend is in effect.
+export function shouldProbeLink({
+  enabled = false, isBot = false, now = Date.now(), nextProbeAt = 0, suspendUntil = 0
+} = {}) {
+  if (!enabled || !isBot) return false;
+  if (isPresenceSuspended(suspendUntil, now)) return false;
+  if (nextProbeAt && now < nextProbeAt) return false;
+  return true;
+}
+
+// While suspended, do not trust user.active — only the last confirmed nonce
+// (same rule as the bot's own page). After the offline threshold the light
+// can show "AI GM offline" even if the bot user is still listed as connected.
+export function presenceFreshOpts({
+  botActive = false, lastSeen = 0, now = Date.now(),
+  offlineAfterMs = DEFAULT_OFFLINE_AFTER_MS, selfIsBot = false, suspendUntil = 0
+} = {}) {
+  const suspended = isPresenceSuspended(suspendUntil, now);
+  return {
+    botActive: suspended ? false : !!botActive,
+    lastConfirmed: Number(lastSeen) || 0,
+    now,
+    offlineAfterMs,
+    selfIsBot: !!(selfIsBot || suspended)
+  };
+}
+
 export function findBotUser(users, { botUserId = "", botUserName = "" } = {}) {
   const list = toUserList(users);
   if (botUserId) {

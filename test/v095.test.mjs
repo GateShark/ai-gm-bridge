@@ -12,6 +12,11 @@ import { panelHtml } from "../scripts/lib/gmpanel.mjs";
 import { parseLocal } from "../scripts/lib/local.mjs";
 import { groupFor, HIDDEN_KEYS } from "../scripts/lib/settingsui.mjs";
 import { COMMANDS } from "../scripts/commands.mjs";
+import {
+  plainUser, publicPresence, presenceSnapshot, resolvePresenceSuspendSeconds,
+  MAX_PRESENCE_SUSPEND_S, isPresenceSuspended, shouldProbeLink, presenceFreshOpts, isLinkFresh
+} from "../scripts/lib/presence.mjs";
+import { deriveGmStatus } from "../scripts/lib/gmstatus.mjs";
 
 const now = Date.parse("2026-11-10T18:00:00-06:00");
 const savedAt = Date.parse("2026-11-10T12:00:00-06:00");
@@ -207,6 +212,9 @@ test("0.8.15 panel, local commands, and wiring", () => {
   assert.deepEqual(parseLocal("!pause"), { name: "pause", args: {} });
   assert.equal(groupFor("sessionSnapshot"), "hidden");
   assert.ok(HIDDEN_KEYS.includes("sessionSnapshot"));
+  assert.equal(groupFor("presenceSuspendUntil"), "hidden");
+  assert.ok(HIDDEN_KEYS.includes("presenceSuspendUntil"));
+  assert.ok(COMMANDS.debugSuspendPresence);
   for (const name of ["saveSession", "loadSession", "setPet", "listPets", "placePets", "start", "pause", "rollTable", "giveLoot", "applyDamage", "startShipCombat", "shipStatus"]) {
     assert.ok(COMMANDS[name], name);
   }
@@ -242,4 +250,72 @@ test("0.8.15 version, changelog and docs", () => {
   assert.match(api, /saveSession/);
   assert.match(api, /shipCombat/);
   assert.match(api, /v0\.8\.15/);
+});
+
+test("0.8.15 status/turnStatus/ping payloads stringify without Foundry documents", () => {
+  const user = { id: "bot1", name: "AI GM", active: true, isGM: true };
+  user.targets = { user }; // circular, like a Foundry User doc
+  assert.throws(() => JSON.stringify({ bot: user }));
+  assert.deepEqual(plainUser(user), { id: "bot1", name: "AI GM", active: true });
+  assert.equal(plainUser(null), null);
+  const probe = { nonce: "abc", at: 900, by: "bot1", lastBotAt: 900 };
+  const presence = publicPresence({ now: 1000, worldId: "pb-test", botUser: user, probe, botUserId: "bot1" });
+  const status = {
+    enabled: true,
+    leader: { leaderId: "bot1", term: 1, lastBeat: 900, lastTermChange: 100, leaderIsBot: true },
+    amLeader: true, queued: 0, dead: 0, deadIds: [],
+    ...presence
+  };
+  const turnStatus = { active: false, expect: null, ...presence };
+  const ping = { ok: true, result: presence };
+  for (const [label, payload] of [["status", status], ["turnStatus", turnStatus], ["ping", ping]]) {
+    const json = JSON.stringify(payload);
+    assert.ok(json, label);
+    assert.ok(json.length < 1500, `${label} too large: ${json.length}`);
+    assert.ok(!json.includes("targets"), label);
+    const parsed = JSON.parse(json);
+    const bot = parsed.bot || parsed.result?.bot;
+    assert.deepEqual(bot, { id: "bot1", name: "AI GM", active: true }, label);
+  }
+  const rawSnap = presenceSnapshot({ now: 1000, worldId: "pb-test", botUser: user, probe, botUserId: "bot1" });
+  assert.equal("bot" in rawSnap, false);
+  const main = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
+  assert.match(main, /publicPresence\(/);
+  assert.doesNotMatch(main, /return \{ \.\.\.snap, bot, botActive/);
+  const cmds = readFileSync(new URL("../scripts/commands.mjs", import.meta.url), "utf8");
+  assert.match(cmds, /publicPresence\(/);
+});
+
+test("0.8.15 debugSuspendPresence stops nonce refresh and can show the offline light", () => {
+  assert.equal(resolvePresenceSuspendSeconds(90), 90);
+  assert.equal(resolvePresenceSuspendSeconds(9999), MAX_PRESENCE_SUSPEND_S);
+  assert.equal(resolvePresenceSuspendSeconds(0), 0);
+  assert.equal(resolvePresenceSuspendSeconds(-5), 0);
+  assert.equal(resolvePresenceSuspendSeconds("nope"), 0);
+  assert.equal(isPresenceSuspended(20_000, 10_000), true);
+  assert.equal(isPresenceSuspended(10_000, 20_000), false);
+  assert.equal(isPresenceSuspended(0, 10_000), false);
+  assert.equal(shouldProbeLink({ enabled: true, isBot: true, now: 10, nextProbeAt: 0, suspendUntil: 20 }), false);
+  assert.equal(shouldProbeLink({ enabled: true, isBot: true, now: 30, nextProbeAt: 0, suspendUntil: 20 }), true);
+  assert.equal(shouldProbeLink({ enabled: true, isBot: true, now: 30, nextProbeAt: 40, suspendUntil: 0 }), false);
+  assert.equal(shouldProbeLink({ enabled: false, isBot: true, now: 30 }), false);
+  assert.equal(shouldProbeLink({ enabled: true, isBot: false, now: 30 }), false);
+  const now = 100_000;
+  const stale = presenceFreshOpts({ botActive: true, lastSeen: 10_000, now, offlineAfterMs: 60_000, selfIsBot: false, suspendUntil: now + 30_000 });
+  assert.equal(stale.botActive, false);
+  assert.equal(stale.selfIsBot, true);
+  assert.equal(isLinkFresh(stale), false);
+  assert.equal(deriveGmStatus({ enabled: true, ...stale }), "offline");
+  const recent = presenceFreshOpts({ botActive: true, lastSeen: 90_000, now, offlineAfterMs: 60_000, selfIsBot: false, suspendUntil: now + 30_000 });
+  assert.equal(isLinkFresh(recent), true);
+  assert.equal(deriveGmStatus({ enabled: true, ...recent }), "listening");
+  const normal = presenceFreshOpts({ botActive: true, lastSeen: 10_000, now, offlineAfterMs: 60_000, selfIsBot: false, suspendUntil: 0 });
+  assert.equal(isLinkFresh(normal), true);
+  const main = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
+  assert.match(main, /debugSuspendPresence/);
+  assert.match(main, /shouldProbeLink/);
+  assert.match(main, /presenceSuspendUntil/);
+  assert.match(main, /presenceFreshOpts/);
+  const cfg = readFileSync(new URL("../scripts/config-app.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(cfg, /presenceSuspendUntil|debugSuspendPresence/);
 });

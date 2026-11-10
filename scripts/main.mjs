@@ -14,8 +14,8 @@ import { makeConfigApp } from "./config-app.mjs";
 import { fail } from "./lib/result.mjs";
 import {
   callerConnectionError, withTimeout, commandTimeoutMs, COMMAND_TIMEOUT_ERROR,
-  runLinkProbe, resolveOfflineAfterMs, isLinkFresh, findBotUser, presenceSnapshot,
-  PING_TIMEOUT_MS
+  runLinkProbe, resolveOfflineAfterMs, isLinkFresh, findBotUser, publicPresence,
+  shouldProbeLink, presenceFreshOpts, PING_TIMEOUT_MS
 } from "./lib/presence.mjs";
 import { runCommand, COMMANDS, onVoiceSocket, audioQueue } from "./commands.mjs";
 import { missedMessages } from "./lib/replies.mjs";
@@ -58,39 +58,47 @@ function readPresenceFromGame(now = Date.now()) {
   let botUserId = "", botUserName = "";
   try { botUserId = get("botUserId"); botUserName = get("botUserName"); } catch {}
   const bot = findBotUser(game.users, { botUserId, botUserName }) || game.users?.find?.(u => isBot(u));
-  const snap = presenceSnapshot({
-    now, worldId: game.world?.id ?? null, botUser: bot, probe, botUserId: bot?.id || botUserId
+  return publicPresence({
+    now, worldId: game.world?.id ?? null, botUser: bot, probe,
+    botUserId: bot?.id || botUserId, lastConfirmed: S.lastConfirmed
   });
-  if (!snap.lastSeen && S.lastConfirmed) snap.lastSeen = S.lastConfirmed;
-  return { ...snap, bot, botActive: !!bot?.active };
+}
+function readSuspendUntil() {
+  try { return Number(get("presenceSuspendUntil")) || 0; } catch { return 0; }
 }
 function linkState(now = Date.now()) {
   const p = readPresenceFromGame(now);
   let offlineAfterMs = 60000;
   try { offlineAfterMs = resolveOfflineAfterMs(get("offlineAfterMs")); } catch {}
   const selfIsBot = isBot();
+  const suspendUntil = readSuspendUntil();
+  const display = presenceFreshOpts({
+    botActive: p.botActive, lastSeen: p.lastSeen || 0, now, offlineAfterMs, selfIsBot, suspendUntil
+  });
   return {
-    ...p, selfIsBot, offlineAfterMs,
-    fresh: isLinkFresh({ botActive: p.botActive, lastConfirmed: p.lastSeen || 0, now, offlineAfterMs, selfIsBot })
+    ...p, selfIsBot, offlineAfterMs, suspendUntil, display,
+    fresh: isLinkFresh(display)
   };
+}
+function pillState(link) {
+  return deriveGmStatus({
+    thinking: thinking.visible, paused: !!get("aiPaused"), enabled: enabled(),
+    botActive: link.display.botActive, lastConfirmed: link.display.lastConfirmed, now: link.display.now,
+    offlineAfterMs: link.display.offlineAfterMs, selfIsBot: link.display.selfIsBot
+  });
 }
 function refreshStatus() {
   if (!statusPill) return;
   try {
     const now = Date.now();
     const link = linkState(now);
-    statusPill.set(deriveGmStatus({
-      thinking: thinking.visible, paused: !!get("aiPaused"), enabled: enabled(),
-      botActive: link.botActive, lastConfirmed: link.lastSeen || 0, now,
-      offlineAfterMs: link.offlineAfterMs, selfIsBot: link.selfIsBot
-    }), { lastReplyAt: S.lastReplyAt, lastSeen: link.lastSeen, now });
+    statusPill.set(pillState(link), { lastReplyAt: S.lastReplyAt, lastSeen: link.lastSeen, now });
   } catch {}
 }
 function maybeProbeLink(now = Date.now()) {
-  if (!enabled() || !isBot()) return;
   let every = 30000;
   try { every = Math.max(15000, Math.floor(resolveOfflineAfterMs(get("offlineAfterMs")) / 2)); } catch {}
-  if (S.nextProbeAt && now < S.nextProbeAt) return;
+  if (!shouldProbeLink({ enabled: enabled(), isBot: isBot(), now, nextProbeAt: S.nextProbeAt, suspendUntil: readSuspendUntil() })) return;
   S.nextProbeAt = now + every;
   runLinkProbe({
     now, userId: game.user?.id ?? "", isBotWriter: true, timeoutMs: PING_TIMEOUT_MS,
@@ -267,6 +275,7 @@ Hooks.once("init", () => {
   game.settings.register(ID, "outboxState", { scope: "world", config: false, type: Object, default: { items: [], seq: 0 } });
   game.settings.register(ID, "linkProbe", { scope: "world", config: false, type: Object, default: { nonce: "", at: 0, by: "", lastBotAt: 0 } });
   game.settings.register(ID, "sessionSnapshot", { scope: "world", config: false, type: Object, default: { savedAt: 0, scene: null, combat: null, actors: [], notes: "" } });
+  game.settings.register(ID, "presenceSuspendUntil", { scope: "world", config: false, type: Number, default: 0 });
 });
 
 Hooks.once("ready", () => {
@@ -285,6 +294,10 @@ Hooks.once("ready", () => {
     metrics: () => S.metrics.snapshot(),
     format: (r) => formatResult(r),
     debug: { burstTest: (o = {}) => burstTest({ debounceMs: get("debounceMs"), maxWaitMs: get("maxWaitMs"), ...o }) },
+    debugSuspendPresence: async (seconds) => {
+      if (!game.user?.isGM) return fail(403, "GM only");
+      return runCommand({ name: "debugSuspendPresence", args: { seconds: Number(seconds) } }, ctxFor());
+    },
     clearDead: () => { thinkingOff({ broadcast: true }); const ids = S.outbox?.clearDead() ?? []; persistSoon(); return { ok: true, result: { cleared: ids } }; },
     clearStuck: () => {
       if (!amLeader()) { game.socket.emit(SOCKET, { type: "gmControl", action: "clearStuck" }); return { ok: true, result: { cleared: 0, forwarded: true } }; }
@@ -328,11 +341,7 @@ Hooks.once("ready", () => {
     paused: () => !!get("aiPaused"),
     gmStatus: () => {
       const link = linkState();
-      return statusPill?.state ?? deriveGmStatus({
-        thinking: thinking.visible, paused: !!get("aiPaused"), enabled: enabled(),
-        botActive: link.botActive, lastConfirmed: link.lastSeen || 0, now: Date.now(),
-        offlineAfterMs: link.offlineAfterMs, selfIsBot: link.selfIsBot
-      });
+      return statusPill?.state ?? pillState(link);
     },
   };
   try { globalThis.__aigmReady?.(mod.api); } catch {}
@@ -353,11 +362,7 @@ Hooks.once("ready", () => {
           const now = Date.now();
           const link = linkState(now);
           const linkUi = {
-            state: deriveGmStatus({
-              thinking: thinking.visible, paused: !!get("aiPaused"), enabled: enabled(),
-              botActive: link.botActive, lastConfirmed: link.lastSeen || 0, now,
-              offlineAfterMs: link.offlineAfterMs, selfIsBot: link.selfIsBot
-            }),
+            state: pillState(link),
             lastSeen: link.lastSeen, now, gmUserActive: link.gmUserActive
           };
           let snap = null; try { snap = get("sessionSnapshot"); } catch {}
@@ -386,9 +391,12 @@ Hooks.once("ready", () => {
   Hooks.on("updateUser", () => { refreshStatus(); if (enabled()) refreshPanel(); });
   Hooks.on("updateSetting", (setting) => {
     const key = setting?.key ?? setting?.id ?? "";
-    if (key === `${ID}.linkProbe` || key === "linkProbe" || String(key).endsWith(".linkProbe")) { refreshStatus(); refreshPanel(); }
+    if (key === `${ID}.linkProbe` || key === "linkProbe" || String(key).endsWith(".linkProbe")
+      || key === `${ID}.presenceSuspendUntil` || key === "presenceSuspendUntil" || String(key).endsWith(".presenceSuspendUntil")) {
+      refreshStatus(); refreshPanel();
+    }
   });
-  try { setInterval(() => { try { refreshStatus(); } catch {} }, 15000); } catch {}
+  try { setInterval(() => { try { refreshStatus(); if (panelApp?.rendered) refreshPanel(); } catch {} }, 15000); } catch {}
 });
 
 function ctxFor() {
