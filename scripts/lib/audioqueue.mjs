@@ -4,8 +4,8 @@
 // unlock() resumes and replays it.
 export const isAutoplayBlocked = (e) => e?.name === "NotAllowedError" || e?.blocked === true || /autoplay|user (gesture|interaction)|not allowed/i.test(String(e?.message ?? e));
 export class AudioQueue {
-  constructor({ play, gapMs = 250, maxSeen = 500, retries = 2, retryDelayMs = 600, isBlocked = isAutoplayBlocked, onBlocked = () => {}, sleep = (ms) => new Promise(r => setTimeout(r, ms)) }) {
-    Object.assign(this, { play, gapMs, maxSeen, retries, retryDelayMs, isBlocked, onBlocked, sleep });
+  constructor({ play, gapMs = 250, maxSeen = 500, retries = 2, retryDelayMs = 600, isBlocked = isAutoplayBlocked, onBlocked = () => {}, sleep = (ms) => new Promise(r => setTimeout(r, ms)), onStart = null, onIdle = null }) {
+    Object.assign(this, { play, gapMs, maxSeen, retries, retryDelayMs, isBlocked, onBlocked, sleep, onStart, onIdle });
     this.q = []; this.seen = new Set(); this.running = false; this.blocked = false;
   }
   // Returns a promise resolving to {id, played:true} when the clip finished, or {duplicate:true} immediately.
@@ -24,6 +24,7 @@ export class AudioQueue {
   async _drain() {
     if (this.running || this.blocked) return; this.running = true;
     try {
+      if (this.q.length) try { this.onStart?.(); } catch {}
       while (this.q.length && !this.blocked) {
         const item = this.q[0];
         try { await this.play(item.clip); this.q.shift(); item.resolve({ id: item.id, played: true }); }
@@ -34,7 +35,7 @@ export class AudioQueue {
         }
         if (this.q.length) await this.sleep(this.gapMs);
       }
-    } finally { this.running = false; }
+    } finally { this.running = false; if (!this.q.length && !this.blocked) try { this.onIdle?.(); } catch {} }
   }
 }
 // One-time "click to enable audio" prompt (DOM injected for tests). Click unlocks the queue and removes itself.

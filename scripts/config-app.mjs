@@ -9,7 +9,7 @@ const ALL_FIELDS = [...BASIC_FIELDS, ...ADVANCED_FIELDS];
 export function makeConfigApp() {
   const { ApplicationV2 } = foundry.applications.api;
   return class AIGMConfig extends ApplicationV2 {
-    static DEFAULT_OPTIONS = { id: "aigm-config", tag: "form", window: { title: "AI GM Bridge settings" }, position: { width: 560 },
+    static DEFAULT_OPTIONS = { id: "aigm-config", tag: "form", window: { title: "AI GM Pirate Borg settings" }, position: { width: 560 },
       form: { handler: AIGMConfig.#save, closeOnSubmit: true } };
     async _renderHTML() {
       const g = (k) => game.settings.get(ID, k);

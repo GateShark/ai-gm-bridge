@@ -4,12 +4,20 @@ export const CSS = `
 #aigm-gm-status::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor}
 #aigm-gm-status[data-state="listening"]{background:#1b7a3a}
 #aigm-gm-status[data-state="thinking"]{background:#b8860b}
+#aigm-gm-status[data-state="asleep"]{background:#3d5a80}
+#aigm-gm-status[data-state="waking"]{background:#c47b17}
+#aigm-gm-status[data-state="reading"]{background:#2b6cb0}
+#aigm-gm-status[data-state="rolling"]{background:#b45309}
+#aigm-gm-status[data-state="voicing"]{background:#7a4eb5}
+#aigm-gm-status[data-state="speaking"]{background:#6b21a8}
 #aigm-gm-status[data-state="offline"]{background:#a12b2b}
 #aigm-gm-status[data-state="paused"]{background:#5a5a5a}
-#aigm-ptt-button{position:fixed;left:12px;bottom:12px;z-index:100;width:48px;height:48px;border-radius:50%;border:2px solid #cfcfcf;background:#1a1a1a;color:#fff;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+#aigm-ptt-button{position:fixed;left:12px;bottom:12px;z-index:100;width:48px;height:48px;border-radius:50%;border:2px solid #cfcfcf;background:#1a1a1a;color:#fff;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.4);overflow:hidden}
+#aigm-ptt-button img.aigm-ptt-icon{width:34px;height:34px;border-radius:50%;object-fit:cover;pointer-events:none}
 #aigm-ptt-button .aigm-ptt-dot{position:absolute;top:6px;right:6px;width:10px;height:10px;border-radius:50%;background:#555;border:1px solid #111}
 #aigm-ptt-button.aigm-ptt-live{border-color:#e33;box-shadow:0 0 0 3px rgba(238,51,51,.35)}
 #aigm-ptt-button.aigm-ptt-live .aigm-ptt-dot{background:#e33;box-shadow:0 0 8px #e33}
+#aigm-ptt-button.aigm-ptt-dragging{cursor:grabbing;opacity:.92}
 #aigm-audio-unlock{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:10000;padding:10px 18px;font-size:15px;font-weight:600;cursor:pointer;border-radius:8px;border:0;background:#1b5e20;color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.35)}
 .aigm-roll-btn{display:block;width:100%;margin-top:8px;padding:10px 16px;font-size:16px;font-weight:700;cursor:pointer;border-radius:8px}
 .aigm-rollreq[data-status="done"],.aigm-rollreq[data-status="cancelled"],.aigm-rollreq[data-status="expired"]{opacity:.7}

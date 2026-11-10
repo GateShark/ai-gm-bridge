@@ -1,10 +1,12 @@
 <p align="center">
-  <img src="assets/logo-256.webp" alt="AI GM Bridge" width="160" height="160" />
+  <img src="assets/logo-256.webp" alt="AI GM Pirate Borg" width="160" height="160" />
 </p>
 
-# AI GM Bridge (module id `ai-gm-bridge`) v0.8.16
+# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.8.17
 
 > ⚠️ **Alpha:** this is still in testing. Expect bugs and breaking changes.
+
+Previously called AI GM Bridge. The module id is still `ai-gm-bridge`.
 
 A Foundry VTT module (v13+, verified on v14 build 369) that lets any AI game-master bot run a world. It sends filtered,
 batched chat events to your bot's webhook, and your bot sends typed JSON commands back. It is off by default in every world.
@@ -13,7 +15,7 @@ Created by Gate (GateShark).
 
 ## Setup
 1. Install the module. Create a GM user for your bot, then enable the module in your world.
-2. Open **Settings → Configure AI GM**. Pick the bot GM user, choose delivery (relay or direct), set up the webhook and the filters.
+2. Open **Settings → Configure AI GM Pirate Borg**. Pick the bot GM user, choose delivery (relay or direct), set up the webhook and the filters.
 3. Turn on **Enabled**.
 4. Run your bot. `docs/BOT-API.md` describes the payload and the commands, and `examples/echo-gm.mjs` is a working example.
    - Relay: see `relay/RUN.md`. It is configured by env only, so the secret never goes into Foundry.
@@ -21,18 +23,25 @@ Created by Gate (GateShark).
      Any logged-in user's scripts can still read it, so use the relay for shared worlds.
 
 ## At the table
-- A small status light (bottom right) shows **GM listening**, **GM thinking…**, **AI GM offline** (with time since last seen), or **GM paused**. Click it to see when the GM last replied.
+- A small status light (bottom right) shows what the GM is doing in plain words: **GM listening**, **GM waking up**, **GM reading**, **GM thinking…**, **GM requesting a roll**, **GM is sending a voice message…**, **GM speaking**, **GM asleep**, **AI GM offline** (with time since last seen), or **GM paused**. Active states can show how many seconds they have lasted. Click the pill to see when the GM last replied.
 - If your browser blocks sound, an **Enable sound** button appears; any click or key also unlocks voice.
-- Push-to-talk: a hold-to-talk mic button (bottom left) with a live mic light. Turn on **Push-to-talk (this browser)** to also use the key (default `` ` ``).
+- Push-to-talk: a hold-to-talk logo button (bottom left, drag to move; the spot is remembered in this browser) with a live light. Turn on **Push-to-talk (this browser)** to also use the key (default `` ` ``).
 - Roll requests use one large **Roll** button; after you roll, cancel, or the request expires, the card greys out.
 - Voice lines have a ▶ replay button, and long lines can be expanded.
-- The GM has an in-game **AI GM** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
-- **Configure AI GM** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
+- The GM has an in-game **AI GM Pirate Borg** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
+- **Configure AI GM Pirate Borg** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
-## What's new since 0.8.0 (0.8.1–0.8.16)
-These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.16**.
+## What's new since 0.8.0 (0.8.1–0.8.17)
+These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.17**.
 
-**Session recap and command targets (0.8.16)**
+**Player-visible status, faster rolls, and the display name (0.8.17)**
+- Display title is now **AI GM Pirate Borg** (the module id is still `ai-gm-bridge`).
+- Ability-test rolls wake the bot immediately. Players see **GM waking up** / **GM reading** / **GM thinking…** / **GM is sending a voice message…** / **GM speaking** instead of waiting in silence. The bot can set thinking or voicing with `setGmStatus`.
+- One reply and one roll card per event; extra roll cards can be cancelled. Timed-out cards keep the player Roll button. `requestRoll` accepts `d4` / `1d4` (for example Broken).
+- The push-to-talk button uses the logo and can be dragged. A small speech-correction list fixes combat words such as kick / dropkick.
+- "Your turn" is spoken out loud by default (browser speech, no extra bot call).
+
+**Session recap and command targets (v0.8.16)**
 - Session recap lists only player characters and pets (monster HP such as "Skeleton 2 0/4" is omitted). PCs and pets are kept first if a busy scene hits the snapshot cap.
 - **Clear stuck** drops held start/pause `control` events too, and updates the queue on every GM client (not only the leader).
 - After a debug offline-light test is cancelled or expires, the bot writes a nonce immediately so the light can go green without waiting for the next 30-second refresh. No extra idle polling was added.
@@ -92,7 +101,7 @@ Players can only change actors they own. `!music`, `!scene`, `!setup`, session s
 
 - Pirate Borg morale checks and ship combat helpers (system rules, no dialogs), see docs/BOT-API.md.
 
-- **Push-to-talk (v0.8.5, per player, off by default):** each player enables **Push-to-talk (this browser)** (`pushToTalk`, client setting) and holds the key (`pushToTalkKey`, default `Backquote`, the ` key) or the 🎤 button bottom-left. The browser's Web Speech API transcribes (language from Foundry's language setting) with a "Listening…" indicator showing live text; on release the transcript is posted as that player's normal chat message. The key is ignored while typing in a text field. Chrome/Edge only (no Firefox: one-time notice, no button); needs mic permission, which browsers allow only on HTTPS or localhost. Speech goes to the browser's own speech service (Chrome/Edge send audio to Google/Microsoft), nothing to this module's servers.
+- **Push-to-talk (v0.8.5, per player, off by default):** each player enables **Push-to-talk (this browser)** (`pushToTalk`, client setting) and holds the key (`pushToTalkKey`, default `Backquote`, the ` key) or the logo button (bottom left; drag to move). The browser's Web Speech API transcribes (language from Foundry's language setting) with a "Listening…" indicator showing live text; on release the transcript is posted as that player's normal chat message. The key is ignored while typing in a text field. Chrome/Edge only (no Firefox: one-time notice, no button); needs mic permission, which browsers allow only on HTTPS or localhost. Speech goes to the browser's own speech service (Chrome/Edge send audio to Google/Microsoft), nothing to this module's servers.
 
 ## API (bot GM user, on the leader client)
 `api.run({name, args, commandId?})`, `api.ack(eventIds)`, `api.status()`, `api.metrics()`, `api.clearDead()`, `api.clearStuck()`, `api.setupCheck()`, `api.turnStatus()`, `api.ping()`, `api.recap()`.

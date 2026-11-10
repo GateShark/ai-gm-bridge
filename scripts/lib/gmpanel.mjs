@@ -132,7 +132,7 @@ export function panelHtml({ paused = false, turn = null, pending = [], hp = [], 
   </section>`;
 }
 
-export function installSidebarButton({ doc, label = "AI GM", open } = {}) {
+export function installSidebarButton({ doc, label = "AI GM Pirate Borg", open } = {}) {
   if (!doc || doc.getElementById("aigm-sidebar-btn")) return false;
   const nav = doc.getElementById("sidebar-tabs")
     || doc.querySelector?.("#sidebar .tabs, #sidebar menu.tabs, #sidebar nav, aside#sidebar .tabs, #sidebar-content, #sidebar");
@@ -151,7 +151,7 @@ export function makeGmPanel(deps = {}) {
   const { ApplicationV2 } = foundry.applications.api;
   const t = deps.t || ((k, f) => f || k);
   return class AIGMPanel extends ApplicationV2 {
-    static DEFAULT_OPTIONS = { id: "aigm-panel", tag: "div", window: { title: "AI GM", icon: "fas fa-robot" }, position: { width: 380, height: "auto" } };
+    static DEFAULT_OPTIONS = { id: "aigm-panel", tag: "div", window: { title: "AI GM Pirate Borg", icon: "fas fa-robot" }, position: { width: 380, height: "auto" } };
     recapText = "";
     async _renderHTML() {
       const state = deps.gather ? deps.gather() : {};

@@ -258,8 +258,21 @@ export function formatPanelLink(link, t = (k, f) => f || k) {
   if (!link) return "";
   const state = link.state || (link.offline ? "offline" : "");
   if (state === "offline") return formatOfflineLabel(link.lastSeen, link.now, t);
-  if (state === "thinking") return t("AIGM.status.thinking", "GM thinking…");
-  if (state === "paused") return t("AIGM.status.paused", "GM paused");
-  if (state === "listening") return t("AIGM.status.listening", "GM listening");
-  return "";
+  const labels = {
+    thinking: t("AIGM.status.thinking", "GM thinking…"),
+    asleep: t("AIGM.status.asleep", "GM asleep"),
+    waking: t("AIGM.status.waking", "GM waking up"),
+    reading: t("AIGM.status.reading", "GM reading"),
+    rolling: t("AIGM.status.rolling", "GM requesting a roll"),
+    voicing: t("AIGM.status.voicing", "GM is sending a voice message…"),
+    speaking: t("AIGM.status.speaking", "GM speaking"),
+    paused: t("AIGM.status.paused", "GM paused"),
+    listening: t("AIGM.status.listening", "GM listening")
+  };
+  let label = labels[state] || "";
+  if (label && link.since && ["asleep", "waking", "reading", "thinking", "rolling", "voicing", "speaking"].includes(state)) {
+    const n = Number(link.since), now = Number(link.now);
+    if (Number.isFinite(n) && n > 0 && Number.isFinite(now)) label = `${label} (${Math.max(0, Math.floor((now - n) / 1000))}s)`;
+  }
+  return label;
 }

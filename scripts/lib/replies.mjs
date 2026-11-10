@@ -13,3 +13,19 @@ export function missedMessages(messages, store, now, { windowMs = 120000, maxN =
   return messages.filter(m => m && m.id && (m.timestamp ?? 0) >= now - windowMs).slice(-maxN)
     .filter(m => !store.has(`chat:${m.id}`));
 }
+
+export const REPLY_LOCK_MS = 180000;
+export function resolveReplyTo(explicit, lastWake = null, now = Date.now(), windowMs = REPLY_LOCK_MS) {
+  if (explicit != null && String(explicit).trim()) return String(explicit).trim();
+  const id = lastWake?.eventIds?.[0];
+  if (id && Number(lastWake?.at || 0) > 0 && now - Number(lastWake.at) < windowMs) return String(id);
+  return null;
+}
+export const rollReplyKey = (replyTo) => `roll:${replyTo}`;
+export function priorRollReply(store, replyTo) {
+  if (!replyTo || !store) return null;
+  return store.get(rollReplyKey(replyTo)) ?? null;
+}
+export function recordRollReply(store, replyTo, requestId, messageId, now) {
+  if (replyTo && store) store.mark(rollReplyKey(replyTo), "acked", now, { requestId, messageId });
+}

@@ -7,7 +7,7 @@
       },
       "botUserId": {
         "name": "Bot user ID",
-        "hint": "Foundry user id of the AI GM bot account (preferred leader). Set it in Configure AI GM."
+        "hint": "Foundry user id of the AI GM bot account (preferred leader). Set it in Configure AI GM Pirate Borg."
       },
       "botUserName": {
         "name": "Bot user name prefix",
@@ -63,7 +63,7 @@
       },
       "ignorePlainRolls": {
         "name": "Ignore plain rolls",
-        "hint": "Rolls without a question don't wake the bot."
+        "hint": "Damage and other non-ability rolls without a question don't wake the bot. Ability tests (d20 / Pirate Borg sheet rolls) still wake it immediately."
       },
       "ignoreUsers": {
         "name": "Ignore users",
@@ -111,7 +111,7 @@
       },
       "rollRequestTimeoutMs": {
         "name": "Roll request timeout (ms)",
-        "hint": "After this, a requested roll shows a GM-only 'roll for them' button and the bot gets a rollTimeout event."
+        "hint": "After this, a requested roll shows a GM-only 'roll for them' button and the bot gets a rollTimeout event. The player's Roll button stays available after this timeout, along with a GM fallback."
       },
       "turnPrompts": {
         "name": "Combat turn prompts",
@@ -123,7 +123,7 @@
       },
       "turnVoiceUsers": {
         "name": "Voiced turn prompts for",
-        "hint": "Comma-separated user names or ids. Those players hear their turn prompt: a cached bot clip if one exists, else browser speech."
+        "hint": "Optional allowlist of user names or ids. When blank and Voiced turn prompts is on (the default), every owner hears 'Your turn'. A cached bot clip is used if one exists, else browser speech."
       },
       "sessionLog": {
         "name": "Session log",
@@ -142,12 +142,12 @@
         "hint": "Off (default) matches the Pirate Borg system: a ram rolls the target's armour but does not subtract it. On subtracts the armour roll from ram damage."
       },
       "thinkingIndicator": {
-        "name": "\"GM is thinking…\" indicator",
-        "hint": "Show every client a small notice (bottom right, not in chat) after a player message or roll is sent to the bot, until the bot replies."
+        "name": "Show GM status to players",
+        "hint": "Show every client a small status pill (bottom right, not in chat): waking, reading, thinking, requesting a roll, sending a voice message, speaking, asleep, ready, paused, or offline. The bot can set thinking/voicing with setGmStatus; the rest is automatic. It times out so it never sticks."
       },
       "thinkingTimeoutMs": {
-        "name": "Thinking indicator timeout (ms)",
-        "hint": "Hide the indicator after this long if the bot has not replied. 0 = only hide on reply."
+        "name": "GM status timeout (ms)",
+        "hint": "Hide an activity status after this long if nothing else updates it. 0 = only hide when the status is cleared."
       },
       "combatEvents": {
         "name": "Send combat start/end",
@@ -155,7 +155,7 @@
       },
       "pushToTalk": {
         "name": "Push-to-talk (this browser)",
-        "hint": "Hold the key or the mic button to speak; your words are posted as your chat message. Uses your browser's speech recognition (Chrome/Edge)."
+        "hint": "Hold the key or the logo button to speak; your words are posted as your chat message. Drag the button to move it (saved in this browser). Uses your browser's speech recognition (Chrome/Edge)."
       },
       "pushToTalkKey": {
         "name": "Push-to-talk key",
@@ -180,6 +180,18 @@
       "webhookAuthHeader": {
         "name": "Webhook auth header",
         "hint": "HTTP header name that carries the webhook secret (default Authorization)."
+      },
+      "voiceTurnPrompt": {
+        "name": "Voiced turn prompts",
+        "hint": "Say 'Your turn' out loud to the player whose turn it is (browser speech, or a cached clip). No extra bot call. Turn off to keep turn prompts as text and notifications only."
+      },
+      "speechHints": {
+        "name": "Speech vocabulary hints",
+        "hint": "Comma-separated combat words used to correct speech-to-text near-misses (for example Kik → kick). Keep this list small."
+      },
+      "speechFixes": {
+        "name": "Speech phrase fixes",
+        "hint": "Comma-separated replacements as heard=intended, for example drop cake=dropkick, kik=kick. Applied before near-miss correction."
       }
     },
     "audio": {
@@ -200,7 +212,13 @@
       "offlineSince": "AI GM offline (last seen {since})",
       "paused": "GM paused",
       "lastReply": "Last reply",
-      "noReply": "No replies yet"
+      "noReply": "No replies yet",
+      "asleep": "GM asleep",
+      "waking": "GM waking up",
+      "reading": "GM reading",
+      "rolling": "GM requesting a roll",
+      "voicing": "GM is sending a voice message…",
+      "speaking": "GM speaking"
     },
     "voice": {
       "replay": "Replay",
@@ -223,7 +241,7 @@
       "save": "Save"
     },
     "panel": {
-      "title": "AI GM",
+      "title": "AI GM Pirate Borg",
       "pause": "Pause AI GM",
       "resume": "Resume AI GM",
       "redo": "Redo last reply",
@@ -245,7 +263,7 @@
       "clearedStuck": "Cleared {n} stuck event(s).",
       "setupCheck": "Check setup",
       "setupOk": "All player-looking pirates here have a player owner.",
-      "open": "Open AI GM panel",
+      "open": "Open AI GM Pirate Borg panel",
       "quick": "Quick GM",
       "pickTable": "Pick a roll table",
       "rollTable": "Roll table",

@@ -1,7 +1,7 @@
 // Typed command registry (allow-list, no eval). Every handler returns {ok,result} | {ok:false,code,error}.
 import { ok, fail, validate, checkExpect } from "./lib/result.mjs";
 import { KeyedMutex } from "./lib/mutex.mjs";
-import { priorReply, recordReply } from "./lib/replies.mjs";
+import { priorReply, recordReply, resolveReplyTo } from "./lib/replies.mjs";
 import { waitForPosition } from "./lib/movewait.mjs";
 import { moveWithFallback, setSceneBackground, formatResult } from "./lib/v081.mjs";
 import { VoiceCache, shouldSkipTts } from "./lib/voicecache.mjs";
@@ -15,8 +15,14 @@ import * as SHIP from "./ship.mjs";
 import { targetActor, targetInfo, sceneTokenForActor } from "./lib/target.mjs";
 import { combatExpect } from "./lib/turns.mjs";
 import { liveSetupCheck } from "./lib/setupcheck.mjs";
+import { normalizeGmStatus } from "./lib/gmstatus.mjs";
 import { runLinkProbe, findBotUser, callerConnectionError, PING_TIMEOUT_ERROR, publicPresence, resolvePresenceSuspendSeconds } from "./lib/presence.mjs";
 const MODULE_ID = "ai-gm-bridge";
+
+function withReplyTo(a, ctx) {
+  const replyTo = resolveReplyTo(a?.replyTo, ctx?.lastWake);
+  return replyTo ? { ...a, replyTo } : a;
+}
 
 function settingOf(g, key, fallback = "") {
   try { return g?.settings?.get?.(MODULE_ID, key) ?? fallback; } catch { return fallback; }
@@ -248,7 +254,7 @@ export const COMMANDS = {
     await actor.update({ [r.base + ".value"]: after });
     return ok({ actorId: actor.id, ...targetInfo(tg), resource: r.label ?? r.key, path: r.base + ".value", before: cur?.value, after: foundry.utils.getProperty(actor, r.base + ".value") });
   }},
-  whisper: { schema: { content: "string", to: "array", speakerAlias: "string?", replyTo: "string?", ackEventIds: "array?" }, async run(a, ctx) { if ("content" in a) a.content = unwrapText(a.content);
+  whisper: { schema: { content: "string", to: "array", speakerAlias: "string?", replyTo: "string?", ackEventIds: "array?" }, async run(a, ctx) { a = withReplyTo(a, ctx); if ("content" in a) a.content = unwrapText(a.content);
     if (!Array.isArray(a.to) || !a.to.length) return fail(400, "to must be a non-empty array of user ids or names");
     const users = a.to.map(x => game.users.get(x) ?? game.users.getName?.(x)); if (users.some(u => !u)) return fail(404, "unknown recipient");
     const prev = priorReply(ctx.dedupe, a.replyTo); if (prev) { await ackAfter(ctx, a.ackEventIds); return ok({ messageId: prev, duplicate: true }); }
@@ -269,7 +275,7 @@ export const COMMANDS = {
     if (shouldSkipTts(a.content, ctx.ttsMinChars ?? 0)) return ok({ skipTts: true, cached: null });
     return ok({ skipTts: false, cached: ctx.voiceCache?.get(a.content, a.voice) ?? null });
   }},
-  postVoice: { schema: { content: "string", audioPath: "string?", voice: "string?", replyTo: "string?", speakerAlias: "string?", ackEventIds: "array?" }, async run(a, ctx) { if ("content" in a) a.content = unwrapText(a.content);
+  postVoice: { schema: { content: "string", audioPath: "string?", voice: "string?", replyTo: "string?", speakerAlias: "string?", ackEventIds: "array?" }, async run(a, ctx) { a = withReplyTo(a, ctx); if ("content" in a) a.content = unwrapText(a.content);
     const prev = priorReply(ctx.dedupe, a.replyTo); if (prev) { await ackAfter(ctx, a.ackEventIds); return ok({ messageId: prev, duplicate: true }); }
     const flags = { "ai-gm-bridge": { replyTo: a.replyTo ?? null } };
     let audioPath = a.audioPath, cacheHit = false, skippedTts = false;
@@ -345,9 +351,15 @@ export const COMMANDS = {
   getShip: { schema: { actorId: "string?", actorName: "string?", ...TOK }, async run(a) {
     const tg = findTarget(a); if (tg.error) return fail(404, "ship not found"); return SHIP.getShip(tg.actor); } },
   // v0.6
-  requestRoll: { schema: { user: "string", actorId: "string?", actorName: "string?", stat: "string?", formula: "string?", dr: "number?", label: "string?", requestId: "string?", timeoutMs: "number?", combatId: "string?" },
-    async run(a) { return F.requestRoll(a); } },
-  cancelRoll: { schema: { requestId: "string" }, async run(a) { return F.cancelRollRequest(a.requestId); } },
+  requestRoll: { schema: { user: "string", actorId: "string?", actorName: "string?", stat: "string?", formula: "string?", dr: "number?", label: "string?", requestId: "string?", timeoutMs: "number?", combatId: "string?", replyTo: "string?" },
+    async run(a, ctx) { return F.requestRoll(withReplyTo(a, ctx)); } },
+  cancelRoll: { schema: { requestId: "string?", messageId: "string?", actorId: "string?", actorName: "string?", label: "string?", user: "string?" }, async run(a) {
+    if (!a.requestId && !a.messageId && !a.actorId && !a.actorName && !a.label && !a.user) return fail(400, "requestId, messageId, or actor/label/user is required");
+    return F.cancelRollRequest(a.requestId, a); } },
+  setGmStatus: { schema: { state: "string", note: "string?", timeoutMs: "number?" }, async run(a) {
+    const state = normalizeGmStatus(a.state);
+    if (!state) return fail(400, `unknown gm status ${a.state}`);
+    return ok({ state, note: a.note != null && String(a.note).trim() ? String(a.note).trim().slice(0, 80) : null, timeoutMs: a.timeoutMs ?? null }); } },
   turnStatus: { schema: {}, async run() {
     const t = F.turnStatus();
     return ok({ active: !!t, ...(t ?? {}), expect: t?.expect ?? null, ...livePresenceFields() });
@@ -532,7 +544,7 @@ export const COMMANDS = {
     const tg = findTarget(a); if (tg.error) return fail("NOT_FOUND", tg.error.error); return F.rest(tg.actor, { ...a, length: a.length ?? a.kind }); } },
   speakBubble: { schema: { tokenId: "string?", tokenName: "string?", sceneId: "string?", text: "string", emote: "boolean?" }, async run(a) {
     const t = findToken(a); if (!t) return fail("NOT_FOUND", "token not found"); return F.speakBubble({ tokenId: t.id, text: unwrapText(a.text), emote: a.emote }); } },
-  post: { schema: { content: "string", replyTo: "string?", speakerAlias: "string?", allowMultiple: "boolean?", ackEventIds: "array?" }, async run(a, ctx) { if ("content" in a) a.content = unwrapText(a.content);
+  post: { schema: { content: "string", replyTo: "string?", speakerAlias: "string?", allowMultiple: "boolean?", ackEventIds: "array?" }, async run(a, ctx) { a = withReplyTo(a, ctx); if ("content" in a) a.content = unwrapText(a.content);
     const prev = priorReply(ctx.dedupe, a.replyTo, a.allowMultiple === true);
     if (prev) { await ackAfter(ctx, a.ackEventIds); return ok({ messageId: prev, duplicate: true }); }
     const m = await ChatMessage.create({ content: a.content, speaker: a.speakerAlias ? { alias: a.speakerAlias } : ChatMessage.getSpeaker(),

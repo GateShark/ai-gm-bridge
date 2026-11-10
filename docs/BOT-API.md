@@ -1,10 +1,12 @@
-# AI GM Bridge: bot API
+# AI GM Pirate Borg: bot API
+
+Previously called AI GM Bridge. The module id remains `ai-gm-bridge` (`game.modules.get("ai-gm-bridge")`).
 
 Your bot is a webhook. The bridge POSTs **event batches** to it. The bot answers with **commands**, which run inside Foundry.
 There are two ways to deliver:
 
 - **relay** (recommended): an external process (`relay/`, configured by env only) logs in as the bot GM user and POSTs batches.
-- **direct**: the bot GM user's browser POSTs batches. Configure it in *Configure AI GM*. The webhook must allow CORS.
+- **direct**: the bot GM user's browser POSTs batches. Configure it in *Configure AI GM Pirate Borg*. The webhook must allow CORS.
 
 Every request has the headers `content-type: application/json`, `<auth header>: <secret>` and `idempotency-key: <batchId>`.
 Answer `2xx` once you have the batch. Until the bridge sees a 2xx it retries (2 s, 5 s, 15 s, then 60 s), and every retry
@@ -84,8 +86,9 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | upload | name (e.g. map.png), data (base64 or data: URL), kind?: images/audio/text. GM-only. Saved as `ai-gm-uploads/<kind>/<hash>-<name>`; the same bytes return the same path with existed:true and no re-upload. Limits come from settings: size (default 8 MB) and types (png, jpg, jpeg, webp, gif, mp3, ogg, wav, webm, txt, md, json). The content must match its extension. Errors: 403, 413, 415 |
 | spawnAndVision | actorId or actorName, sceneId?, x, y, name?, hidden?, elevation?, disposition?, vision? {enabled, range 0-1000, angle 1-360, visionMode: basic, darkvision, monochromatic, tremorsense, lightAmplification}, light? {dim, bright, color "#rrggbb", angle, alpha, animation {type, speed, intensity}}, locked?, lockScope?, spawnKey? (idempotent: returns the existing token with duplicate:true) |
 | setVision | tokenId or tokenName, sceneId?, vision?, light? (same shapes as spawnAndVision) |
-| requestRoll | user (name or id), actorId? or actorName? (default: the user's character), stat (strength/agility/presence/toughness/spirit, or str/agi/pre/tou/spi), dr, label?, requestId?, timeoutMs? (default setting, 120000). Posts a card with a Roll button only that player or a GM can use. Any d20 roll by that player after the card (button, sheet, or Pixels dice) answers it. Returns {requestId, messageId, status}; the same requestId returns the existing card and result with duplicate:true. You get one `rollResult` event. On timeout you get `rollTimeout` and a GM-only "roll for them" button appears. **v0.8.4 any formula:** pass `formula` (any Foundry formula, e.g. `1d6`, `2d4+1`, `1d20+@abilities.agility.value`, evaluated with the actor's roll data) with `label`; then `stat` and `dr` are optional. Same button and same `rollResult` event, plus `formula` and `label`; `success` is null when no `dr` was given (true/false vs `dr` otherwise). Non-d20 formula requests are answered only by their card button. Errors: BAD_FORMULA, BAD_STAT, BAD_ARGS (stat test without dr) |
+| requestRoll | user (name or id), actorId? or actorName? (default: the user's character), stat (strength/agility/presence/toughness/spirit, or str/agi/pre/tou/spi), dr, label?, requestId?, timeoutMs? (default setting, 120000), formula?, replyTo?. Posts a card with a Roll button only that player or a GM can use. Any d20 roll by that player after the card (button, sheet, or Pixels dice) answers it. Returns {requestId, messageId, status}; the same requestId, the same `replyTo`, or another open card for the same user+actor+formula/stat+label returns the existing card with duplicate:true. You get one `rollResult` event (already urgent). On timeout you get `rollTimeout`; the player Roll button stays and a GM "roll for them" button is added. **Any formula (0.8.4+, 0.8.17 d4):** pass `formula` (`1d6`, `d4` or `1d4`, `2d4+1`, `1d20+@abilities.agility.value`) with `label` (e.g. Broken); `stat` and `dr` are then optional. `d4` is stored as `1d4`. Unflagged sheet rolls with the same die faces can answer a matching formula card. An unflagged d20 still never answers a non-d20 formula card. Errors: BAD_FORMULA, BAD_STAT, BAD_ARGS (stat test without dr) |
 | turnStatus | none; returns {active, round, turn, name, ownerNames, ownerIds, next, isNPC, expect, serverTime, gmUserActive, lastSeen, worldId, bot:{id,name,active}?, botActive?} where `expect` is `{combatId, round, turn}` ready to pass to nextTurn (null when there is no combat). `isNPC` uses the same helper as turn events (combatant.isNPC / hasPlayerOwner / character type / token actor / combatant.players). Presence fields are read-only (no extra write). `bot` is plain `{id, name, active}` only. When the current combatant is a pet, also `isPet`, `simpleAction`, and `petOwner`; ships also set `isShip` |
+| setGmStatus | state (listening/idle/ready, asleep, waking, reading, thinking, rolling, voicing, speaking), note? (plain text, shown in the pill tooltip only, max 80 chars), timeoutMs?. Cheap player-visible status. The module already sets waking (event sent), reading (relay claimed/acked), rolling (`requestRoll`), voicing (`postVoice`/`voiceLookup`), speaking (audio playing), and offline. Call this when you start thinking or generating TTS (`thinking`, `voicing`) or when your session goes idle (`asleep`). It broadcasts one socket message and auto-clears to ready/listening so it never sticks. |
 | ping | none; writes a tiny nonce to a world setting and reads it back. Returns {ok, serverTime, gmUserActive, lastSeen, worldId, bot:{id,name,active}, botActive} only when the nonce matches; otherwise a 504 after about 5 seconds if Foundry does not confirm. Use this to verify the Foundry link before a write. `bot` is plain fields only (never a Foundry User document) |
 | debugSuspendPresence | seconds (0 cancels, cap 600). GM-only debug hook via `api.debugSuspendPresence(s)` (any GM) or this command. Stops the bot's periodic nonce refresh until then so the offline light can be tested; auto-resumes. Not a Basic setting. Default off, no effect on normal play |
 | setupCheck | none; returns {ok, scene, checked, unowned, warning, text}. Lists scene/combat actors that look like player pirates (character type or a class item) but have no non-GM owner. Warning only — nothing is changed |
@@ -106,14 +109,14 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | speakBubble | tokenId or tokenName, sceneId?, text (plain, max 300), emote?. Shows a chat bubble over the token on every client (one socket message, no chat message) |
 
 ### v0.6 local features (no bot wake)
-- Turn prompts (`turnPrompts`, on): each turn change posts "Round N: X is up (Player). Next: Y." and notifies the owning player. Players listed in `turnVoiceUsers` also hear it on their own client: a cached voice clip if the bot ever voiced the exact text "X, you're up." (use `postVoice`, or `voiceLookup` to check), otherwise the browser's speech synthesis.
+- Turn prompts (`turnPrompts`, on): each turn change posts "Round N: X is up (Player). Next: Y." and notifies the owning player. By default (0.8.17 `voiceTurnPrompt`, on) every owner hears "Your turn: X." on their own client: a cached voice clip if you ever voiced that exact text, otherwise the browser's speech synthesis (no extra bot call). A non-empty `turnVoiceUsers` list still acts as an allowlist.
 - Chat: `!turn` (who is up), `!setup` (unowned player-looking pirates on this scene; warning only), `!rest <actor> [short|long] [starve|donteat] [infected]` (owner or GM), `!save [notes]` / `!load` (session snapshot; GM), `!start` / `!pause` (one-step Foundry + AI GM; `!pause` is GM-only, bare `start` in chat still follows the Unpause-on-start setting).
 - Session log (`sessionLog`, on): HP changes, 0 HP, items gained, Devil's Luck/rituals/extra resource changes, combat start/end and rests are written as timestamped lines to a GM-only journal "AI GM Session Log", one page per day, at most one write per 4 s.
 - Pirate Borg rest, mirrored from the system's rest action (pirateborg 1.9.0): short = heal d4 if eating and not infected, grog hours -1 (when grog is on). Long = starving d4 damage, infected d6 damage, heal d8 if eating and not infected, rituals = max(d4+Spirit, 0), the class extra resource (e.g. Prayers) re-rolled from the class formula, Devil's Luck re-rolled from the luck die only if it is 0, grog effects cleared. The system's own per-day and grog functions are used when they load; otherwise the same formulas run in the module.
 
 Usage tip: upload a file once, then refer to its returned `path` (for example in `playAudio` or `postVoice`). Pass a `spawnKey` so a retried command never places a second token.
 
-`replyTo` stops duplicate replies: a second `post` with the same `replyTo` returns the first message.
+`replyTo` stops duplicate replies: a second `post` / `postVoice` / `whisper` with the same `replyTo` returns the first message. If you omit `replyTo`, the module uses the most recent player wake id (about 3 minutes). `requestRoll` uses a separate `roll:` lock so you can still request a roll and later post damage for the same event. Always pass `replyTo` when you have it, and do not run a second handler for the same event.
 
 ## Example
 `examples/echo-gm.mjs` is a working bot of about 50 lines: `AIGM_WEBHOOK_AUTH=change-me node examples/echo-gm.mjs`.
@@ -207,7 +210,7 @@ Optional per-turn events: `turnWake` (default on since v0.8.11) sends `{type:"tu
 
 
 ## Push-to-talk (v0.8.5)
-No new command or event. Push-to-talk (v0.8.5, per player, off by default): each player enables **Push-to-talk (this browser)** (`pushToTalk`, client setting) and holds the key (`pushToTalkKey`, default `Backquote`, the ` key) or the 🎤 button bottom-left. The browser's Web Speech API transcribes (language from Foundry's language setting) with a "Listening…" indicator showing live text; on release the transcript is posted as that player's normal chat message. The key is ignored while typing in a text field. Chrome/Edge only (no Firefox: one-time notice, no button); needs mic permission, which browsers allow only on HTTPS or localhost. Speech goes to the browser's own speech service (Chrome/Edge send audio to Google/Microsoft), nothing to this module's servers. For the bot it arrives exactly like typed chat (normal `chat` event from that user).
+No new command or event. Push-to-talk (v0.8.5, per player, off by default): each player enables **Push-to-talk (this browser)** (`pushToTalk`, client setting) and holds the key (`pushToTalkKey`, default `Backquote`, the ` key) or the logo button (draggable, position saved per browser). The browser's Web Speech API transcribes (language from Foundry's language setting) with a "Listening…" indicator showing live text; on release the transcript is posted as that player's normal chat message. The key is ignored while typing in a text field. Chrome/Edge only (no Firefox: one-time notice, no button); needs mic permission, which browsers allow only on HTTPS or localhost. Speech goes to the browser's own speech service (Chrome/Edge send audio to Google/Microsoft), nothing to this module's servers. For the bot it arrives exactly like typed chat (normal `chat` event from that user).
 
 
 ## v0.8.8 notes (UI polish; additive events)
@@ -221,7 +224,7 @@ When the world GM pauses, resumes, redos or skips, the leader sends an urgent ev
 `action` is one of `pause`, `resume`, `redo`, `skip`. `targetEventIds` (redo/skip) are the last player chat/roll events that were sent to you. Treat `redo` as "please answer those again" and `skip` as "do not answer them". `pause` means stop answering until `resume`. The module also stops sending normal chat events while the world setting `aiPaused` is true.
 
 ### Cancelled rolls
-`{"name":"cancelRoll","args":{"requestId":"..."}}` marks a pending roll card cancelled (no longer answerable) and emits:
+`{"name":"cancelRoll","args":{"requestId":"..."}}` (or `messageId`, or actor/label/user) marks matching open roll cards cancelled, including duplicate sibling cards for the same player/actor/label, and emits:
 ```json
 { "eventId": "rollreq:<id>:cancel", "type": "rollCancelled", "requestId": "<id>", "actor": "Name", "user": "Player" }
 ```
@@ -230,7 +233,7 @@ When the world GM pauses, resumes, redos or skips, the leader sends an urgent ev
 The settings **Test connection** button POSTs `{ "type": "testConnection", "ping": true }` to the webhook URL (same auth header, no `events` array and no `batchId`). Answer `2xx` if you can; any HTTP response is treated as "reached the server". In relay mode with no URL stored in Foundry, the button checks that the bot user is connected instead.
 
 ### Status light
-There is no extra bot API for the status light. It is derived from the existing leader heartbeat, the thinking socket, whether the bot user is connected, and `aiPaused`.
+The player-visible status pill (0.8.17) is derived automatically when it can be: event sent → **GM waking up**; relay claim/ack → **GM reading**; `requestRoll` → **GM requesting a roll**; `postVoice`/`voiceLookup` → **GM is sending a voice message…**; audio playing → **GM speaking**; no server-confirmed link → **AI GM offline**; otherwise **GM listening** (ready) or **GM paused**. Call `setGmStatus` for **GM thinking…**, **GM is sending a voice message…** (while you generate TTS, before `postVoice`), or **GM asleep**. A timeout (the thinking-indicator setting, default 90s) returns the pill to ready so it never sticks. One socket message per change; no extra polling.
 
 ## v0.8.9: relay-mode chat ack
 In **relay** delivery, `chat` events are marked received after the batch is emitted on the module socket and the `ai-gm-bridge.events` hook. The module does not retry those chat events. That matches relays that read Foundry chat themselves (for example a `/wait` loop) and would otherwise leave chat sitting in the outbox until it dies.
@@ -297,3 +300,14 @@ Session recap (`saveSession` / `loadSession` / panel) lists only player characte
 `debugSuspendPresence(0)` (and timer expiry) trigger an immediate nonce refresh and panel/status recheck (`nextProbeAt` is cleared). No extra steady-state polling is added.
 
 `giveLoot` and `applyDamage` accept the same target arguments: `tokenId`, `tokenName`, `tokenIds`, `actorId`, `actorName`, `actorIds`, `sceneId`, plus selected-token fallback. Older call shapes keep working. `giveLoot` with multiple ids uses the first resolved target and resolves the recipient before drawing the table. `applyDamage` applies to every resolved target.
+
+## v0.8.17: faster roll wakes, one reply per event, player-visible GM status
+Module-side latency: ability-test rolls (d20 / `@abilities.*`, including Pirate Borg sheet outcomes) wake immediately (`urgent: true`) even when "Ignore plain rolls" is on. Damage dice stay filtered. `rollResult` was already urgent and is auto-acked in relay mode, so the ~57s delay seen in play is not the module debounce (1.2s), max wait (3.5s), or first outbox retry (2s). **GM side:** treat `rollResult` as an immediate wake (do not wait for a 20s unanswered/AWAKE fallback), and do not start a second handler for the same event.
+
+Single-responder: pass `replyTo` on `post` / `postVoice` / `whisper` / `requestRoll`. If you omit it, the module locks to the latest wake id for about three minutes. Two open `requestRoll` cards for the same user+actor+formula/stat+label are collapsed to one. `cancelRoll` finds a card by `requestId`, `messageId`, or actor/label/user, and also cancels matching sibling cards.
+
+Player-visible status (all clients, small pill, optional elapsed seconds): see `setGmStatus` above. Call `{ "name": "setGmStatus", "args": { "state": "thinking" } }` when you start writing a reply, and `{ "state": "voicing" }` when you start TTS. The module handles waking/reading/rolling/speaking/offline itself.
+
+`requestRoll { formula: "d4" or "1d4", label: "Broken" }` posts a button for non-d20 dice. After `rollTimeout` the original player button remains.
+
+Turn prompts say "Your turn" out loud by default (`voiceTurnPrompt`). Push-to-talk uses the module logo, is draggable, and applies a small configurable speech correction list (`speechHints` / `speechFixes`, e.g. "drop cake" → "dropkick", "Kik" → "kick").

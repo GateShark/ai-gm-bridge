@@ -7,10 +7,14 @@ export const shouldShowThinking = (events = [], attempt = 1) => attempt === 1 &&
 
 export class ThinkingIndicator {
   constructor({ doc = globalThis.document, label = () => "GM is thinking…", setT = (f, ms) => setTimeout(f, ms), clearT = (t) => clearTimeout(t), now = () => Date.now(), silent = false, onChange = null } = {}) {
-    Object.assign(this, { doc, label, setT, clearT, now, silent, onChange }); this.timer = null; this.deadline = null; this._on = false;
+    Object.assign(this, { doc, label, setT, clearT, now, silent, onChange }); this.timer = null; this.deadline = null; this._on = false; this.kind = "thinking"; this.note = null; this.since = null;
   }
   get visible() { return this.silent ? !!this._on : !!this.doc?.getElementById?.(THINKING_ID); }
-  show(timeoutMs = 90000) {
+  show(timeoutMs = 90000, { kind = "thinking", note = null } = {}) {
+    const prevKind = this.kind;
+    this.kind = kind || "thinking";
+    this.note = note ?? null;
+    if (prevKind !== this.kind || this.since == null) this.since = this.now();
     this._on = true;
     if (!this.silent) {
       if (!this.doc?.body) return false;
@@ -22,17 +26,18 @@ export class ThinkingIndicator {
       }
       el.textContent = typeof this.label === "function" ? this.label() : this.label;
     }
-    // v0.8.6: the timeout runs from the FIRST show; later shows (queued messages) never push the deadline out.
+    // Same kind: keep the earlier deadline (queued messages do not stretch it). A new kind resets the timeout.
     const ms = Number(timeoutMs), now = this.now();
     if (!(ms > 0)) { if (this.timer) this.clearT(this.timer); this.timer = null; this.deadline = null; this.onChange?.("show"); return true; }
-    this.deadline = this.deadline == null ? now + ms : Math.min(this.deadline, now + ms);
+    if (prevKind !== this.kind || this.deadline == null) this.deadline = now + ms;
+    else this.deadline = Math.min(this.deadline, now + ms);
     if (this.timer) this.clearT(this.timer);
     this.timer = this.setT(() => this.hide(), Math.max(0, this.deadline - now));
     this.onChange?.("show");
     return true;
   }
   hide() {
-    if (this.timer) this.clearT(this.timer); this.timer = null; this.deadline = null;
+    if (this.timer) this.clearT(this.timer); this.timer = null; this.deadline = null; this.kind = "thinking"; this.note = null; this.since = null;
     if (this.silent) {
       const was = this._on; this._on = false;
       if (was) this.onChange?.("hide");

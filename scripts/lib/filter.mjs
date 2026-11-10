@@ -11,10 +11,19 @@ export function classify(msg, opts = {}) {
   if (on.has("mention") && gmNames.some(n => new RegExp(`(^|\\W)@?${n}(\\W|$)`, "i").test(lower))) return { wake: true, reason: "mention", urgent: true };
   if (on.has("whisper") && msg.whisperToBot) return { wake: true, reason: "whisper", urgent: true };
   if (on.has("keyword") && keywords.some(k => k && lower.includes(k.toLowerCase()))) return { wake: true, reason: "keyword" };
-  if (msg.rolls?.length && !text.includes("?")) return ignorePlainRolls ? { wake: false, reason: "plainRoll" } : { wake: true, reason: "roll" };
+  if (msg.rolls?.length && !text.includes("?")) {
+    if (looksLikeAbilityRoll(msg.rolls)) return { wake: true, reason: "roll", urgent: true };
+    return ignorePlainRolls ? { wake: false, reason: "plainRoll" } : { wake: true, reason: "roll", urgent: true };
+  }
   if (text.length < minChars) return { wake: false, reason: "short" };
   if (on.has("ic") && msg.inCharacter) return { wake: true, reason: "ic" };
   if (on.has("question") && text.includes("?")) return { wake: true, reason: "question" };
   return { wake: false, reason: "noTrigger" };
+}
+export function looksLikeAbilityRoll(rolls = []) {
+  return (rolls ?? []).some(r => {
+    const f = `${r?.formula ?? ""} ${r?.raw ?? ""}`;
+    return /d20/i.test(f) || /abilities\./i.test(f);
+  });
 }
 export const shouldWake = (msg, opts) => classify(msg, opts).wake;

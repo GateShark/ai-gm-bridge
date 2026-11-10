@@ -1,7 +1,7 @@
 // 0.8.8 settings layout: a short Basic page plus a collapsed Advanced list.
 // Keys and defaults stay the same so existing worlds keep working. Internal
 // state is never shown in the form.
-export const HIDDEN_KEYS = ["dedupeState", "outboxState", "voiceCache", "contextJournals", "pushToTalkNoticeShown", "linkProbe", "sessionSnapshot", "presenceSuspendUntil"];
+export const HIDDEN_KEYS = ["dedupeState", "outboxState", "voiceCache", "contextJournals", "pushToTalkNoticeShown", "pttPosition", "linkProbe", "sessionSnapshot", "presenceSuspendUntil"];
 // Shown on the Basic page (plus the bot-user dropdown and webhook secret).
 export const BASIC_KEYS = ["enabled", "botUserId", "delivery", "webhookUrl", "webhookSecret", "alwaysVoiceUsers", "pushToTalkKey", "combatEvents"];
 export const BASIC_FIELDS = [
@@ -44,6 +44,9 @@ export const ADVANCED_FIELDS = [
   ["turnPrompts", "checkbox"],
   ["turnWake", "checkbox"],
   ["turnVoiceUsers", "text"],
+  ["voiceTurnPrompt", "checkbox"],
+  ["speechHints", "text"],
+  ["speechFixes", "text"],
   ["sessionLog", "checkbox"],
   ["ramUsesArmor", "checkbox"],
   ["thinkingIndicator", "checkbox"],
@@ -51,7 +54,7 @@ export const ADVANCED_FIELDS = [
   ["metricsLogEvery", "number"],
 ];
 export const ADVANCED_KEYS = ADVANCED_FIELDS.map(f => f[0]);
-export const CLIENT_KEYS = ["pushToTalk", "pushToTalkKey", "pushToTalkNoticeShown"];
+export const CLIENT_KEYS = ["pushToTalk", "pushToTalkKey", "pushToTalkNoticeShown", "pttPosition"];
 // Runtime control used by the GM panel; not listed in the settings form.
 export const PANEL_KEYS = ["aiPaused"];
 export const ALL_KNOWN_KEYS = [...new Set([...BASIC_KEYS, ...ADVANCED_KEYS, ...HIDDEN_KEYS, ...CLIENT_KEYS, ...PANEL_KEYS])];

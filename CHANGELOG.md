@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.17
+- Display title is now **AI GM Pirate Borg** everywhere players and GMs see it (module listing, panel, settings menu, notifications, README). The module id remains `ai-gm-bridge`; setting keys, flags, `game.modules.get("ai-gm-bridge")`, zip/folder names, and GitHub/manifest URLs are unchanged. Previously called AI GM Bridge.
+- Roll reply lag: ability tests (d20 / Pirate Borg sheet outcomes) now wake immediately (`urgent`) even when plain rolls are ignored. Damage dice stay filtered. The remaining delay after a `rollResult` is almost certainly the external bot (for example a ~20s unanswered/AWAKE fallback plus model/TTS), not module debounce (1.2s), max wait (3.5s), or the first outbox retry (2s).
+- One handler per message/roll: `post` / `postVoice` / `whisper` lock on `replyTo` or the latest wake id; `requestRoll` has a separate lock and also reuses an already-open card for the same user+actor+formula/stat+label. `cancelRoll` finds cards by request id, message id, or actor/label/user and cancels matching siblings.
+- Player-visible GM status pill (all clients, plain words, optional elapsed seconds): waking, reading, thinking, requesting a roll, sending a voice message, speaking, asleep, ready/listening, paused, offline. The module sets what it can observe. New command `setGmStatus {state, note?, timeoutMs?}` lets the bot set thinking/voicing/asleep. Auto-timeout so it never sticks. One socket message per change, no extra polling.
+- Push-to-talk uses the official logo and can be dragged; the position is saved per browser. A small configurable speech list corrects phrases such as "drop cake" → "dropkick" and near-misses such as "Kik" → "kick".
+- Turn prompts say "Your turn" out loud by default (`voiceTurnPrompt`; a non-empty `turnVoiceUsers` list still filters). Cheap browser speech or a cached clip; no extra bot call.
+- Timed-out roll cards keep the player's Roll button (plus the GM fallback). `requestRoll` accepts non-d20 formulas such as `d4` / `1d4` with a button (for example Broken).
+
 ## 0.8.16
 - Session recap (`saveSession` / `loadSession` / the in-game recap) lists only player characters and pets. Monster HP (for example "Skeleton 2 0/4 HP") is omitted from that text. The stored snapshot may still include other tokens so `applyHp` can restore them; player characters and pets are kept first if the 24-actor cap is hit.
 - **Clear stuck** (and `api.clearStuck()`) still acks every remaining outbox item, including held `control` start/pause events. Non-leader GMs forward the clear to the leader and also empty their local queue, so the panel count updates immediately instead of leaving those two control events visible.

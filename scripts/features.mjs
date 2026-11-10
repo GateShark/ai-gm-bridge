@@ -1,8 +1,9 @@
 // v0.6 runtime features: requestRoll, turn prompts, session log, Pirate Borg rest, speakBubble.
 // Deps are injected by main.mjs via initFeatures() so commands.mjs and tests can use them.
 import { ok, fail } from "./lib/result.mjs";
-import { normStat, formulaFor, evaluate, evaluateFormula, reqFormula, canClick, reqIdFrom, cardHtml, matchRoll, naturalOf, d20Of, rollBreakdown, rollsOf, isOpen } from "./lib/rollreq.mjs";
-import { turnInfo, turnText, voiceUsersFrom } from "./lib/turns.mjs";
+import { normStat, formulaFor, normalizeFormula, evaluate, evaluateFormula, reqFormula, canClick, reqIdFrom, cardHtml, matchRoll, naturalOf, d20Of, rollBreakdown, rollsOf, isOpen } from "./lib/rollreq.mjs";
+import { turnInfo, turnText, voiceUsersFrom, turnVoiceUserIds } from "./lib/turns.mjs";
+import { resolveReplyTo, priorRollReply, recordRollReply } from "./lib/replies.mjs";
 import { actorChanges, lineHtml, parseLines, recap as recapLines, TRACKED, stamp } from "./lib/sessionlog.mjs";
 import { planRest, clampHp, diffReport, canRestoreResource } from "./lib/pbrest.mjs";
 import { createDownTracker } from "./lib/pcdown.mjs";
@@ -18,25 +19,50 @@ const findUser = (u) => game.users.get(u) ?? game.users.find(x => x.name?.toLowe
 const timers = new Map();
 const reqMessages = () => game.messages.contents.slice(-300).filter(m => m.flags?.[ID]?.rollRequest);
 export const pendingRequests = () => reqMessages().map(m => ({ ...m.flags[ID].rollRequest, messageId: m.id })).filter(r => r.status !== "done" && r.status !== "expired" && r.status !== "cancelled");
+function sameRollTarget(a, b) {
+  if (!a || !b) return false;
+  return a.userId === b.userId && a.actorId === b.actorId
+    && String(a.label || "") === String(b.label || "")
+    && String(a.formula || a.stat || "") === String(b.formula || b.stat || "");
+}
+export function existingOpenRequest(pending, target) {
+  return (pending ?? []).find(r => sameRollTarget(r, target)) ?? null;
+}
 export async function requestRoll(a) {
   const id = reqIdFrom(a.requestId, foundry.utils.randomID()); // idempotent: same requestId returns the existing card/result
   const prior = reqMessages().find(m => m.flags[ID].rollRequest.id === id);
   if (prior) { const r = prior.flags[ID].rollRequest; return ok({ requestId: id, messageId: prior.id, status: r.status, result: r.result ?? null, duplicate: true }); }
-  const formula = typeof a.formula === "string" && a.formula.trim() ? a.formula.trim() : null;
-  const stat = a.stat ? normStat(a.stat) : null;
+  const replyTo = resolveReplyTo(a.replyTo);
+  if (replyTo) {
+    const locked = priorRollReply(D.dedupe, replyTo);
+    if (locked && (locked.s === "acked" || locked.s === "sent")) {
+      const hit = reqMessages().find(m => m.flags[ID].rollRequest.id === locked.requestId) ?? reqMessages().find(m => m.id === locked.messageId);
+      if (hit) {
+        const r = hit.flags[ID].rollRequest;
+        return ok({ requestId: r.id, messageId: hit.id, status: r.status, result: r.result ?? null, duplicate: true, ...(r.timeoutAt ? { timeoutAt: r.timeoutAt } : {}), ...(r.combatId ? { combatId: r.combatId } : {}) });
+      }
+    }
+  }
+  let formula = typeof a.formula === "string" && a.formula.trim() ? normalizeFormula(a.formula) : null;
+  let rawStat = typeof a.stat === "string" ? a.stat.trim() : "";
+  if (!formula && rawStat && /^\d*d\d/i.test(rawStat)) { formula = normalizeFormula(rawStat); rawStat = ""; }
+  const stat = rawStat ? normStat(rawStat) : null;
   if (!formula && !stat) return fail("BAD_STAT", `unknown stat ${a.stat}; use strength, agility, presence, toughness or spirit, or pass formula`);
-  if (formula && a.stat && !stat) return fail("BAD_STAT", `unknown stat ${a.stat}`);
+  if (formula && rawStat && !stat) return fail("BAD_STAT", `unknown stat ${a.stat}`);
   if (!formula && typeof a.dr !== "number") return fail("BAD_ARGS", "dr is required for a stat test");
   if (formula && globalThis.Roll?.validate && !Roll.validate(formula)) return fail("BAD_FORMULA", `invalid formula ${formula}`);
   const user = findUser(a.user); if (!user) return fail("NOT_FOUND", `user ${a.user} not found`);
   const actor = (a.actorId && game.actors.get(a.actorId)) || (a.actorName && game.actors.getName(a.actorName)) || user.character;
   if (!actor) return fail("NOT_FOUND", "no actor (pass actorId/actorName or give the user a character)");
+  const twin = existingOpenRequest(pendingRequests(), { userId: user.id, actorId: actor.id, formula, stat, label: a.label ?? "" });
+  if (twin) return ok({ requestId: twin.id, messageId: twin.messageId, status: twin.status, result: twin.result ?? null, duplicate: true, ...(twin.timeoutAt ? { timeoutAt: twin.timeoutAt } : {}), ...(twin.combatId ? { combatId: twin.combatId } : {}) });
   const timeoutMs = Math.max(5000, a.timeoutMs ?? D.get("rollRequestTimeoutMs") ?? 120000);
   const combatId = a.combatId || game.combat?.id || null;
   const req = { id, userId: user.id, userName: user.name, actorId: actor.id, actorName: actor.name, stat, ...(formula ? { formula } : {}), dr: a.dr ?? null, label: a.label ?? "", status: "pending", at: Date.now(), timeoutAt: Date.now() + timeoutMs,
     expireAt: Date.now() + timeoutMs + Math.max(0, a.expireAfterMs ?? D.get("rollRequestExpireMs") ?? 600000), ...(combatId ? { combatId } : {}) };
   const msg = await ChatMessage.create({ content: cardHtml(req), speaker: { alias: D.get("speakerAlias") || "AI GM" }, flags: { [ID]: { local: true, rollRequest: req } } });
   armTimeout(req, msg.id);
+  if (replyTo) recordRollReply(D.dedupe, replyTo, id, msg.id, Date.now());
   return ok({ requestId: id, messageId: msg.id, status: "pending", timeoutAt: req.timeoutAt, ...(combatId ? { combatId } : {}) });
 }
 // pending -> (timeoutAt) timeout: GM fallback button + rollTimeout event -> (expireAt) expired: no longer answerable.
@@ -70,16 +96,63 @@ export async function onRollMessage(msg) {
   return true;
 }
 // Any client: wire the card button.
-export async function cancelRollRequest(requestId) {
-  const m = reqMessages().find(x => x.flags[ID].rollRequest.id === requestId);
-  if (!m) return fail("NOT_FOUND", `roll request ${requestId} not found`);
-  const r = m.flags[ID].rollRequest;
-  if (r.status === "done" || r.status === "expired" || r.status === "cancelled") return ok({ requestId, messageId: m.id, status: r.status, noop: true });
-  const next = { ...r, status: "cancelled" };
-  clearTimeout(timers.get(r.id));
-  await m.update({ content: cardHtml(next), [`flags.${ID}.rollRequest`]: next });
-  D.emit({ eventId: `rollreq:${r.id}:cancel`, type: "rollCancelled", requestId: r.id, actor: r.actorName, user: r.userName }, { urgent: false });
-  return ok({ requestId: r.id, messageId: m.id, status: "cancelled" });
+export function findCancellableRequests(requestId, extra = {}) {
+  const msgs = reqMessages();
+  const id = requestId || extra.requestId || extra.messageId;
+  const hits = [];
+  if (id) {
+    for (const m of msgs) {
+      const r = m.flags[ID].rollRequest;
+      if (r.id === id || m.id === id) hits.push(m);
+    }
+  }
+  if (!hits.length) {
+    const { actorId, actorName, label, user } = extra;
+    if (actorId || actorName || label || user) {
+      for (const m of msgs) {
+        const r = m.flags[ID].rollRequest;
+        if (actorId && r.actorId !== actorId) continue;
+        if (actorName && String(r.actorName || "").toLowerCase() !== String(actorName).toLowerCase()) continue;
+        if (label && String(r.label || "").toLowerCase() !== String(label).toLowerCase()) continue;
+        if (user && r.userId !== user && String(r.userName || "").toLowerCase() !== String(user).toLowerCase()) continue;
+        hits.push(m);
+      }
+    }
+  }
+  if (!hits.length) return [];
+  const seen = new Set(hits.map(m => m.id));
+  const out = [...hits];
+  for (const seed of hits) {
+    const r = seed.flags[ID].rollRequest;
+    for (const m of msgs) {
+      if (seen.has(m.id)) continue;
+      if (sameRollTarget(m.flags[ID].rollRequest, r)) { seen.add(m.id); out.push(m); }
+    }
+  }
+  return out;
+}
+export async function cancelRollRequest(requestId, extra = {}) {
+  const opts = extra && typeof extra === "object" && !Array.isArray(extra) ? extra : {};
+  const list = findCancellableRequests(requestId, opts);
+  if (!list.length) return fail("NOT_FOUND", `roll request ${requestId || opts.messageId || opts.label || ""} not found`);
+  const cancelled = [];
+  let primary = null;
+  let noop = null;
+  for (const m of list) {
+    const r = m.flags[ID].rollRequest;
+    if (r.status === "done" || r.status === "expired" || r.status === "cancelled") {
+      noop ??= { requestId: r.id, messageId: m.id, status: r.status, noop: true };
+      continue;
+    }
+    const next = { ...r, status: "cancelled" };
+    clearTimeout(timers.get(r.id));
+    await m.update({ content: cardHtml(next), [`flags.${ID}.rollRequest`]: next });
+    D.emit({ eventId: `rollreq:${r.id}:cancel`, type: "rollCancelled", requestId: r.id, actor: r.actorName, user: r.userName }, { urgent: false });
+    cancelled.push({ requestId: r.id, messageId: m.id });
+    primary ??= { requestId: r.id, messageId: m.id, status: "cancelled" };
+  }
+  if (!primary) return ok({ ...(noop ?? { requestId, status: "cancelled", noop: true }), cancelled: [] });
+  return ok({ ...primary, cancelled });
 }
 export function rollsTiedToCombat(pending, combatId) {
   if (!combatId) return [];
@@ -95,14 +168,16 @@ export async function cancelCombatRolls(combat) {
 }
 export function bindRollCard(msg, html) {
   const req = msg.flags?.[ID]?.rollRequest; if (!req || req.status === "done" || req.status === "cancelled" || req.status === "expired") return;
-  const root = html?.[0] ?? html; const btn = root?.querySelector?.(`[data-aigm-roll]`); if (!btn) return;
-  if (!canClick(req, game.user) || (btn.dataset.gmOnly && !game.user.isGM)) { btn.disabled = true; return; }
-  btn.addEventListener("click", async (ev) => {
-    ev.preventDefault(); btn.disabled = true;
-    const actor = game.actors.get(req.actorId); if (!actor) return ui.notifications?.warn("Actor not found");
-    const roll = await new Roll(reqFormula(req), actor.getRollData()).evaluate();
-    await roll.toMessage({ speaker: ChatMessage.getSpeaker({ actor }), flavor: `${req.label || req.formula || req.stat}${req.dr != null ? ` (DR ${req.dr})` : ""}`, flags: { [ID]: { rollRequestId: req.id, rollStat: req.stat } } });
-  });
+  const root = html?.[0] ?? html; const btns = root?.querySelectorAll?.(`[data-aigm-roll]`); if (!btns?.length) return;
+  for (const btn of btns) {
+    if (!canClick(req, game.user) || (btn.dataset.gmOnly && !game.user.isGM)) { btn.disabled = true; continue; }
+    btn.addEventListener("click", async (ev) => {
+      ev.preventDefault(); btn.disabled = true;
+      const actor = game.actors.get(req.actorId); if (!actor) return ui.notifications?.warn("Actor not found");
+      const roll = await new Roll(reqFormula(req), actor.getRollData()).evaluate();
+      await roll.toMessage({ speaker: ChatMessage.getSpeaker({ actor }), flavor: `${req.label || req.formula || req.stat}${req.dr != null ? ` (DR ${req.dr})` : ""}`, flags: { [ID]: { rollRequestId: req.id, rollStat: req.stat } } });
+    });
+  }
 }
 
 // ---------- combat turn prompts (zero wakes) ----------
@@ -113,10 +188,13 @@ export async function turnPrompt(combat) {
   const key = `${t.round}.${t.turn}`; if (lastPrompt.get(combat.id) === key) return null; lastPrompt.set(combat.id, key);
   await ChatMessage.create({ content: turnText(t), speaker: { alias: D.get("speakerAlias") || "AI GM" }, flags: { [ID]: { local: true, turnPrompt: key } } });
   if (!t.ownerIds.length) return t;
-  const voiced = voiceUsersFrom(D.get("turnVoiceUsers"));
-  const spoken = `${t.name}, you're up.`;
+  const spoken = t.name ? `Your turn: ${t.name}.` : "Your turn.";
   const ping = { type: "turnPing", userIds: t.ownerIds, text: `Your turn: ${t.name}`, spoken, clip: D.voice(spoken),
-    voiceUserIds: t.ownerIds.filter(id => { const u = game.users.get(id); return voiced.includes(id.toLowerCase()) || voiced.includes(u?.name?.toLowerCase()); }) };
+    voiceUserIds: turnVoiceUserIds(t.ownerIds, {
+      voiceTurnPrompt: D.get("voiceTurnPrompt") !== false,
+      turnVoiceUsers: D.get("turnVoiceUsers"),
+      users: game.users?.contents ?? game.users ?? []
+    }) };
   game.socket.emit(SOCKET, ping); onTurnPing(ping);
   return t;
 }

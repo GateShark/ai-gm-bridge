@@ -141,8 +141,8 @@ test("0.8.13 panel, local !setup, relay ack and wiring", () => {
   assert.ok(RELAY_AUTO_ACK_TYPES.includes("pcDown"));
   assert.ok(!RELAY_AUTO_ACK_TYPES.includes("control"));
   const ver = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version;
-  assert.match(ver, /^0\.8\.1[3456]$/);
-  assert.match(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, /^0\.8\.1[3456]$/);
+  assert.match(ver, /^0\.8\.1[34567]$/);
+  assert.match(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, /^0\.8\.1[34567]$/);
   const main = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
   assert.match(main, /combatEvent\(c, state, \{ users: game\.users\?\.contents/);
   assert.match(main, /setupCheck: \(\) => liveSetupCheck/);

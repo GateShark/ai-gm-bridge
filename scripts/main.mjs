@@ -1,4 +1,4 @@
-// AI GM Bridge — entry point (version comes from module.json) (bot-agnostic). Does nothing unless world setting `enabled` is true.
+// AI GM Pirate Borg — entry point (module id ai-gm-bridge; version comes from module.json) (bot-agnostic). Does nothing unless world setting `enabled` is true.
 import { decideLeader, applyHeartbeat } from "./lib/leader.mjs";
 import { DedupeStore } from "./lib/dedupe.mjs";
 import { Outbox, relayAutoAckIds, relayStaleChatIds } from "./lib/outbox.mjs";
@@ -32,8 +32,8 @@ import { liveSetupCheck } from "./lib/setupcheck.mjs";
 import { rollBreakdown } from "./lib/rollreq.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
 import { PushToTalk, speechLang } from "./lib/ptt.mjs";
-import { GmStatusPill, deriveGmStatus } from "./lib/gmstatus.mjs";
-import { makeGmPanel, collectHp, sceneTokens, installSidebarButton, makeControlEvent, resolveWakeEventIds, newestChatEventIds, formatClearedStuck } from "./lib/gmpanel.mjs";
+import { GmStatusPill, deriveGmStatus, normalizeGmStatus } from "./lib/gmstatus.mjs";
+import { makeGmPanel, collectHp, sceneTokens, installSidebarButton, makeControlEvent, resolveWakeEventIds, newestChatEventIds, formatClearedStuck, PANEL_LOGO_SRC } from "./lib/gmpanel.mjs";
 import { DEFAULT_HP_PATH, LEGACY_HP_PATH } from "./lib/hp.mjs";
 import { listTables } from "./lib/quickgm.mjs";
 import { formatSessionRecap } from "./lib/session.mjs";
@@ -82,7 +82,10 @@ function linkState(now = Date.now()) {
 }
 function pillState(link) {
   return deriveGmStatus({
-    thinking: thinking.visible, paused: !!get("aiPaused"), enabled: enabled(),
+    thinking: thinking.visible && (thinking.kind === "thinking" || !thinking.kind),
+    activity: thinking.visible ? thinking.kind : null,
+    sendingVoice: thinking.visible && thinking.kind === "voicing",
+    paused: !!get("aiPaused"), enabled: enabled(),
     botActive: link.display.botActive, lastConfirmed: link.display.lastConfirmed, now: link.display.now,
     offlineAfterMs: link.display.offlineAfterMs, selfIsBot: link.display.selfIsBot
   });
@@ -92,7 +95,7 @@ function refreshStatus() {
   try {
     const now = Date.now();
     const link = linkState(now);
-    statusPill.set(pillState(link), { lastReplyAt: S.lastReplyAt, lastSeen: link.lastSeen, now });
+    statusPill.set(pillState(link), { lastReplyAt: S.lastReplyAt, lastSeen: link.lastSeen, now, since: thinking.visible ? thinking.since : null, note: thinking.visible ? thinking.note : null });
   } catch {}
 }
 let presenceResumeTimer = null;
@@ -152,7 +155,7 @@ function maybeProbeLink(now = Date.now()) {
     refreshPanel();
   }).catch(() => { refreshStatus(); });
 }
-function thinkingOn() { if (!get("thinkingIndicator")) return; const ms = get("thinkingTimeoutMs"); thinking.show(ms); refreshStatus(); game.socket.emit(SOCKET, { type: "thinking", on: true, timeoutMs: ms }); }
+function thinkingOn({ kind = "thinking", note = null, timeoutMs, broadcast = true } = {}) { if (!get("thinkingIndicator")) return; const ms = timeoutMs ?? get("thinkingTimeoutMs"); thinking.show(ms, { kind, note }); refreshStatus(); if (broadcast) game.socket.emit(SOCKET, { type: "thinking", on: true, timeoutMs: ms, kind, note: note || undefined }); }
 function thinkingOff({ broadcast = false } = {}) { thinking.hide(); refreshStatus(); if (broadcast) game.socket.emit(SOCKET, { type: "thinking", on: false, lastReplyAt: S.lastReplyAt ?? undefined }); }
 function onAiPausedChange(paused) {
   if (!settingsLive) return;
@@ -268,10 +271,15 @@ let pttInst = null;
 function setupPtt() {
   pttInst?.uninstall(); pttInst = null;
   const keyOn = !!game.settings.get(ID, "pushToTalk");
+  let position = null, speechHints = "", speechFixes = "";
+  try { position = game.settings.get(ID, "pttPosition"); } catch {}
+  try { speechHints = get("speechHints") || ""; speechFixes = get("speechFixes") || ""; } catch {}
   pttInst = new PushToTalk({ win: window, doc: document, t: (k) => game.i18n.localize(k), lang: speechLang(game.i18n.lang, navigator.language), key: game.settings.get(ID, "pushToTalkKey"),
     notify: (m) => ui.notifications?.info(m),
     onceNotice: () => { if (game.settings.get(ID, "pushToTalkNoticeShown")) return false; game.settings.set(ID, "pushToTalkNoticeShown", true); return true; },
-    post: (text) => ChatMessage.create({ content: text, speaker: ChatMessage.getSpeaker() }) });
+    post: (text) => ChatMessage.create({ content: text, speaker: ChatMessage.getSpeaker() }),
+    position, onMove: (pos) => { try { game.settings.set(ID, "pttPosition", pos); } catch {} },
+    logoSrc: PANEL_LOGO_SRC, speechHints, speechFixes });
   pttInst.install({ keyboard: keyOn, notifyIfMissing: keyOn });
 }
 Hooks.once("init", () => {
@@ -286,7 +294,7 @@ Hooks.once("init", () => {
   reg("delivery", String, "relay", { config: false, choices: { relay: "relay", direct: "direct" } });
   reg("webhookUrl", String, "", { config: false }); reg("webhookAuthHeader", String, "Authorization", { config: false });
   game.settings.register(ID, "webhookSecret", { scope: "world", config: false, restricted: true, type: String, default: "" });
-  game.settings.registerMenu(ID, "config", { name: "AI GM Bridge", label: "Configure AI GM", icon: "fas fa-robot", type: makeConfigApp(), restricted: true });
+  game.settings.registerMenu(ID, "config", { name: "AI GM Pirate Borg", label: "Configure AI GM Pirate Borg", icon: "fas fa-robot", type: makeConfigApp(), restricted: true });
   reg("heartbeatMs", Number, 10000); reg("heartbeatTimeoutMs", Number, 45000); reg("offlineAfterMs", Number, 60000); reg("batchMs", Number, 3500);
   reg("keywords", String, ""); reg("hpPath", String, "system.attributes.hp.value");
   reg("alwaysVoiceUsers", String, ""); reg("unpauseOnStart", Boolean, true);
@@ -302,6 +310,9 @@ Hooks.once("init", () => {
   reg("speakerAlias", String, "AI GM"); reg("rollRequestTimeoutMs", Number, 120000); reg("rollRequestExpireMs", Number, 600000); reg("rollAnswerNote", Boolean, true);
   reg("turnPrompts", Boolean, true); reg("turnWake", Boolean, true); // v0.8.11: default on; stored off is left off (see resolveTurnWake). NPC-only filter is in updateCombat.
   reg("turnVoiceUsers", String, "");
+  reg("voiceTurnPrompt", Boolean, true);
+  reg("speechHints", String, "kick, dropkick, drop kick, slash, parry, dodge, block, strike, thrust, shoot, steal, sneak, hide, attack, defend, broken, agility, strength, presence, toughness, spirit");
+  reg("speechFixes", String, "drop cake=dropkick, drop cakes=dropkick, kik=kick, perry=parry");
   reg("sessionLog", Boolean, true);
   // v0.8 house rule: pirateborg v1.9.0 ram ignores the target armour roll; on = subtract it
   reg("ramUsesArmor", Boolean, false);
@@ -313,6 +324,7 @@ Hooks.once("init", () => {
   game.settings.register(ID, "pushToTalk", { scope: "client", config: true, type: Boolean, default: false, name: "AIGM.settings.pushToTalk.name", hint: "AIGM.settings.pushToTalk.hint", onChange: ptt });
   game.settings.register(ID, "pushToTalkKey", { scope: "client", config: true, type: String, default: "Backquote", name: "AIGM.settings.pushToTalkKey.name", hint: "AIGM.settings.pushToTalkKey.hint", onChange: ptt });
   game.settings.register(ID, "pushToTalkNoticeShown", { scope: "client", config: false, type: Boolean, default: false });
+  game.settings.register(ID, "pttPosition", { scope: "client", config: false, type: Object, default: { x: null, y: null } });
   reg("thinkingIndicator", Boolean, true); reg("thinkingTimeoutMs", Number, 90000);
   reg("aiPaused", Boolean, false, { config: false, onChange: (v) => { try { onAiPausedChange(v); } catch {} } });
   // v0.7 (GM-only: world setting, config menu is GM-only)
@@ -365,7 +377,17 @@ Hooks.once("ready", () => {
       const work = async () => {
         if (cmd?.commandId) { if (!S.dedupe.claim(`cmd:${cmd.commandId}`, Date.now())) { const e = S.dedupe.get(`cmd:${cmd.commandId}`); const done = e?.s === "acked";
             return fail(409, done ? "already done" : "in progress", { alreadyDone: done, prior: e?.res ?? null }); } await persistNow(); }
-        if (cmd?.name !== "ping") { S.lastReplyAt = Date.now(); thinkingOff({ broadcast: true }); } // #14: any bot action ends the wait (ping is a health check)
+        if (cmd?.name !== "ping") { // #14: any bot action ends the wait (ping is a health check)
+          const n = cmd?.name;
+          if (n === "setGmStatus") {
+            const state = normalizeGmStatus(cmd?.args?.state);
+            if (state === "listening") thinkingOff({ broadcast: true });
+            else if (state) thinkingOn({ kind: state, note: cmd?.args?.note, timeoutMs: cmd?.args?.timeoutMs });
+          } else if (n === "requestRoll") thinkingOn({ kind: "rolling" });
+          else if (n === "postVoice" || n === "voiceLookup") thinkingOn({ kind: "voicing" });
+          else if (n === "playAudio") thinkingOn({ kind: "speaking", broadcast: false });
+          else { S.lastReplyAt = Date.now(); thinkingOff({ broadcast: true }); }
+        }
         const res = await runCommand(cmd, ctxFor());
         const rt = cmd?.args?.replyTo && game.messages?.get(String(cmd.args.replyTo).replace(/^chat:/, ""))?.timestamp;
         if (res.ok && rt) S.metrics.time("reply", Date.now() - rt);
@@ -400,7 +422,11 @@ Hooks.once("ready", () => {
   try { globalThis.__aigmReady?.(mod.api); } catch {}
   game.socket.on(SOCKET, onSocket);
   if (game.user.isGM && game.users.activeGM?.id === game.user.id) cleanupContextJournals(game).then(r => r.cleared && log("v0.7.2: the context journal list is no longer stored in the world (players could read it). Set AIGM_CONTEXT_JOURNALS on the relay or pass journals per getContext call. Old value:", r.old)).catch(e => log("migrate", e?.message));
-  F.initFeatures({ get, amLeader, log, voice: (t) => S.voice?.get(t) ?? null, emit: emitEvent });
+  F.initFeatures({ get, amLeader, log, voice: (t) => S.voice?.get(t) ?? null, emit: emitEvent, dedupe: S.dedupe });
+  try {
+    audioQueue.onStart = () => thinkingOn({ kind: "speaking", broadcast: false });
+    audioQueue.onIdle = () => { if (thinking.visible && thinking.kind === "speaking") thinkingOff({ broadcast: false }); };
+  } catch {}
   restart();
   if (game.user.isGM) {
     try {
@@ -416,7 +442,8 @@ Hooks.once("ready", () => {
           const link = linkState(now);
           const linkUi = {
             state: pillState(link),
-            lastSeen: link.lastSeen, now, gmUserActive: link.gmUserActive
+            lastSeen: link.lastSeen, now, gmUserActive: link.gmUserActive,
+            since: thinking.visible ? thinking.since : null
           };
           let snap = null; try { snap = get("sessionSnapshot"); } catch {}
           return { paused: !!get("aiPaused"), turn: F.turnStatus(), pending: F.pendingRequests(), hp: collectHp(tokens, { hpPath: get("hpPath") }), setup, stuck: { queued, dead }, link: linkUi,
@@ -435,7 +462,7 @@ Hooks.once("ready", () => {
         onAction: panelAction
       });
       const openPanel = () => { panelApp ??= new Panel(); panelApp.render(true); };
-      const install = () => installSidebarButton({ doc: document, label: loc("AIGM.panel.title", "AI GM"), open: openPanel });
+      const install = () => installSidebarButton({ doc: document, label: loc("AIGM.panel.title", "AI GM Pirate Borg"), open: openPanel });
       install(); Hooks.on("renderSidebar", install);
     } catch (e) { log("gm panel", e?.message); }
   }
@@ -465,7 +492,7 @@ Hooks.once("ready", () => {
 
 function ctxFor() {
   return { dedupe: S.dedupe, persistNow, ack: (ids) => game.modules.get(ID).api.ack(ids), voiceCache: S.voice, ttsMinChars: get("ttsMinChars"),
-    metrics: S.metrics, persistVoice: () => { clearTimeout(S.vt); S.vt = setTimeout(() => game.settings.set(ID, "voiceCache", { entries: S.voice.toJSON() }), 3000); } };
+    metrics: S.metrics, lastWake: S.lastWake, persistVoice: () => { clearTimeout(S.vt); S.vt = setTimeout(() => game.settings.set(ID, "voiceCache", { entries: S.voice.toJSON() }), 3000); } };
 }
 // Ack bookkeeping: ack latency per batch, and remember the ctx the bot has definitely seen (payload ctx is a diff against it).
 function onAcked(eventIds) {
@@ -479,6 +506,7 @@ function ackRelayChatIds(ids, { immediate = false } = {}) {
   const n = S.outbox.ack(ids);
   S.metrics.inc("acked", n);
   for (const id of ids) S.dedupe?.mark(id, "acked", Date.now());
+  if (n && thinking.visible && thinking.kind === "waking") thinkingOn({ kind: "reading" });
   if (immediate) persistNow(); else persistSoon();
   return n;
 }
@@ -553,7 +581,7 @@ function onSocket(data) {
   if (data.type === "bubble") return F.showBubble(data);
   if (data.type === "voice") { S.lastReplyAt = Date.now(); }
   if (data.type === "voice") { thinking.hide(); return void onVoiceSocket(data); } // #12: players play bot voice locally
-  if (data.type === "thinking") { if (data.on) thinking.show(data.timeoutMs); else thinking.hide(); if (data.lastReplyAt) S.lastReplyAt = data.lastReplyAt; refreshStatus(); return; } // #14
+  if (data.type === "thinking") { if (data.on) thinking.show(data.timeoutMs, { kind: data.kind || "thinking", note: data.note ?? null }); else thinking.hide(); if (data.lastReplyAt) S.lastReplyAt = data.lastReplyAt; refreshStatus(); return; } // #14
   if (data.type === "stuckCleared") {
     if (!amLeader()) clearLocalOutbox();
     if (game.user?.isGM) ui.notifications?.info?.(formatClearedStuck(data.count, loc));
@@ -571,6 +599,7 @@ function onSocket(data) {
 
 Hooks.on("createChatMessage", async (msg) => {
   if (enabled() && isBot(msg.author ?? msg.user ?? {})) thinking.hide(); // #14: bot spoke (runs on every client)
+  if (enabled() && msg.flags?.[ID]?.rollRequest) thinkingOn({ kind: "rolling" });
   if (enabled() && isBot(msg.author ?? msg.user ?? {})) { S.lastReplyAt = Date.now(); refreshStatus(); }
   if (enabled() && msg.flags?.[ID]?.rollRequest) refreshPanel();
   if (!enabled() || !amLeader()) return;
@@ -613,7 +642,7 @@ function handleChat(msg) {
   if (get("aiPaused")) return;
   const ev = { eventId, type: "chat", authorId, author: author?.name,
     speaker: msg.speaker?.alias ?? null, whisper: msg.whisper ?? [], text: msg.content ?? "",
-    rolls: (msg.rolls ?? []).map(r => { const b = rollBreakdown(r); return { formula: r.formula, total: r.total, ...(b ? { breakdown: b.text, dice: b.dice, modifier: b.modifier } : {}) }; }), // v0.8.6
+    rolls: [...(msg.rolls ?? []).map(r => { const b = rollBreakdown(r); return { formula: r.formula, total: r.total, ...(b ? { breakdown: b.text, dice: b.dice, modifier: b.modifier } : {}) }; }), ...(msg.flags?.pirateborg?.outcomes ?? []).filter(o => o?.roll).map(o => { const r = o.roll; const b = rollBreakdown(r); return { formula: r.formula ?? o.formula, total: r.total, ...(b ? { breakdown: b.text, dice: b.dice, modifier: b.modifier } : {}) }; })], // v0.8.6
     whisperToBot: (msg.whisper ?? []).includes(botId), inCharacter: !!msg.speaker?.actor,
     alwaysVoice: list("alwaysVoiceUsers").includes(author?.name) };
   const c = classify({ ...ev, text: plain }, filterOpts(botId));
@@ -652,7 +681,7 @@ function tryLocal(msg, plain, author) {
 Hooks.on("preUpdateToken", (doc, change, _o, userId) => {
   const lock = doc.flags?.[ID]?.lock; if (!lock) return;
   const u = game.users.get(userId) ?? game.user;
-  if (lockBlocks(lock, change, u?.isGM)) { if (userId === game.user.id) ui.notifications?.warn("That token is locked by the AI GM."); return false; }
+  if (lockBlocks(lock, change, u?.isGM)) { if (userId === game.user.id) ui.notifications?.warn("That token is locked by the AI GM Pirate Borg."); return false; }
 });
 // Deleted chat message: drop its queued event so the bot never sees it.
 Hooks.on("deleteChatMessage", (msg) => {
@@ -711,7 +740,7 @@ function flush(opts = {}) {
     S.lastBatch = payload;
     game.socket.emit(SOCKET, { type: "events", batch: payload }); // relay (headless/bot client) consumes this
     Hooks.callAll(`${ID}.events`, payload);
-    if (shouldShowThinking(batch.events, batch.attempt)) { S.lastWake = { eventIds: batch.events.filter(e => ["chat", "rollResult"].includes(e.type)).map(e => e.eventId), at: Date.now() }; thinkingOn(); } // #14
+    if (shouldShowThinking(batch.events, batch.attempt)) { S.lastWake = { eventIds: batch.events.filter(e => ["chat", "rollResult"].includes(e.type)).map(e => e.eventId), at: Date.now() }; thinkingOn({ kind: "waking" }); } // #14
     // Relay: chat, combat, turns, and roll-request outcomes are handed to the GM via the socket/hook. Mark them received so they are not retried. Do not clear thinking — the GM has not replied yet. Control still waits for api.ack. Direct mode unchanged.
     if (get("delivery") === "relay") ackRelayChatIds(relayAutoAckIds(payload.events));
     if (get("delivery") === "direct" && isBot() && get("webhookUrl")) {
@@ -735,5 +764,5 @@ Hooks.on("canvasReady", async (c) => {
   const src = sceneBackgroundSrc(scene);
   let missing = !src;
   if (src) { try { missing = !(await fetch(src, { method: "HEAD" })).ok; } catch { missing = true; } }
-  if (missing) ui.notifications?.warn(`AI GM Bridge: scene "${scene.name}" has ${src ? `a missing background file (${src})` : "no background image"}. On Foundry v14 set it on the scene's level (setBackground command does this).`);
+  if (missing) ui.notifications?.warn(`AI GM Pirate Borg: scene "${scene.name}" has ${src ? `a missing background file (${src})` : "no background image"}. On Foundry v14 set it on the scene's level (setBackground command does this).`);
 });
