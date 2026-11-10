@@ -141,8 +141,8 @@ test("0.8.13 panel, local !setup, relay ack and wiring", () => {
   assert.ok(RELAY_AUTO_ACK_TYPES.includes("pcDown"));
   assert.ok(!RELAY_AUTO_ACK_TYPES.includes("control"));
   const ver = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version;
-  assert.match(ver, /^0\.8\.1[34]$/);
-  assert.match(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, /^0\.8\.1[34]$/);
+  assert.match(ver, /^0\.8\.1[345]$/);
+  assert.match(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, /^0\.8\.1[345]$/);
   const main = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
   assert.match(main, /combatEvent\(c, state, \{ users: game\.users\?\.contents/);
   assert.match(main, /setupCheck: \(\) => liveSetupCheck/);
@@ -157,7 +157,7 @@ test("0.8.13 panel, local !setup, relay ack and wiring", () => {
   const cfg = readFileSync(new URL("../scripts/config-app.mjs", import.meta.url), "utf8");
   assert.match(cfg, /formatConnectionWithSetup/);
   assert.match(readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8"), /## 0\.8\.13/);
-  assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /v0\.8\.1[34]/);
+  assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /v0\.8\.1[345]/);
   const en = JSON.parse(readFileSync(new URL("../lang/en.json", import.meta.url), "utf8")).AIGM;
   assert.equal(en.panel.setupCheck, "Check setup");
 });

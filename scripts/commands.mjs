@@ -55,6 +55,12 @@ async function runPing() {
 }
 
 import { resolveResource, nextValue, summarize, parseAmount } from "./lib/pirateborg.mjs";
+import { collectSessionSnapshot, formatSessionRecap, applySessionHpPlan } from "./lib/session.mjs";
+import { readPetFlag, petFlagData, listPetsFrom, planPetPlacement } from "./lib/pets.mjs";
+import { listTables, planDamage, planLoot, summarizeDraw } from "./lib/quickgm.mjs";
+import { collectShips, crewTracker, planShipFight } from "./lib/shiptrack.mjs";
+import { sceneTokens } from "./lib/gmpanel.mjs";
+import { readActorHp } from "./lib/hp.mjs";
 
 // Class item's own label for extraResource (e.g. "Prayers"); field name varies, so search string fields.
 function extraLabel(actor) {
@@ -124,6 +130,38 @@ async function ensureDir(fp, dir) {
   let acc = ""; for (const part of dir.split("/")) { acc = acc ? `${acc}/${part}` : part; try { await fp.createDirectory("data", acc, {}); } catch { /* exists */ } }
 }
 const spawnLock = new KeyedMutex();
+
+
+function currentScene() {
+  return globalThis.canvas?.scene ?? game.scenes?.viewed ?? game.scenes?.active ?? null;
+}
+function sessionApi(name, args = {}) {
+  const fn = game.modules?.get?.(MODULE_ID)?.api?.[name];
+  return typeof fn === "function" ? fn(args) : null;
+}
+async function placePetsOnScene(scene) {
+  scene = scene ?? currentScene();
+  if (!scene) return { error: "no scene" };
+  const tokens = sceneTokens(scene);
+  const pets = listPetsFrom(game.actors, { readPet: readPetFlag });
+  const grid = scene.grid?.size ?? 100;
+  const plan = planPetPlacement({ pets, tokens, grid });
+  const done = [];
+  for (const step of plan) {
+    if (step.action === "move") {
+      const tok = scene.tokens?.get?.(step.tokenId);
+      if (tok?.update) await tok.update({ x: step.x, y: step.y });
+      done.push(step);
+    } else if (step.action === "create") {
+      const actor = game.actors?.get?.(step.actorId);
+      if (!actor) continue;
+      const proto = actor.prototypeToken?.toObject?.() ?? {};
+      const created = await scene.createEmbeddedDocuments?.("Token", [{ ...proto, actorId: actor.id, x: step.x, y: step.y, name: actor.name }]);
+      done.push({ ...step, tokenId: created?.[0]?.id ?? null });
+    } else done.push(step);
+  }
+  return done;
+}
 
 export const COMMANDS = {
   getState: { schema: {}, async run() {
@@ -314,6 +352,161 @@ export const COMMANDS = {
     return ok({ active: !!t, ...(t ?? {}), expect: t?.expect ?? null, ...livePresenceFields() });
   } },
   ping: { schema: {}, async run() { return runPing(); } },
+
+  saveSession: { schema: { notes: "string?" }, async run(a) {
+    const scene = currentScene();
+    const tokens = sceneTokens(scene);
+    let prev = {};
+    try { prev = game.settings.get(MODULE_ID, "sessionSnapshot") || {}; } catch {}
+    const notes = a.notes != null ? a.notes : (prev.notes || "");
+    const snap = collectSessionSnapshot({
+      scene, combat: game.combat, tokens, notes, now: Date.now(),
+      readHp: (act) => readActorHp(act), readPet: (act) => readPetFlag(act)
+    });
+    snap.recap = formatSessionRecap(snap);
+    await game.settings.set(MODULE_ID, "sessionSnapshot", snap);
+    return ok(snap);
+  } },
+  loadSession: { schema: { placePets: "boolean?", applyHp: "boolean?", toChat: "boolean?" }, async run(a) {
+    let snap = null;
+    try { snap = game.settings.get(MODULE_ID, "sessionSnapshot"); } catch {}
+    if (!snap?.savedAt) return fail(404, "no session snapshot saved");
+    const recap = formatSessionRecap(snap);
+    const placed = a.placePets === false ? [] : await placePetsOnScene();
+    const hpApplied = [];
+    if (a.applyHp) {
+      for (const row of applySessionHpPlan(snap)) {
+        const actor = game.actors?.get?.(row.actorId);
+        if (!actor) continue;
+        if (actor.updateHp) await actor.updateHp({ value: row.value });
+        else await actor.update({ "system.attributes.hp.value": row.value });
+        hpApplied.push(row);
+      }
+    }
+    if (a.toChat) await ChatMessage.create({ content: recap, speaker: { alias: "AI GM" }, flags: { [MODULE_ID]: { local: true } } });
+    return ok({ recap, snapshot: snap, placed, hpApplied });
+  } },
+  setPet: { schema: { actorId: "string?", actorName: "string?", tokenId: "string?", tokenName: "string?", sceneId: "string?", ownerActorId: "string?", ownerActorName: "string?", ownerUserId: "string?", ownerUserName: "string?", simpleAction: "boolean?" }, async run(a) {
+    const tg = findTarget(a); if (tg.error) return tg.error;
+    const owner = (a.ownerActorId || a.ownerActorName)
+      ? findActor({ actorId: a.ownerActorId, actorName: a.ownerActorName }) : null;
+    if ((a.ownerActorId || a.ownerActorName) && !owner) return fail(404, "owner actor not found");
+    const ownerUser = (a.ownerUserId && game.users.get(a.ownerUserId))
+      || (a.ownerUserName && game.users.find(u => u.name?.toLowerCase() === String(a.ownerUserName).toLowerCase()))
+      || null;
+    const data = petFlagData({
+      ownerId: ownerUser?.id || a.ownerUserId || null,
+      ownerName: ownerUser?.name || owner?.name || a.ownerUserName || a.ownerActorName || null,
+      ownerActorId: owner?.id || a.ownerActorId || null,
+      simpleAction: a.simpleAction !== false
+    });
+    await tg.actor.update({ "flags.ai-gm-bridge.pet": data });
+    return ok({ actorId: tg.actor.id, name: tg.actor.name, pet: data });
+  } },
+  listPets: { schema: {}, async run() { return ok({ pets: listPetsFrom(game.actors, { readPet: readPetFlag }) }); } },
+  placePets: { schema: { sceneId: "string?" }, async run(a) {
+    const scene = a.sceneId ? game.scenes.get(a.sceneId) : currentScene();
+    const placed = await placePetsOnScene(scene);
+    if (placed?.error) return fail(404, placed.error);
+    return ok({ placed });
+  } },
+  start: { schema: {}, async run() {
+    const via = sessionApi("startGame");
+    if (via) return via;
+    if (game.paused) game.togglePause?.(false, { broadcast: true });
+    try { await game.settings.set(MODULE_ID, "aiPaused", false); } catch {}
+    return ok({ paused: false, aiPaused: false, control: "start" });
+  } },
+  pause: { schema: {}, async run() {
+    const via = sessionApi("pauseGame");
+    if (via) return via;
+    try { await game.settings.set(MODULE_ID, "aiPaused", true); } catch {}
+    if (!game.paused) game.togglePause?.(true, { broadcast: true });
+    return ok({ paused: true, aiPaused: true, control: "pause" });
+  } },
+  rollTable: { schema: { tableId: "string?", tableName: "string?", displayChat: "boolean?" }, async run(a) {
+    const table = game.tables?.get?.(a.tableId) ?? game.tables?.getName?.(a.tableName);
+    if (!table) return fail(404, "roll table not found");
+    const draw = await table.draw({ displayChat: a.displayChat !== false });
+    const results = [...(draw?.results ?? [])].map(r => ({ text: r.text, name: r.name, type: r.type, documentId: r.documentId, documentUuid: r.documentUuid }));
+    return ok({ tableId: table.id, table: table.name, ...summarizeDraw(results, table.name), results });
+  } },
+  giveLoot: { schema: { tableId: "string?", tableName: "string?", actorId: "string?", actorName: "string?", ...TOK }, async run(a) {
+    const table = game.tables?.get?.(a.tableId) ?? game.tables?.getName?.(a.tableName);
+    if (!table) return fail(404, "roll table not found");
+    const draw = await table.draw({ displayChat: true });
+    const planned = planLoot([...(draw?.results ?? [])]);
+    let actor = null;
+    if (a.actorId || a.actorName || a.tokenId || a.tokenName) {
+      const tg = findTarget(a); if (tg.error) return tg.error; actor = tg.actor;
+    } else {
+      actor = (globalThis.canvas?.tokens?.controlled ?? [])[0]?.actor ?? null;
+    }
+    if (!actor) return fail(400, "select a token or pass actor/token");
+    const added = [];
+    for (const it of planned.items) {
+      let item = null;
+      try { if (it.uuid && globalThis.fromUuid) item = await fromUuid(it.uuid); } catch {}
+      if (!item && it.id) item = game.items?.get?.(it.id) ?? null;
+      if (item?.toObject) { await actor.createEmbeddedDocuments("Item", [item.toObject()]); added.push(item.name); }
+    }
+    return ok({ actorId: actor.id, name: actor.name, added, texts: planned.texts, table: table.name });
+  } },
+  applyDamage: { schema: { amount: "number", tokenIds: "array?", actorIds: "array?" }, async run(a) {
+    const planned = planDamage([{ id: "x", hp: { value: 1 } }], a.amount);
+    if (planned.error) return fail(400, planned.error);
+    let targets = [];
+    if (a.tokenIds?.length) {
+      const scene = currentScene();
+      for (const id of a.tokenIds) {
+        const tok = scene?.tokens?.get?.(id);
+        if (tok?.actor) targets.push({ id: tok.actor.id, name: tok.name, actor: tok.actor, hp: readActorHp(tok.actor) });
+      }
+    } else if (a.actorIds?.length) {
+      for (const id of a.actorIds) {
+        const actor = game.actors?.get?.(id);
+        if (actor) targets.push({ id: actor.id, name: actor.name, actor, hp: readActorHp(actor) });
+      }
+    } else {
+      for (const tok of (globalThis.canvas?.tokens?.controlled ?? [])) {
+        if (tok?.actor) targets.push({ id: tok.actor.id, name: tok.name, actor: tok.actor, hp: readActorHp(tok.actor) });
+      }
+    }
+    if (!targets.length) return fail(400, "select tokens or pass tokenIds/actorIds");
+    const next = planDamage(targets, a.amount);
+    const updated = [];
+    for (const u of next.updates) {
+      const t = targets.find(x => x.id === u.id);
+      if (!t?.actor || u.after == null) continue;
+      if (t.actor.updateHp) await t.actor.updateHp({ value: u.after });
+      else await t.actor.update({ "system.attributes.hp.value": u.after });
+      updated.push(u);
+    }
+    return ok({ amount: next.amount, updated });
+  } },
+  startShipCombat: { schema: { tokenIds: "array?" }, async run(a) {
+    const scene = currentScene();
+    const tokens = sceneTokens(scene);
+    const selected = a.tokenIds ?? (globalThis.canvas?.tokens?.controlled ?? []).map(t => t.id);
+    const planned = planShipFight({ tokens, selectedIds: selected, combat: game.combat });
+    if (planned.error) return fail(400, planned.error);
+    let combat = game.combat;
+    if (!combat && globalThis.Combat?.create) combat = await Combat.create({ scene: scene?.id });
+    if (combat) {
+      const existing = new Set([...(combat.combatants?.contents ?? combat.combatants ?? [])].map(c => c.tokenId));
+      const add = planned.addTokenIds.filter(id => !existing.has(id)).map(tokenId => ({ tokenId, sceneId: scene?.id }));
+      if (add.length) await combat.createEmbeddedDocuments?.("Combatant", add);
+      if (!combat.started && combat.startCombat) await combat.startCombat();
+      crewTracker.sync(combat);
+    }
+    const ships = planned.ships.map(s => ({ name: s.name, hp: s.hp, crew: s.crew, hull: s.hull, tokenId: s.tokenId, actorId: s.actorId, crewActionsThisRound: crewTracker.count(s.actorId) }));
+    try { Hooks.callAll(`${MODULE_ID}.shipCombat`, { ships, combatId: combat?.id ?? null }); } catch {}
+    return ok({ combatId: combat?.id ?? null, ships });
+  } },
+  shipStatus: { schema: {}, async run() {
+    const ships = collectShips(sceneTokens(currentScene())).map(s => ({ ...s, crewActionsThisRound: crewTracker.count(s.actorId) }));
+    return ok({ ships, tracker: crewTracker.snapshot() });
+  } },
   setupCheck: { schema: {}, async run() {
     return ok(liveSetupCheck({ scene: globalThis.canvas?.scene ?? game.scenes?.viewed ?? game.scenes?.active, combat: game.combat, users: game.users?.contents ?? [] }));
   } },

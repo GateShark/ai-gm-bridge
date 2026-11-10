@@ -43,7 +43,7 @@
       },
       "unpauseOnStart": {
         "name": "Unpause on 'start'",
-        "hint": "Typing 'start' in chat unpauses the game."
+        "hint": "Typing start in chat unpauses Foundry and wakes the AI GM. Typing pause (GM) pauses the game and stops the AI GM so queued work does not run."
       },
       "debounceMs": {
         "name": "Debounce (ms)",
@@ -245,7 +245,22 @@
       "clearedStuck": "Cleared {n} stuck event(s).",
       "setupCheck": "Check setup",
       "setupOk": "All player-looking pirates here have a player owner.",
-      "open": "Open AI GM panel"
+      "open": "Open AI GM panel",
+      "quick": "Quick GM",
+      "pickTable": "Pick a roll table",
+      "rollTable": "Roll table",
+      "giveLoot": "Give loot",
+      "damage": "Damage",
+      "applyDamage": "Damage selected",
+      "startShipCombat": "Start ship fight",
+      "session": "Session",
+      "noSession": "No session snapshot saved yet.",
+      "sessionNotes": "Plot threads / GM notes (not shown in the recap)",
+      "saveSession": "Save session",
+      "loadSession": "Where we left off",
+      "startGame": "Start game",
+      "pauseGame": "Pause game",
+      "petTurn": "Pet: one simple action."
     }
   }
 }

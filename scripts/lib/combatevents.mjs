@@ -2,6 +2,7 @@
 import { combatantActor, combatantIsNpc, combatantOwners } from "./turns.mjs";
 import { readActorHp } from "./hp.mjs";
 import { combatantsOf, runSetupCheck } from "./setupcheck.mjs";
+import { shipRosterFields } from "./shiptrack.mjs";
 
 export { combatantsOf };
 export function combatRoster(combat, users = []) {
@@ -15,6 +16,8 @@ export function combatRoster(combat, users = []) {
     const row = { name, isNPC: combatantIsNpc(cb, users) };
     if (hp && (hp.value != null || hp.max != null)) { row.hp = hp.value ?? null; row.max = hp.max ?? null; }
     if (owners[0]?.name) row.owner = owners[0].name;
+    const ship = shipRosterFields(actor);
+    if (ship) Object.assign(row, ship);
     out.push(row);
   }
   return out;

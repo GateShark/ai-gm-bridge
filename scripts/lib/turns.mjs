@@ -1,3 +1,5 @@
+import { readPetFlag } from "./pets.mjs";
+import { isShip } from "./ship.mjs";
 // Combat turn prompts (pure). Zero wakes: built and posted locally.
 export function combatExpect(combat) {
   if (!combat?.id) return null;
@@ -60,10 +62,24 @@ export function turnInfo(combat, users = []) {
   const cb = combat.combatant;
   const owners = combatantOwners(cb, users);
   const next = combat.turns?.[(combat.turn + 1) % (combat.turns?.length || 1)];
-  return { combatId: combat.id, round: combat.round, turn: combat.turn, name: cb.name, isNPC: combatantIsNpc(cb, users), ownerIds: owners.map(u => u.id), ownerNames: owners.map(u => u.name), next: next?.name ?? null, expect: combatExpect(combat) };
+  const info = { combatId: combat.id, round: combat.round, turn: combat.turn, name: cb.name, isNPC: combatantIsNpc(cb, users), ownerIds: owners.map(u => u.id), ownerNames: owners.map(u => u.name), next: next?.name ?? null, expect: combatExpect(combat) };
+  const actor = combatantActor(cb);
+  const pet = readPetFlag(actor);
+  if (pet) {
+    info.isPet = true;
+    info.simpleAction = pet.simpleAction !== false;
+    if (pet.ownerName || pet.ownerId || pet.ownerActorId) info.petOwner = pet.ownerName || pet.ownerId || pet.ownerActorId;
+  }
+  if (isShip(actor)) info.isShip = true;
+  return info;
 }
 export function turnText(t) {
   if (!t) return "No active combat.";
-  return `Round ${t.round}: ${t.name} is up${t.ownerNames.length ? ` (${t.ownerNames.join(", ")})` : ""}.${t.next && t.next !== t.name ? ` Next: ${t.next}.` : ""}`;
+  let extra = t.ownerNames.length ? ` (${t.ownerNames.join(", ")})` : "";
+  if (t.isPet) {
+    const who = t.petOwner ? `pet of ${t.petOwner}` : "pet";
+    extra += t.simpleAction !== false ? ` — ${who}, one simple action` : ` — ${who}`;
+  }
+  return `Round ${t.round}: ${t.name} is up${extra}.${t.next && t.next !== t.name ? ` Next: ${t.next}.` : ""}`;
 }
 export const voiceUsersFrom = (csv) => String(csv ?? "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);

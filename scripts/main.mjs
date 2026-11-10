@@ -35,6 +35,9 @@ import { PushToTalk, speechLang } from "./lib/ptt.mjs";
 import { GmStatusPill, deriveGmStatus } from "./lib/gmstatus.mjs";
 import { makeGmPanel, collectHp, sceneTokens, installSidebarButton, makeControlEvent, resolveWakeEventIds, newestChatEventIds, formatClearedStuck } from "./lib/gmpanel.mjs";
 import { DEFAULT_HP_PATH, LEGACY_HP_PATH } from "./lib/hp.mjs";
+import { listTables } from "./lib/quickgm.mjs";
+import { formatSessionRecap } from "./lib/session.mjs";
+import { crewTracker } from "./lib/shiptrack.mjs";
 import { enhanceVoiceMessage } from "./lib/voiceui.mjs";
 import { injectStyles } from "./lib/styles.mjs";
 
@@ -105,7 +108,39 @@ function onAiPausedChange(paused) {
   if (!settingsLive) return;
   thinkingOff({ broadcast: true });
   refreshStatus();
+  if (S.skipAiPauseEmit) return;
   if (amLeader()) emitControl(paused ? "pause" : "resume");
+}
+async function doStart() {
+  thinkingOff({ broadcast: true });
+  if (game.paused) game.togglePause(false, { broadcast: true });
+  if (!amLeader()) {
+    try { game.socket.emit(SOCKET, { type: "sessionControl", action: "start" }); } catch {}
+    refreshStatus(); refreshPanel();
+    return { ok: true, result: { paused: false, aiPaused: false, control: "start", forwarded: true } };
+  }
+  S.skipAiPauseEmit = true;
+  try { await game.settings.set(ID, "aiPaused", false); } catch {}
+  S.skipAiPauseEmit = false;
+  refreshStatus(); refreshPanel();
+  if (enabled()) { emitControl("start", { foundryPaused: !!game.paused }); flush(); }
+  return { ok: true, result: { paused: !!game.paused, aiPaused: false, control: "start" } };
+}
+async function doPause() {
+  thinkingOff({ broadcast: true });
+  if (!amLeader()) {
+    try { game.socket.emit(SOCKET, { type: "sessionControl", action: "pause" }); } catch {}
+    if (!game.paused) game.togglePause(true, { broadcast: true });
+    refreshStatus(); refreshPanel();
+    return { ok: true, result: { paused: true, aiPaused: true, control: "pause", forwarded: true } };
+  }
+  S.skipAiPauseEmit = true;
+  try { await game.settings.set(ID, "aiPaused", true); } catch {}
+  S.skipAiPauseEmit = false;
+  if (!game.paused) game.togglePause(true, { broadcast: true });
+  refreshStatus(); refreshPanel();
+  if (enabled()) { emitControl("pause", { foundryPaused: !!game.paused }); flush(); }
+  return { ok: true, result: { paused: true, aiPaused: true, control: "pause" } };
 }
 function emitControl(action, extra = {}) { return emitEvent(makeControlEvent(action, extra), { urgent: true, evenIfPaused: true }); }
 function wakeTargetIds(data) {
@@ -155,6 +190,21 @@ async function panelAction(action, data = {}) {
     if (setup.warning) ui.notifications?.warn?.(msg); else ui.notifications?.info?.(msg);
     return setup;
   }
+  if (action === "startGame") return doStart();
+  if (action === "pauseGame") return doPause();
+  const runPanel = async (name, args, okMsg) => {
+    const r = await runCommand({ name, args }, ctxFor());
+    if (!r.ok) ui.notifications?.warn?.(r.error || name);
+    else if (okMsg) ui.notifications?.info?.(typeof okMsg === "function" ? okMsg(r.result) : okMsg);
+    refreshPanel();
+    return r.ok ? r.result : r;
+  };
+  if (action === "saveSession") return runPanel("saveSession", { notes: data.notes ?? "" }, (x) => x.recap || "Session saved");
+  if (action === "loadSession") return runPanel("loadSession", { placePets: true }, null);
+  if (action === "rollTable") return runPanel("rollTable", { tableId: data.tableId }, (x) => x.text ? `${x.table}: ${x.text}` : (x.table || "Rolled"));
+  if (action === "giveLoot") return runPanel("giveLoot", { tableId: data.tableId }, (x) => `${x.name}: ${(x.added || []).join(", ") || (x.texts || []).join("; ") || "no item"}`);
+  if (action === "applyDamage") return runPanel("applyDamage", { amount: Number(data.damage) }, (x) => `Applied ${x.amount} damage`);
+  if (action === "startShipCombat") return runPanel("startShipCombat", {}, (x) => `Ship fight: ${(x.ships || []).map(s => s.name).join(", ")}`);
 }
 const log = (...a) => console.log(`${ID} |`, ...a);
 
@@ -216,6 +266,7 @@ Hooks.once("init", () => {
   game.settings.register(ID, "dedupeState", { scope: "world", config: false, type: Object, default: { entries: [] } });
   game.settings.register(ID, "outboxState", { scope: "world", config: false, type: Object, default: { items: [], seq: 0 } });
   game.settings.register(ID, "linkProbe", { scope: "world", config: false, type: Object, default: { nonce: "", at: 0, by: "", lastBotAt: 0 } });
+  game.settings.register(ID, "sessionSnapshot", { scope: "world", config: false, type: Object, default: { savedAt: 0, scene: null, combat: null, actors: [], notes: "" } });
 });
 
 Hooks.once("ready", () => {
@@ -270,6 +321,9 @@ Hooks.once("ready", () => {
       return { active: !!t, ...(t ?? {}), expect: t?.expect ?? null, ...readPresenceFromGame() };
     }, recap: (o) => F.recap(o),
     setupCheck: () => liveSetupCheck({ scene: globalThis.canvas?.scene ?? game.scenes?.viewed, combat: game.combat, users: game.users?.contents ?? [] }),
+    startGame: () => doStart(), pauseGame: () => doPause(),
+    saveSession: (o = {}) => runCommand({ name: "saveSession", args: o }, ctxFor()),
+    loadSession: (o = {}) => runCommand({ name: "loadSession", args: o }, ctxFor()),
     takeBatch: () => S.lastBatch, // relay stub can poll this on the headless client
     paused: () => !!get("aiPaused"),
     gmStatus: () => {
@@ -306,7 +360,9 @@ Hooks.once("ready", () => {
             }),
             lastSeen: link.lastSeen, now, gmUserActive: link.gmUserActive
           };
-          return { paused: !!get("aiPaused"), turn: F.turnStatus(), pending: F.pendingRequests(), hp: collectHp(tokens, { hpPath: get("hpPath") }), setup, stuck: { queued, dead }, link: linkUi };
+          let snap = null; try { snap = get("sessionSnapshot"); } catch {}
+          return { paused: !!get("aiPaused"), turn: F.turnStatus(), pending: F.pendingRequests(), hp: collectHp(tokens, { hpPath: get("hpPath") }), setup, stuck: { queued, dead }, link: linkUi,
+            tables: listTables(game.tables), sessionNotes: snap?.notes || "", sessionRecap: snap?.savedAt ? formatSessionRecap(snap) : "" };
         },
         confirm: async (msg) => {
           try {
@@ -430,6 +486,11 @@ function onSocket(data) {
     refreshPanel();
     return;
   }
+  if (data.type === "sessionControl" && amLeader()) {
+    if (data.action === "start") return void doStart();
+    if (data.action === "pause") return void doPause();
+    return;
+  }
   if (data.type === "gmControl" && amLeader()) return void handleGmControl(data);
   if (data.type === "ack" && amLeader() && Array.isArray(data.eventIds)) game.modules.get(ID).api.ack(data.eventIds);
 }
@@ -472,7 +533,8 @@ function handleChat(msg) {
   const author = msg.author ?? msg.user; const authorId = author?.id;
   const plain = String(msg.content ?? "").replace(/<[^>]+>/g, "");
   S.metrics.inc("seen");
-  if (get("unpauseOnStart") && /^\s*start\s*$/i.test(plain) && game.paused) game.togglePause(false, { broadcast: true });
+  if (/^\s*start\s*$/i.test(plain) && get("unpauseOnStart")) { doStart().catch(e => log("start", e?.message)); return; }
+  if (/^\s*pause\s*$/i.test(plain) && author?.isGM) { doPause().catch(e => log("pause", e?.message)); return; }
   if (authorId !== botId && get("localCommands") && tryLocal(msg, plain, author)) return;
   if (get("aiPaused")) return;
   const ev = { eventId, type: "chat", authorId, author: author?.name,
@@ -492,7 +554,7 @@ function handleChat(msg) {
 function tryLocal(msg, plain, author) {
   const cmd = parseLocal(plain, get("localPrefix") || "!"); if (!cmd) return false;
   const eventId = `local:${msg.id}`; if (!S.dedupe.claim(eventId, Date.now())) return true;
-  const gmOnly = cmd.name === "music" || cmd.name === "scene";
+  const gmOnly = cmd.name === "music" || cmd.name === "scene" || ["saveSession", "loadSession", "setPet", "listPets", "placePets", "start", "pause", "rollTable", "giveLoot", "applyDamage", "startShipCombat", "shipStatus"].includes(cmd.name);
   if (cmd.name === "turnStatus") { ChatMessage.create({ content: turnText(F.turnStatus()), whisper: [author.id], speaker: { alias: "AI GM" }, flags: { [ID]: { local: true } } }); S.dedupe.mark(eventId, "acked", Date.now()); return true; }
   const actor = cmd.args.actorName ? game.actors.getName(cmd.args.actorName) : null;
   const allowed = author?.isGM || (!gmOnly && (cmd.name === "roll" || actor?.testUserPermission?.(author, "OWNER")));
@@ -505,6 +567,8 @@ function tryLocal(msg, plain, author) {
     else if (cmd.name === "rest") { if (!r.ok) await reply(`!rest: ${r.error}`); } // success posts its own card
     else if (cmd.name === "setupCheck" && r.ok) await reply(r.result.warning || r.result.text);
     else if (cmd.name === "getShip" && r.ok) { const x = r.result; await reply(`${x.name}: HP ${x.hp.value}/${x.hp.max}, hull ${x.armorDie}, crew ${x.crew.value}/${x.crew.max}, shanties ${x.shanties.value}/${x.shanties.max}${x.sinking ? ", sinking" : ""}`); }
+    else if ((cmd.name === "saveSession" || cmd.name === "loadSession") && r.ok) await reply(r.result.recap || formatSessionRecap(r.result));
+    else if (cmd.name === "rollTable" && r.ok) await reply(r.result.text ? `${r.result.table}: ${r.result.text}` : (r.result.table || "rolled"));
     else if (!r.ok) await reply(`${cmd.name}: ${r.error}`);
   })().catch(e => log("local command failed", e?.message));
   return true;
@@ -523,6 +587,7 @@ Hooks.on("deleteChatMessage", (msg) => {
   if (S.outbox.dropWhere(e => e.eventId === `chat:${msg.id}`).length) { S.metrics.inc("dropDeleted"); persistNow(); }
 });
 Hooks.on("updateCombat", (c, change) => {
+  try { crewTracker.sync(c); } catch {}
   if (!enabled() || !amLeader() || !("turn" in change || "round" in change)) return;
   if (startedNow(c, change)) combatState(c, "start"); // combatStart only fires on the starting client
   F.onCombatUpdate(c, change);
@@ -530,9 +595,21 @@ Hooks.on("updateCombat", (c, change) => {
   if (!shouldWakeOnTurn(c, get("turnWake"), game.users?.contents ?? [])) return; // NPC/monster turns only; PC turns stay local
   const eventId = `combat:${c.id}:${c.round}.${c.turn}`; const now = Date.now();
   if (!S.dedupe.claim(eventId, now)) return;
+  const info = F.turnStatus() || {};
   S.outbox.enqueue({ eventId, type: "turn", combat: { id: c.id, round: c.round, turn: c.turn }, combatant: c.combatant?.name ?? null,
-    isNPC: combatantIsNpc(c.combatant, game.users?.contents ?? []) }, now);
+    isNPC: combatantIsNpc(c.combatant, game.users?.contents ?? []),
+    ...(info.isPet ? { isPet: true, simpleAction: info.simpleAction !== false, ...(info.petOwner ? { petOwner: info.petOwner } : {}) } : {}),
+    ...(info.isShip ? { isShip: true } : {}) }, now);
   S.dedupe.mark(eventId, "sent", now); persistNow(); S.batcher?.push({ urgent: true });
+});
+Hooks.on(`${ID}.shipCombat`, (data) => {
+  if (!enabled() || !amLeader() || !data) return;
+  const ships = (data.ships ?? []).map(s => ({
+    name: s.name, actorId: s.actorId ?? null, tokenId: s.tokenId ?? null,
+    hp: s.hp ?? null, crew: s.crew ?? null, hull: s.hull ?? null
+  }));
+  const key = `${data.combatId || "none"}:${ships.map(s => s.tokenId || s.actorId || s.name).join(",")}`;
+  emitEvent({ eventId: `shipCombat:${key}`, type: "shipCombat", state: "start", combatId: data.combatId ?? null, ships }, { urgent: true });
 });
 
 function liveCtx() {
@@ -545,7 +622,7 @@ function flush(opts = {}) {
   const now = Date.now();
   const gone = S.outbox.dropWhere(e => e.type === "chat" && String(e.eventId).startsWith("chat:") && !game.messages.get(e.eventId.slice(5)));
   if (gone.length) { S.metrics.inc("dropDeleted", gone.length); persistNow(); }
-  const batch = S.outbox.nextBatch(now, game.world.id, { retriesOnly: !!(opts.retry && opts.burstOpen) });
+  const batch = S.outbox.nextBatch(now, game.world.id, { retriesOnly: !!(opts.retry && opts.burstOpen), ...(get("aiPaused") ? { onlyTypes: ["control"] } : {}) });
   if (batch) {
     const ctx = liveCtx();
     const hints = get("ttsMinChars") > 0 ? { ttsMinChars: get("ttsMinChars") } : undefined;

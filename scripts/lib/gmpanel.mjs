@@ -67,9 +67,9 @@ export function newestChatEventIds(messages = [], { limit = 5, skip } = {}) {
 
 export const PANEL_LOGO_SRC = "modules/ai-gm-bridge/assets/logo-256.webp";
 
-export function panelHtml({ paused = false, turn = null, pending = [], hp = [], recapText = "", stuck = null, setup = null, link = null, logoSrc = PANEL_LOGO_SRC, t = (k, f) => f || k } = {}) {
+export function panelHtml({ paused = false, turn = null, pending = [], hp = [], recapText = "", stuck = null, setup = null, link = null, logoSrc = PANEL_LOGO_SRC, tables = [], sessionNotes = "", sessionRecap = "", t = (k, f) => f || k } = {}) {
   const turnLine = turn?.name
-    ? (t("AIGM.panel.turnLine", "Round {round}: {name} is up.").replace("{round}", turn.round ?? "?").replace("{name}", turn.name) + (turn.next ? ` ${t("AIGM.panel.next", "Next: {name}.").replace("{name}", turn.next)}` : ""))
+    ? (t("AIGM.panel.turnLine", "Round {round}: {name} is up.").replace("{round}", turn.round ?? "?").replace("{name}", turn.name) + (turn.next ? ` ${t("AIGM.panel.next", "Next: {name}.").replace("{name}", turn.next)}` : "") + (turn.isPet && turn.simpleAction !== false ? ` ${t("AIGM.panel.petTurn", "Pet: one simple action.")}` : ""))
     : t("AIGM.panel.noCombat", "No active combat.");
   const rolls = (pending ?? []).map(r => {
     const label = r.label || r.formula || r.stat || r.id;
@@ -105,6 +105,29 @@ export function panelHtml({ paused = false, turn = null, pending = [], hp = [], 
     <div class="aigm-panel-rolls">${rolls}</div>
     <h3>${esc(t("AIGM.panel.hp", "HP"))}</h3>
     <div class="aigm-panel-hp">${hps}</div>
+    <h3>${esc(t("AIGM.panel.quick", "Quick GM"))}</h3>
+    <div class="aigm-quick">
+      <select data-aigm-table>
+        <option value="">${esc(t("AIGM.panel.pickTable", "Pick a roll table"))}</option>
+        ${(tables ?? []).map(tb => `<option value="${esc(tb.id)}">${esc(tb.name)}</option>`).join("")}
+      </select>
+      <button type="button" data-aigm-action="rollTable">${esc(t("AIGM.panel.rollTable", "Roll table"))}</button>
+      <button type="button" data-aigm-action="giveLoot">${esc(t("AIGM.panel.giveLoot", "Give loot"))}</button>
+      <label class="aigm-quick-dmg">${esc(t("AIGM.panel.damage", "Damage"))}
+        <input type="number" data-aigm-damage value="1" min="0" step="1">
+      </label>
+      <button type="button" data-aigm-action="applyDamage">${esc(t("AIGM.panel.applyDamage", "Damage selected"))}</button>
+      <button type="button" data-aigm-action="startShipCombat">${esc(t("AIGM.panel.startShipCombat", "Start ship fight"))}</button>
+    </div>
+    <h3>${esc(t("AIGM.panel.session", "Session"))}</h3>
+    ${sessionRecap ? `<p class="aigm-session-recap">${esc(sessionRecap)}</p>` : `<p class="hint">${esc(t("AIGM.panel.noSession", "No session snapshot saved yet."))}</p>`}
+    <textarea data-aigm-notes rows="3" placeholder="${esc(t("AIGM.panel.sessionNotes", "Plot threads / GM notes (not shown in the recap)"))}">${esc(sessionNotes)}</textarea>
+    <div class="aigm-panel-actions">
+      <button type="button" data-aigm-action="saveSession">${esc(t("AIGM.panel.saveSession", "Save session"))}</button>
+      <button type="button" data-aigm-action="loadSession">${esc(t("AIGM.panel.loadSession", "Where we left off"))}</button>
+      <button type="button" data-aigm-action="startGame">${esc(t("AIGM.panel.startGame", "Start game"))}</button>
+      <button type="button" data-aigm-action="pauseGame">${esc(t("AIGM.panel.pauseGame", "Pause game"))}</button>
+    </div>
     <pre class="aigm-panel-recap"${recapText ? "" : " hidden"}>${esc(recapText)}</pre>
   </section>`;
 }
@@ -148,9 +171,12 @@ export function makeGmPanel(deps = {}) {
               if (!yes) return;
             }
           }
-          const result = await deps.onAction?.(action, { requestId: btn.dataset.requestId });
-          if (action === "recap" && result) {
-            this.recapText = typeof result === "string" ? result : [result.summary, ...(result.lines ?? [])].filter(Boolean).join("\n");
+          const tableId = content.querySelector("[data-aigm-table]")?.value || "";
+          const damage = content.querySelector("[data-aigm-damage]")?.value;
+          const notes = content.querySelector("[data-aigm-notes]")?.value ?? "";
+          const result = await deps.onAction?.(action, { requestId: btn.dataset.requestId, tableId, damage, notes });
+          if ((action === "recap" || action === "loadSession") && result) {
+            this.recapText = typeof result === "string" ? result : [result.summary, result.recap, ...(result.lines ?? [])].filter(Boolean).join("\n");
           }
           this.render();
         });

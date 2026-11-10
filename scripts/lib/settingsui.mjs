@@ -1,7 +1,7 @@
 // 0.8.8 settings layout: a short Basic page plus a collapsed Advanced list.
 // Keys and defaults stay the same so existing worlds keep working. Internal
 // state is never shown in the form.
-export const HIDDEN_KEYS = ["dedupeState", "outboxState", "voiceCache", "contextJournals", "pushToTalkNoticeShown", "linkProbe"];
+export const HIDDEN_KEYS = ["dedupeState", "outboxState", "voiceCache", "contextJournals", "pushToTalkNoticeShown", "linkProbe", "sessionSnapshot"];
 // Shown on the Basic page (plus the bot-user dropdown and webhook secret).
 export const BASIC_KEYS = ["enabled", "botUserId", "delivery", "webhookUrl", "webhookSecret", "alwaysVoiceUsers", "pushToTalkKey", "combatEvents"];
 export const BASIC_FIELDS = [

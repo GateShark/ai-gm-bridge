@@ -3,6 +3,7 @@
 // Results go back to the caller; cards we post are marked so they never wake the bot.
 import { ok, fail } from "./lib/result.mjs";
 import { ACTIONS, PB_API, HULL_DIE, normAction, isShip, shipSummary, applyDamage, moraleResult, parseMorale, leanOutcome, markOwn } from "./lib/ship.mjs";
+import { crewTracker } from "./lib/shiptrack.mjs";
 
 let loader = async (path) => import(globalThis.foundry?.utils?.getRoute ? foundry.utils.getRoute(path) : "/" + path);
 export function setLoader(fn) { loader = fn; }
@@ -52,9 +53,11 @@ export async function shipAction(actor, a = {}, { findActor, findToken }) {
   if (d.shanty) await actor.updateShanties({ value: Math.max(0, actor.system.attributes.shanties.value - 1) });
   if (a.toChat !== false) await card({ actor, title: L(d.title), description: L(d.desc), outcomes, target });
   const [main, ...rest] = outcomes;
+  try { crewTracker.sync(game.combat); } catch {}
+  const used = crewTracker.record(actor.id);
   return ok({ actorId: actor.id, action: key, target: target?.name ?? null, crew: crew?.name ?? null, ...leanOutcome(main),
     ...(rest.length ? { damage: rest[0]?.totalDamage, ...(key === "ram" && !ramUsesArmor() ? { armorRoll: rest[1]?.roll?.total } : { armor: rest[1]?.roll?.total }) } : {}),
-    ...(d.shanty ? { shantiesLeft: actor.system.attributes.shanties.value } : {}) });
+    ...(d.shanty ? { shantiesLeft: actor.system.attributes.shanties.value } : {}), crewActionsThisRound: used });
 }
 
 export async function shipDamage(actor, a = {}) {
@@ -78,5 +81,5 @@ export function getShip(actor) {
   if (!isShip(actor)) return fail(400, `${actor.name} is not a ship (vehicle)`);
   const s = shipSummary(actor, hullDies()); const nm = (id) => game.actors?.get?.(id)?.name ?? null;
   const crews = actor.system?.crews ?? []; const cap = actor.system?.captain ?? null;
-  return ok({ ...s, captain: cap ? nm(cap) : null, crewActors: crews.map(nm).filter(Boolean) });
+  return ok({ ...s, captain: cap ? nm(cap) : null, crewActors: crews.map(nm).filter(Boolean), crewActionsThisRound: crewTracker.count(actor.id) });
 }

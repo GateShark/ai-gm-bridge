@@ -19,8 +19,8 @@ export class Outbox {
   }
   isDead(i) { return i.attempts >= BACKOFF_MS.length + 1; }
   // retriesOnly: while a chat burst is still grouping, a retry wake must not pull its fresh events out early.
-  nextBatch(now, world, { retriesOnly = false } = {}) {
-    const due = this.items.filter(i => i.nextAt <= now && !this.isDead(i) && (!retriesOnly || i.attempts > 0)).slice(0, this.batchMax);
+  nextBatch(now, world, { retriesOnly = false, onlyTypes = null } = {}) {
+    const due = this.items.filter(i => i.nextAt <= now && !this.isDead(i) && (!retriesOnly || i.attempts > 0) && (!onlyTypes || onlyTypes.includes(i.event?.type))).slice(0, this.batchMax);
     if (!due.length) return null;
     const batchId = batchIdFor(world, due.map(i => i.event.eventId));
     const fresh = due.some(i => i.batchId !== batchId); if (fresh) this.seq++;
@@ -40,7 +40,7 @@ export class Outbox {
 
 // v0.8.10: in relay mode the module marks these types received after emit (Foundry chat
 // and the matching socket/hook events). Control still waits for api.ack.
-export const RELAY_AUTO_ACK_TYPES = ["chat", "combat", "turn", "rollResult", "rollTimeout", "rollCancelled", "pcDown"];
+export const RELAY_AUTO_ACK_TYPES = ["chat", "combat", "turn", "rollResult", "rollTimeout", "rollCancelled", "pcDown", "shipCombat"];
 export function relayAutoAckIds(events = []) {
   return (events ?? []).filter(e => e && RELAY_AUTO_ACK_TYPES.includes(e.type) && e.eventId).map(e => e.eventId);
 }

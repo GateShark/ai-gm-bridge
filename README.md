@@ -2,7 +2,7 @@
   <img src="assets/logo-256.webp" alt="AI GM Bridge" width="160" height="160" />
 </p>
 
-# AI GM Bridge (module id `ai-gm-bridge`) v0.8.14
+# AI GM Bridge (module id `ai-gm-bridge`) v0.8.15
 
 > ⚠️ **Alpha:** this is still in testing. Expect bugs and breaking changes.
 
@@ -26,11 +26,16 @@ Created by Gate (GateShark).
 - Push-to-talk: a hold-to-talk mic button (bottom left) with a live mic light. Turn on **Push-to-talk (this browser)** to also use the key (default `` ` ``).
 - Roll requests use one large **Roll** button; after you roll, cancel, or the request expires, the card greys out.
 - Voice lines have a ▶ replay button, and long lines can be expanded.
-- The GM has an in-game **AI GM** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, and a quick HP list of tokens on the current scene.
+- The GM has an in-game **AI GM** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
-## What's new since 0.8.0 (0.8.1–0.8.14)
-These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.14**.
+## What's new since 0.8.0 (0.8.1–0.8.15)
+These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.15**.
+
+**Session, pets, and ships (0.8.15)**
+- Save a compact "where we left off" snapshot (scene, HP, a few key items, open GM notes) and get a spoiler-free recap when you resume. Pets marked with an owner flag can be placed next to their owner; a house-rule note can remind the table that a pet takes one simple action.
+- **Start game** unpauses Foundry and wakes the AI GM; **Pause game** pauses Foundry and tells the AI GM to stop so queued work does not run.
+- Quick GM buttons roll a world table, give drawn loot to a selected token, apply damage to selected tokens, or start a ship fight. Ship combatants add hull/crew to the fight roster; crew actions this round are tracked in memory without changing Pirate Borg system data.
 
 **Combat and turns**
 - Immediate combat start and end events, so the bot can stay with a fight.
@@ -46,7 +51,7 @@ These versions add table tools, more reliable combat, and fewer wasted bot calls
 - The status light and AI GM panel show **AI GM offline** (with time since last seen) after a configurable wait (default 60 seconds) with no server-confirmed sighting. Commands fail quickly if this page is not logged in, or time out instead of hanging if the socket has dropped.
 - The setup-check banner refreshes when tokens or actors are created, updated, or deleted, so it clears as soon as an unowned pirate is removed.
 - Official logo (a d20 with eyes) in the module listing, the README, and the in-game AI GM panel header.
-- In relay mode, chat, combat, turns, roll outcomes, and `pcDown` are marked received after they are handed to the relay, so they do not pile up in the outbox. Control events (pause, resume, redo, skip) still wait for an explicit ack.
+- In relay mode, chat, combat, turns, roll outcomes, `pcDown`, and `shipCombat` are marked received after they are handed to the relay, so they do not pile up in the outbox. Control events (pause, resume, redo, skip) still wait for an explicit ack.
 - HP, resources, and rest prefer the token on the viewed scene, so unlinked tokens use their own stats instead of the base actor sheet.
 - Pirate Borg HP is read from `system.attributes.hp`. Player-owned characters are labeled as PCs even if the token looks hostile.
 - Rest accepts `kind` as an alias for `length`, rejects unknown rest types instead of silently taking a long rest, and does not restore rituals or class resources when the character has none.
@@ -67,7 +72,7 @@ See `CHANGELOG.md` for the version-by-version list.
 ## What it does
 - **Exactly once:** one leader client handles events (the bot GM user is preferred), with persisted dedupe and acked retries.
   A `batchId` always stands for the same set of events.
-- **Relay ack:** in relay mode, player chat, combat start/end, turns, roll-request outcomes, and `pcDown` are marked received after they are handed to the relay (socket + hook), so they are not retried. Control events still wait for `api.ack`. Redo/skip fall back to the newest player chat ids when the last wake is unknown.
+- **Relay ack:** in relay mode, player chat, combat start/end, turns, roll-request outcomes, `pcDown`, and `shipCombat` are marked received after they are handed to the relay (socket + hook), so they are not retried. Control events still wait for `api.ack`. Redo/skip fall back to the newest player chat ids when the last wake is unknown.
 - **Fewer wakes:** chat bursts are grouped into one batch. Noise is filtered out (OOC, the bot's own posts, plain rolls,
   ignored users). Simple `!` commands are handled locally.
 - **Small payloads:** text is plain and trimmed, empty fields are dropped, and combat/scene context is sent only when it changes.
@@ -76,8 +81,8 @@ See `CHANGELOG.md` for the version-by-version list.
 - **Metrics:** `game.modules.get("ai-gm-bridge").api.metrics()`, plus a log line every N batches.
 
 Local commands (no bot call): `!roll 2d6`, `!music <playlist>` or `!music <playlist> stop`, `!scene <name>`,
-`!hp <actor> -2`, `!luck <actor> 3`, `!prayers <actor> -1`, `!turn`, `!setup`, `!rest <actor> [short|long]`.
-Players can only change actors they own. `!music`, `!scene`, and `!setup` are GM only.
+`!hp <actor> -2`, `!luck <actor> 3`, `!prayers <actor> -1`, `!turn`, `!setup`, `!rest <actor> [short|long]`, `!save [notes]`, `!load`, `!start`, `!pause`.
+Players can only change actors they own. `!music`, `!scene`, `!setup`, session save/load, start/pause, tables, and ship helpers are GM only.
 
 - Pirate Borg morale checks and ship combat helpers (system rules, no dialogs), see docs/BOT-API.md.
 
@@ -97,7 +102,7 @@ Tests: `npm test`.
 - This is an **alpha** build. Expect bugs and breaking changes.
 - Voice may not be heard when the GM plays a character as a player. This needs more testing. Browsers may also need one click (or the **Enable sound** button) before audio will play.
 - Push-to-talk (optional, off by default) uses the Web Speech API: Chrome/Edge only, and the page must be HTTPS or localhost.
-- Foundry sends GM-only journals (even ownership None) and all world settings to every player's browser. A tech-savvy player can read them from the console. The module therefore stores nothing secret in the world: the bot names the journals it wants per `getContext` call, or the relay adds `AIGM_CONTEXT_JOURNALS` from its own environment. The context text is returned only to the bot, and its cache is in memory on the GM client.
+- Foundry sends GM-only journals (even ownership None) and all world settings to every player's browser. A tech-savvy player can read them from the console. The module therefore stores nothing secret in the world: the bot names the journals it wants per `getContext` call, or the relay adds `AIGM_CONTEXT_JOURNALS` from its own environment. The context text is returned only to the bot, and its cache is in memory on the GM client. Session notes live in one overwritten world setting (`sessionSnapshot`) with the same limit — the spoiler-free recap text omits them, but the stored notes are still world data.
 - The secret content itself (GM journals, hidden tokens) is still in the world and therefore reaches players' browsers. That is Foundry's behaviour, not something a module can change.
 - Morale and ship commands load the pirateborg system's own files (tested with pirateborg v1.9.0). If a system update moves them, these commands return an error; everything else keeps working. Ship targets must be tokens on the scene the GM client is viewing.
 

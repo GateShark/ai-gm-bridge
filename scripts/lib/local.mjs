@@ -25,6 +25,10 @@ export function parseLocal(text, prefix = "!") {
   if (SHIP_CMDS.includes(c) && arg) { const { name, dr } = splitDr(rest); if (!name) return null;
     return { name: "shipAction", args: { actorName: name, action: normAction(c), ...(dr ? { dr } : {}) } }; }
   if (c === "scene" && arg) return { name: "scene", args: { sceneName: arg, activate: true } };
+  if ((c === "save" || c === "savesession")) return { name: "saveSession", args: arg ? { notes: arg } : {} };
+  if ((c === "load" || c === "loadsession" || c === "leftoff") && !arg) return { name: "loadSession", args: {} };
+  if ((c === "start" || c === "startgame") && !arg) return { name: "start", args: {} };
+  if ((c === "pause" || c === "pausegame") && !arg) return { name: "pause", args: {} };
   const num = rest.at(-1); const who = rest.slice(0, -1).join(" ");
   if (!who || !/^[+-]?\d+$/.test(num ?? "")) return null;
   const v = /^[+-]/.test(num) ? { delta: Number(num) } : { value: Number(num) };

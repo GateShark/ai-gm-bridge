@@ -33,6 +33,11 @@ details.aigm-advanced>summary{cursor:pointer;font-weight:600}
 [data-aigm-test-status][data-ok="1"]{color:#3c3}
 [data-aigm-test-status][data-ok="0"]{color:#e66}
 .aigm-setup-warn{margin:4px 0;padding:8px;border-left:3px solid #b33;background:rgba(160,40,40,.18);color:#f2c2c2}
+.aigm-quick{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.aigm-quick select,.aigm-quick input[type=number]{flex:1 1 120px;min-width:80px}
+.aigm-quick-dmg{display:flex;align-items:center;gap:6px;font-size:12px}
+.aigm-panel textarea[data-aigm-notes]{width:100%;min-height:64px;box-sizing:border-box}
+.aigm-session-recap{margin:0;font-size:13px}
 `;
 export function injectStyles(doc = globalThis.document) {
   if (!doc || doc.getElementById("aigm-styles")) return false;
