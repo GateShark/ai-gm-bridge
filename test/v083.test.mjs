@@ -23,7 +23,7 @@ test("no duplicates: start eventId is claimed once per combat (combatStart + upd
 });
 test("wiring: leader-only, urgent, setting default on, hooks", () => {
   const m = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
-  assert.match(m, /reg\("combatEvents", Boolean, true\)/); assert.match(m, /reg\("turnWake", Boolean, false\)/);
+  assert.match(m, /reg\("combatEvents", Boolean, true\)/); assert.match(m, /reg\("turnWake", Boolean, true\)/);
   assert.match(m, /if \(!enabled\(\) \|\| !amLeader\(\) \|\| !get\("combatEvents"\)\) return;/);
   assert.match(m, /emitEvent\(ev, \{ urgent: true \}\)/);
   assert.match(m, /Hooks\.on\("combatStart", \(c\) => combatState\(c, "start"\)\)/);

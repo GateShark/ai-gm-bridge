@@ -189,8 +189,8 @@ test("0.8.10 relay auto-ack covers combat, turns and roll-request outcomes, not 
 
 test("0.8.10 version, wiring and i18n", () => {
   const ver = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version;
-  assert.equal(ver, "0.8.10");
-  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.8.10");
+  assert.match(ver, /^0\.8\.\d+$/);
+  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, ver);
   const main = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
   assert.match(main, /reg\("hpPath", String, "system.attributes.hp.value"\)/);
   assert.match(main, /get\("hpPath"\) === LEGACY_HP_PATH\) game\.settings\.set\(ID, "hpPath", DEFAULT_HP_PATH\)/);
@@ -213,6 +213,6 @@ test("0.8.10 version, wiring and i18n", () => {
   assert.equal(en.panel.clearStuck, "Clear stuck");
   assert.ok(en.panel.clearStuckConfirm.includes("{n}"));
   assert.match(readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8"), /## 0\.8\.10/);
-  assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /v0\.8\.10/);
+  assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), new RegExp(`v${ver.replaceAll(".", "\\.")}`));
   assert.match(readFileSync(new URL("../docs/BOT-API.md", import.meta.url), "utf8"), /v0\.8\.10/);
 });

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.11
+- `turnWake` now defaults on and only wakes the bot for NPC/monster turns (never for player-character turns). The setting is labeled **Wake on NPC/monster turns**. Worlds that already saved the setting stay as they are (an explicit off is not flipped on); worlds that never stored a value pick up the new default.
+- `turnStatus` returns a ready-made `expect: {combatId, round, turn}` to pass straight to `nextTurn`. Missing or stale `expect` errors now say what the current combatant and round/turn actually are.
+- Ending or deleting a combat still emits the existing `combat`/`end` event, and any pending roll requests stamped with that combat (defence reminders) are auto-cancelled so they cannot time out afterward.
+
 ## 0.8.10
 - Game summary (`getContext`): HP is read from Pirate Borg's live `system.attributes.hp` (falling back to `system.hp`, then the `hpPath` setting). The default `hpPath` is now `system.attributes.hp.value`. Worlds still saved as the stale `system.hp.value` are migrated on ready. Player-owned or `character` tokens are always labeled as PCs, even when their token disposition is hostile.
 - Resource reads, rest, and other actor-targeted commands prefer the viewed scene token's actor when the caller only passed `actorId`/`actorName`, so unlinked tokens (like a wounded Tempus at 2/10) are used instead of the base sheet.

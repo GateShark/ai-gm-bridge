@@ -48,7 +48,7 @@ carries the same `batchId` and exactly the same events. Most `4xx` answers are f
 ```
 Fields that are empty, false or null are left out.
 
-Since v0.6, `turn` events are only sent when the `turnWake` setting is on (default off): turn prompts are handled in Foundry with no wake.
+Since v0.6, `turn` events are only sent when the `turnWake` setting is on. As of v0.8.11 it defaults on and only fires for NPC/monster turns (player-character turns stay local). Turn prompts are still posted in Foundry with no extra wake.
 Batching: one wake per chat burst, flushed after `debounceMs` (1200) of quiet or at most `maxWaitMs` (default 3500, configurable) after the first event.
 
 ## Response body (optional)
@@ -76,7 +76,7 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | tokenUpdate | tokenId or tokenName, hidden?, elevation?, rotation?, alpha? |
 | setHP | actorId or actorName, or tokenId/tokenName (+sceneId); value or delta, path? |
 | getResources / setResource | actorId or actorName, or tokenId/tokenName (+sceneId); resource (hp, luck, rituals, prayers, hull, crew, ...), value or delta. If you only pass an actor name/id, an unlinked token of that actor on the viewed scene is preferred (same as setHP/rest) |
-| nextTurn / endCombat | expect: {combatId, round, turn}; 409 if stale |
+| nextTurn / endCombat | expect: {combatId, round, turn} (copy `expect` from turnStatus). nextTurn: 400 if expect is missing, with the current combatant/round/turn in the error; 409 if stale, naming who is actually up |
 | scene | sceneId or sceneName, activate? |
 | music | playlist, sound?, action: play or stop |
 | unpause | none |
@@ -85,7 +85,7 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | spawnAndVision | actorId or actorName, sceneId?, x, y, name?, hidden?, elevation?, disposition?, vision? {enabled, range 0-1000, angle 1-360, visionMode: basic, darkvision, monochromatic, tremorsense, lightAmplification}, light? {dim, bright, color "#rrggbb", angle, alpha, animation {type, speed, intensity}}, locked?, lockScope?, spawnKey? (idempotent: returns the existing token with duplicate:true) |
 | setVision | tokenId or tokenName, sceneId?, vision?, light? (same shapes as spawnAndVision) |
 | requestRoll | user (name or id), actorId? or actorName? (default: the user's character), stat (strength/agility/presence/toughness/spirit, or str/agi/pre/tou/spi), dr, label?, requestId?, timeoutMs? (default setting, 120000). Posts a card with a Roll button only that player or a GM can use. Any d20 roll by that player after the card (button, sheet, or Pixels dice) answers it. Returns {requestId, messageId, status}; the same requestId returns the existing card and result with duplicate:true. You get one `rollResult` event. On timeout you get `rollTimeout` and a GM-only "roll for them" button appears. **v0.8.4 any formula:** pass `formula` (any Foundry formula, e.g. `1d6`, `2d4+1`, `1d20+@abilities.agility.value`, evaluated with the actor's roll data) with `label`; then `stat` and `dr` are optional. Same button and same `rollResult` event, plus `formula` and `label`; `success` is null when no `dr` was given (true/false vs `dr` otherwise). Non-d20 formula requests are answered only by their card button. Errors: BAD_FORMULA, BAD_STAT, BAD_ARGS (stat test without dr) |
-| turnStatus | none; returns {active, round, turn, name, ownerNames, next, isNPC} |
+| turnStatus | none; returns {active, round, turn, name, ownerNames, next, isNPC, expect} where `expect` is `{combatId, round, turn}` ready to pass to nextTurn (null when there is no combat) |
 | recap | since? (ms epoch or ISO), max? (40); returns {count, counts, summary, lines} from the GM-only "AI GM Session Log" journal. Lines are newest first; each starts with Today, Yesterday, or the date, plus the time |
 | rest | actorId or actorName, or tokenId/tokenName (+sceneId); length?: short or long (default long; `kind` is accepted as an alias), food?: eat, starve or donteat (default eat), infected?. Unknown rest types are rejected (`length must be short or long`) instead of doing a long rest. Rituals and class resources are skipped when the actor has none (`max` is 0). Pirate Borg rules (see below); returns before, after, report and rolls, and posts a summary card |
 | speakBubble | tokenId or tokenName, sceneId?, text (plain, max 300), emote?. Shows a chat bubble over the token on every client (one socket message, no chat message) |
@@ -188,7 +188,7 @@ When Foundry combat starts (`combatStart`, or `updateCombat` reaching round 1) o
 ```
 `state` is `"start"` or `"end"` (`round` is the last round on end). Only the leader client (bot user, else the active GM) sends it, and the eventId is deduped, so each combat gives at most one start and one end. A combat deleted before it started sends no end.
 Use it to keep the bot awake during fights and let it sleep otherwise. Setting `combatEvents` (default on).
-Optional per-turn events: `turnWake` (default off) sends `{type:"turn", combat:{id,round,turn}, combatant, isNPC}` on every round/turn change, now also without debounce.
+Optional per-turn events: `turnWake` (default on since v0.8.11) sends `{type:"turn", combat:{id,round,turn}, combatant, isNPC}` on NPC/monster turn changes, without debounce. Player-character turns never send this event.
 
 
 ## Push-to-talk (v0.8.5)
@@ -236,3 +236,8 @@ Redo/skip `targetEventIds` still prefer the last player chat/roll batch that was
 In **relay** delivery, `chat`, `combat`, `turn`, `rollResult`, `rollTimeout`, and `rollCancelled` are marked received after emit. `control` still waits for `api.ack`. The official `relay/` still acks after a webhook 2xx; a second ack is a no-op.
 
 The GM panel **Clear stuck** button (and `api.clearStuck()`) acks every remaining outbox item (queued and dead). Non-leader GMs forward the request so the leader persists the empty queue.
+
+## v0.8.11: NPC turn wakes, ready expect, combat-end roll cancel
+`turnStatus` includes `expect: {combatId, round, turn}`. Pass that object back as `nextTurn`/`endCombat` `expect`. If it is missing or stale, the error names the current round, turn, and combatant.
+
+`requestRoll` stamps the current `combatId` when a combat is active. When that combat is deleted/ended the module emits the existing `{type:"combat", state:"end"}` event and auto-cancels pending roll cards for that combat (`rollCancelled`), so leftover defence reminders cannot time out after the fight.

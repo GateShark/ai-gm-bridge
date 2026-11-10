@@ -30,11 +30,12 @@ export async function requestRoll(a) {
   const actor = (a.actorId && game.actors.get(a.actorId)) || (a.actorName && game.actors.getName(a.actorName)) || user.character;
   if (!actor) return fail("NOT_FOUND", "no actor (pass actorId/actorName or give the user a character)");
   const timeoutMs = Math.max(5000, a.timeoutMs ?? D.get("rollRequestTimeoutMs") ?? 120000);
+  const combatId = a.combatId || game.combat?.id || null;
   const req = { id, userId: user.id, userName: user.name, actorId: actor.id, actorName: actor.name, stat, ...(formula ? { formula } : {}), dr: a.dr ?? null, label: a.label ?? "", status: "pending", at: Date.now(), timeoutAt: Date.now() + timeoutMs,
-    expireAt: Date.now() + timeoutMs + Math.max(0, a.expireAfterMs ?? D.get("rollRequestExpireMs") ?? 600000) };
+    expireAt: Date.now() + timeoutMs + Math.max(0, a.expireAfterMs ?? D.get("rollRequestExpireMs") ?? 600000), ...(combatId ? { combatId } : {}) };
   const msg = await ChatMessage.create({ content: cardHtml(req), speaker: { alias: D.get("speakerAlias") || "AI GM" }, flags: { [ID]: { local: true, rollRequest: req } } });
   armTimeout(req, msg.id);
-  return ok({ requestId: id, messageId: msg.id, status: "pending", timeoutAt: req.timeoutAt });
+  return ok({ requestId: id, messageId: msg.id, status: "pending", timeoutAt: req.timeoutAt, ...(combatId ? { combatId } : {}) });
 }
 // pending -> (timeoutAt) timeout: GM fallback button + rollTimeout event -> (expireAt) expired: no longer answerable.
 function armTimeout(req, messageId) {
@@ -77,6 +78,18 @@ export async function cancelRollRequest(requestId) {
   await m.update({ content: cardHtml(next), [`flags.${ID}.rollRequest`]: next });
   D.emit({ eventId: `rollreq:${r.id}:cancel`, type: "rollCancelled", requestId: r.id, actor: r.actorName, user: r.userName }, { urgent: false });
   return ok({ requestId: r.id, messageId: m.id, status: "cancelled" });
+}
+export function rollsTiedToCombat(pending, combatId) {
+  if (!combatId) return [];
+  return (pending ?? []).filter(r => r && r.combatId === combatId);
+}
+export async function cancelCombatRolls(combat) {
+  const cancelled = [];
+  for (const r of rollsTiedToCombat(pendingRequests(), combat?.id)) {
+    const res = await cancelRollRequest(r.id);
+    if (res.ok) cancelled.push(r.id);
+  }
+  return cancelled;
 }
 export function bindRollCard(msg, html) {
   const req = msg.flags?.[ID]?.rollRequest; if (!req || req.status === "done" || req.status === "cancelled" || req.status === "expired") return;

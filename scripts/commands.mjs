@@ -13,6 +13,7 @@ import * as F from "./features.mjs";
 import { getContext } from "./context.mjs";
 import * as SHIP from "./ship.mjs";
 import { targetActor, targetInfo, sceneTokenForActor } from "./lib/target.mjs";
+import { combatExpect } from "./lib/turns.mjs";
 import { resolveResource, nextValue, summarize, parseAmount } from "./lib/pirateborg.mjs";
 
 // Class item's own label for extraResource (e.g. "Prayers"); field name varies, so search string fields.
@@ -111,20 +112,21 @@ export const COMMANDS = {
     if (!r.reached) return fail(504, "token did not reach the requested position", { tokenId: t.id, x: r.x, y: r.y, requested: { x: a.x, y: a.y }, via: r.via });
     return ok({ tokenId: t.id, x: r.x, y: r.y, ...(r.via === "displace" ? { via: "displace" } : {}) });
   }},
-  nextTurn: { schema: { expect: "object" }, async run(a) {
-    const key = a.expect?.combatId ?? "none";
+  nextTurn: { schema: { expect: "object?" }, async run(a) {
+    const key = a.expect?.combatId ?? game.combat?.id ?? "none";
     return combatLock.run(key, async () => {
-      const c = game.combats.get(a.expect?.combatId) ?? game.combat;
-      const stale = checkExpect(c?.started ? liveCombat(c) : null, a.expect); if (stale) return stale;
+      const c = (a.expect?.combatId ? game.combats.get(a.expect.combatId) : null) ?? game.combat;
+      const live = c?.started ? { ...liveCombat(c), combatant: c.combatant?.name ?? null } : null;
+      const stale = checkExpect(live, a.expect); if (stale) return stale;
       await c.nextTurn();
-      return ok({ ...liveCombat(c), combatant: c.combatant?.name ?? null });
+      return ok({ ...liveCombat(c), combatant: c.combatant?.name ?? null, expect: combatExpect(c) });
     });
   }},
   endCombat: { schema: { expect: "object?" }, async run(a) {
     const c = a.expect ? game.combats.get(a.expect.combatId) : game.combat;
     if (!c) return fail(404, "no combat");
     return combatLock.run(c.id, async () => {
-      if (a.expect) { const stale = checkExpect(liveCombat(c), a.expect); if (stale) return stale; }
+      if (a.expect) { const stale = checkExpect({ ...liveCombat(c), combatant: c.combatant?.name ?? null }, a.expect); if (stale) return stale; }
       const id = c.id; await c.delete(); // direct delete: no confirm dialog
       return ok({ ended: id });
     });
@@ -264,10 +266,10 @@ export const COMMANDS = {
   getShip: { schema: { actorId: "string?", actorName: "string?", ...TOK }, async run(a) {
     const tg = findTarget(a); if (tg.error) return fail(404, "ship not found"); return SHIP.getShip(tg.actor); } },
   // v0.6
-  requestRoll: { schema: { user: "string", actorId: "string?", actorName: "string?", stat: "string?", formula: "string?", dr: "number?", label: "string?", requestId: "string?", timeoutMs: "number?" },
+  requestRoll: { schema: { user: "string", actorId: "string?", actorName: "string?", stat: "string?", formula: "string?", dr: "number?", label: "string?", requestId: "string?", timeoutMs: "number?", combatId: "string?" },
     async run(a) { return F.requestRoll(a); } },
   cancelRoll: { schema: { requestId: "string" }, async run(a) { return F.cancelRollRequest(a.requestId); } },
-  turnStatus: { schema: {}, async run() { const t = F.turnStatus(); return ok({ active: !!t, ...(t ?? {}) }); } },
+  turnStatus: { schema: {}, async run() { const t = F.turnStatus(); return ok({ active: !!t, ...(t ?? {}), expect: t?.expect ?? null }); } },
   recap: { schema: { since: "any?", max: "number?" }, async run(a) { return ok(await F.recap(a)); } },
   rest: { schema: { actorId: "string?", actorName: "string?", ...TOK, length: "string?", kind: "string?", food: "string?", infected: "boolean?" }, async run(a) {
     const tg = findTarget(a); if (tg.error) return fail("NOT_FOUND", tg.error.error); return F.rest(tg.actor, { ...a, length: a.length ?? a.kind }); } },

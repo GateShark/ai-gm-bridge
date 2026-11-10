@@ -21,7 +21,7 @@ import { installAudioResume, showAudioUnlockPrompt } from "./lib/audioqueue.mjs"
 import * as F from "./features.mjs";
 import { getContext } from "./context.mjs";
 import { cleanupContextJournals } from "./gmstore.mjs";
-import { turnText } from "./lib/turns.mjs";
+import { turnText, shouldWakeOnTurn, combatantIsNpc } from "./lib/turns.mjs";
 import { combatEvent, startedNow } from "./lib/combatevents.mjs";
 import { rollBreakdown } from "./lib/rollreq.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
@@ -143,7 +143,8 @@ Hooks.once("init", () => {
   reg("uploadsEnabled", Boolean, true); reg("uploadMaxMB", Number, 8); reg("uploadTypes", String, "png,jpg,jpeg,webp,gif,mp3,ogg,wav,webm,txt,md,json");
   // v0.6
   reg("speakerAlias", String, "AI GM"); reg("rollRequestTimeoutMs", Number, 120000); reg("rollRequestExpireMs", Number, 600000); reg("rollAnswerNote", Boolean, true);
-  reg("turnPrompts", Boolean, true); reg("turnWake", Boolean, false); reg("turnVoiceUsers", String, "");
+  reg("turnPrompts", Boolean, true); reg("turnWake", Boolean, true); // v0.8.11: default on; stored off is left off (see resolveTurnWake). NPC-only filter is in updateCombat.
+  reg("turnVoiceUsers", String, "");
   reg("sessionLog", Boolean, true);
   // v0.8 house rule: pirateborg v1.9.0 ram ignores the target armour roll; on = subtract it
   reg("ramUsesArmor", Boolean, false);
@@ -355,7 +356,7 @@ Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCa
 Hooks.on("updateActor", (a, change) => { if (enabled() && amLeader()) F.onActorUpdate(a, change); });
 Hooks.on("createActor", (a) => { if (enabled() && amLeader()) F.onActorUpdate(a, {}); });
 Hooks.on("createItem", (i) => { if (enabled() && amLeader()) F.onItemCreate(i); });
-Hooks.on("deleteCombat", (c) => { if (enabled()) thinking.hide(); if (enabled()) refreshStatus(); if (enabled() && amLeader()) { F.onCombatDelete(c); combatState(c, "end"); } }); // v0.8.6: hide runs on every client
+Hooks.on("deleteCombat", (c) => { if (enabled()) thinking.hide(); if (enabled()) refreshStatus(); if (enabled() && amLeader()) { F.onCombatDelete(c); F.cancelCombatRolls(c).catch(e => log("cancelCombatRolls", e?.message)); combatState(c, "end"); } }); // v0.8.6: hide runs on every client
 // v0.8.3: only the leader (bot user, else active GM) sends; eventId dedupe means one start/end per combat.
 function combatState(c, state) {
   if (!enabled() || !amLeader() || !get("combatEvents")) return;
@@ -428,11 +429,11 @@ Hooks.on("updateCombat", (c, change) => {
   if (startedNow(c, change)) combatState(c, "start"); // combatStart only fires on the starting client
   F.onCombatUpdate(c, change);
   if (get("turnPrompts")) F.turnPrompt(c).catch(e => log("turnPrompt", e?.message));
-  if (!get("turnWake")) return; // v0.6: turns are handled locally; set turnWake to also wake the bot
+  if (!shouldWakeOnTurn(c, get("turnWake"))) return; // NPC/monster turns only; PC turns stay local
   const eventId = `combat:${c.id}:${c.round}.${c.turn}`; const now = Date.now();
   if (!S.dedupe.claim(eventId, now)) return;
   S.outbox.enqueue({ eventId, type: "turn", combat: { id: c.id, round: c.round, turn: c.turn }, combatant: c.combatant?.name ?? null,
-    isNPC: c.combatant?.actor ? !c.combatant.actor.hasPlayerOwner : null }, now);
+    isNPC: combatantIsNpc(c.combatant) }, now);
   S.dedupe.mark(eventId, "sent", now); persistNow(); S.batcher?.push({ urgent: true });
 });
 

@@ -114,8 +114,8 @@
         "hint": "Post who is up on each turn change and notify the owning player. Handled in Foundry, no bot wake."
       },
       "turnWake": {
-        "name": "Wake bot on turns",
-        "hint": "Also send turn changes to the bot (costs a wake per turn)."
+        "name": "Wake on NPC/monster turns",
+        "hint": "When on (the default), send a turn event to the bot only when an NPC or monster is up, so fights do not stall. Player-character turns stay local and never wake the bot. Turn this off if you do not want any turn events. A world that already saved this setting off is left off."
       },
       "turnVoiceUsers": {
         "name": "Voiced turn prompts for",
