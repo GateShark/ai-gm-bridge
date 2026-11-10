@@ -24,6 +24,26 @@ export function collectHp(actors, { hpPath = "system.attributes.hp.value" } = {}
 export function makeControlEvent(action, extra = {}, now = Date.now()) {
   return { eventId: `control:${action}:${now}`, type: "control", action, ...extra };
 }
+// Redo/skip targets: prefer the last wake, then any ids the caller sent, then newest player chat.
+export function resolveWakeEventIds(lastWake, requested, fallback) {
+  const fromLast = (lastWake?.eventIds ?? []).filter(Boolean);
+  if (fromLast.length) return fromLast;
+  const fromReq = (requested ?? []).filter(Boolean);
+  if (fromReq.length) return fromReq;
+  if (typeof fallback === "function") return fallback() ?? [];
+  return fallback ?? [];
+}
+export function newestChatEventIds(messages = [], { limit = 5, skip } = {}) {
+  const out = [];
+  const n = Math.max(0, Number(limit) || 0);
+  for (let i = (messages?.length ?? 0) - 1; i >= 0 && out.length < n; i--) {
+    const m = messages[i];
+    if (!m?.id || skip?.(m)) continue;
+    const id = String(m.id);
+    out.push(id.startsWith("chat:") ? id : `chat:${id}`);
+  }
+  return out;
+}
 
 export function panelHtml({ paused = false, turn = null, pending = [], hp = [], recapText = "", t = (k, f) => f || k } = {}) {
   const turnLine = turn?.name

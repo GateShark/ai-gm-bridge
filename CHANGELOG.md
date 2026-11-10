@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.9
+- Relay mode: chat events are marked received after the batch is emitted on the module socket and the `ai-gm-bridge.events` hook, so they are not retried. Relays that read Foundry chat themselves (for example a `/wait` loop) no longer leave player chat sitting in the outbox until it dies. Other event types still wait for `api.ack` (the official relay still acks after webhook 2xx). Direct delivery is unchanged (ack after 2xx). Chat that was already flushed at least once is also acked when the leader starts up, so old unacked chat does not re-send after a reload.
+- Redo/skip: if the last wake ids are empty (for example after a reload), the control event falls back to the newest player chat event ids instead of sending `targetEventIds: []`.
+
+
 ## 0.8.8
 - Settings: Configure AI GM now has a short Basic page (Enabled, bot GM user, webhook URL/secret, voice-for-players, push-to-talk key, combat events) plus a **Test connection** button, and a collapsed Advanced section for the rest. Existing setting keys and defaults are unchanged; internal state (dedupe, outbox, voice cache, notices) stays hidden. World settings no longer fill Foundry's long module-settings list.
 - Everyone sees a floating GM status light: green "GM listening", amber "GM thinking…", red "GM offline" (and grey "GM paused"). Click it for the time of the last reply. It reuses the existing heartbeat and thinking events (no extra polling of the AI).

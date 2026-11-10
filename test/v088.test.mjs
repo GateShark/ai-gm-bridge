@@ -205,8 +205,8 @@ test("0.8.8 main wiring, cancelRoll command, localization, public credits", () =
   assert.equal(en.audio.enableSound, "Enable sound");
   assert.ok(en.panel.pause && en.panel.redo && en.voice.replay);
   const ver = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version;
-  assert.equal(ver, "0.8.8");
-  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.8.8");
+  assert.equal(ver, JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
+  assert.match(ver, /^\d+\.\d+\.\d+/);
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   assert.match(readme, /Alpha/); assert.match(readme, /Gate \(GateShark\)/); assert.doesNotMatch(readme, /Kevin|Allen/);
   assert.match(readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8"), /## 0\.8\.8/);

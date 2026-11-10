@@ -216,3 +216,15 @@ The settings **Test connection** button POSTs `{ "type": "testConnection", "ping
 
 ### Status light
 There is no extra bot API for the status light. It is derived from the existing leader heartbeat, the thinking socket, whether the bot user is connected, and `aiPaused`.
+
+## v0.8.9: relay-mode chat ack
+In **relay** delivery, `chat` events are marked received after the batch is emitted on the module socket and the `ai-gm-bridge.events` hook. The module does not retry those chat events. That matches relays that read Foundry chat themselves (for example a `/wait` loop) and would otherwise leave chat sitting in the outbox until it dies.
+
+Other event types (`control`, `combat`, `rollResult`, `rollCancelled`, …) still wait for an explicit `api.ack(eventIds)`. The official `relay/` still acks after a webhook 2xx. Calling `api.ack` again on already-acked chat ids is a no-op.
+
+**Direct** delivery is unchanged: the module acks after a webhook 2xx.
+
+Chat that was already flushed at least once (including dead items) is also acked when the leader starts up in relay mode, so old unacked chat does not re-send after a reload.
+
+Redo/skip `targetEventIds` still prefer the last player chat/roll batch that was sent to you. If that list is empty (for example after a reload), the module falls back to the newest player chat event ids instead of sending `[]`.
+

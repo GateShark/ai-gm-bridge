@@ -1,7 +1,7 @@
 // AI GM Bridge — entry point (version comes from module.json) (bot-agnostic). Does nothing unless world setting `enabled` is true.
 import { decideLeader, applyHeartbeat } from "./lib/leader.mjs";
 import { DedupeStore } from "./lib/dedupe.mjs";
-import { Outbox } from "./lib/outbox.mjs";
+import { Outbox, relayAutoAckIds, relayStaleChatIds } from "./lib/outbox.mjs";
 import { classify } from "./lib/filter.mjs";
 import { Batcher } from "./lib/batcher.mjs";
 import { parseLocal } from "./lib/local.mjs";
@@ -27,7 +27,7 @@ import { rollBreakdown } from "./lib/rollreq.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
 import { PushToTalk, speechLang } from "./lib/ptt.mjs";
 import { GmStatusPill, deriveGmStatus } from "./lib/gmstatus.mjs";
-import { makeGmPanel, collectHp, installSidebarButton, makeControlEvent } from "./lib/gmpanel.mjs";
+import { makeGmPanel, collectHp, installSidebarButton, makeControlEvent, resolveWakeEventIds, newestChatEventIds } from "./lib/gmpanel.mjs";
 import { enhanceVoiceMessage } from "./lib/voiceui.mjs";
 import { injectStyles } from "./lib/styles.mjs";
 
@@ -62,10 +62,15 @@ function onAiPausedChange(paused) {
   if (amLeader()) emitControl(paused ? "pause" : "resume");
 }
 function emitControl(action, extra = {}) { return emitEvent(makeControlEvent(action, extra), { urgent: true, evenIfPaused: true }); }
+function wakeTargetIds(data) {
+  return resolveWakeEventIds(S.lastWake, data?.targetEventIds, () => newestChatEventIds(game.messages?.contents ?? [], {
+    limit: 5, skip: (m) => !!(m.flags?.[ID]?.local) || isBot(m.author ?? m.user ?? {}) || isOwnShipCard(m)
+  }));
+}
 function handleGmControl(data) {
   if (!data?.action) return;
-  if (data.action === "redo") { emitControl("redo", { targetEventIds: S.lastWake?.eventIds ?? data.targetEventIds ?? [], replyTo: S.lastWake?.eventIds?.[0] ?? null }); thinkingOn(); }
-  else if (data.action === "skip") { thinkingOff({ broadcast: true }); emitControl("skip", { targetEventIds: S.lastWake?.eventIds ?? data.targetEventIds ?? [] }); }
+  if (data.action === "redo") { const ids = wakeTargetIds(data); emitControl("redo", { targetEventIds: ids, replyTo: ids[0] ?? null }); thinkingOn(); }
+  else if (data.action === "skip") { thinkingOff({ broadcast: true }); emitControl("skip", { targetEventIds: wakeTargetIds(data) }); }
   else if (data.action === "cancelRoll" && data.requestId) F.cancelRollRequest(data.requestId);
 }
 async function panelAction(action, data = {}) {
@@ -205,6 +210,20 @@ function onAcked(eventIds) {
   const s = new Set(eventIds);
   for (const [bid, b] of S.sent) if (b.ids.every(id => s.has(id))) { S.metrics.time("ack", Date.now() - b.at); S.ackedCtx = b.ctx; S.sent.delete(bid); }
 }
+// Relay-mode chat ack: updates the outbox without thinkingOff (unlike api.ack). Official relay / live.js can still call api.ack; already-acked ids are a no-op.
+function ackRelayChatIds(ids, { immediate = false } = {}) {
+  if (!ids?.length || !S.outbox) return 0;
+  onAcked(ids);
+  const n = S.outbox.ack(ids);
+  S.metrics.inc("acked", n);
+  for (const id of ids) S.dedupe?.mark(id, "acked", Date.now());
+  if (immediate) persistNow(); else persistSoon();
+  return n;
+}
+function ackRelayStaleChat() {
+  if (get("delivery") !== "relay" || !S.outbox) return 0;
+  return ackRelayChatIds(relayStaleChatIds(S.outbox.items), { immediate: true });
+}
 function stop() { S.timers.forEach(clearInterval); S.timers = []; S.batcher?.stop(); }
 function restart() {
   stop();
@@ -213,12 +232,14 @@ function restart() {
   const ob = get("outboxState") ?? {}; S.outbox = new Outbox({ items: ob.items ?? [], seq: ob.seq ?? 0 });
   S.voice = new VoiceCache({ entries: get("voiceCache")?.entries ?? [] });
   S.outbox.purgeDead(Date.now());
+  ackRelayStaleChat();
   // Heartbeat is the only interval (leader liveness needs it). Flushes are event-driven: debounced chat bursts + retry wake-ups.
   S.timers.push(setInterval(tickLeader, get("heartbeatMs")));
   S.batcher = new Batcher({ debounceMs: get("debounceMs"), maxWaitMs: get("maxWaitMs"), onFlush: (o) => flush(o) });
   if (S.outbox.items.some(i => i.attempts === 0)) S.batcher.push(); // unsent events from before a reload
   S.batcher.at(S.outbox.nextDueAt());
   tickLeader();
+  ackRelayStaleChat();
   F.seedSnapshots();
 }
 // v0.6: one feature event into the outbox (idempotent by eventId).
@@ -246,6 +267,7 @@ function catchUp() {
   const ob = get("outboxState") ?? {}; S.outbox = new Outbox({ items: ob.items ?? [], seq: ob.seq ?? 0 });
   const msgs = (game.messages?.contents ?? []).map(m => ({ id: m.id, timestamp: m.timestamp, doc: m }));
   S.outbox.purgeDead(Date.now());
+  ackRelayStaleChat();
   for (const m of missedMessages(msgs, S.dedupe, Date.now())) handleChat(m.doc);
   if (S.outbox.items.length) S.batcher?.at(S.outbox.nextDueAt());
 }
@@ -391,6 +413,8 @@ function flush(opts = {}) {
     game.socket.emit(SOCKET, { type: "events", batch: payload }); // relay (headless/bot client) consumes this
     Hooks.callAll(`${ID}.events`, payload);
     if (shouldShowThinking(batch.events, batch.attempt)) { S.lastWake = { eventIds: batch.events.filter(e => ["chat", "rollResult"].includes(e.type)).map(e => e.eventId), at: Date.now() }; thinkingOn(); } // #14
+    // Relay: chat is handed to the GM via the socket/hook (and often a separate /wait of Foundry chat). Mark it received so it is not retried. Do not clear thinking — the GM has not replied yet. Other event types still wait for api.ack (official relay after webhook 2xx). Direct mode unchanged.
+    if (get("delivery") === "relay") ackRelayChatIds(relayAutoAckIds(payload.events));
     if (get("delivery") === "direct" && isBot() && get("webhookUrl")) {
       const api = game.modules.get(ID).api;
       deliverDirect(payload, { url: get("webhookUrl"), secret: get("webhookSecret"), header: get("webhookAuthHeader") || "Authorization",

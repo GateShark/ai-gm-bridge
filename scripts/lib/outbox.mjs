@@ -37,3 +37,13 @@ export class Outbox {
   clearDead() { const d = this.dead().map(i => i.event.eventId); this.ack(d); return d; }
   toJSON() { return { items: this.items, seq: this.seq }; }
 }
+
+// v0.8.9: in relay mode the module marks these types received after emit (Foundry chat
+// is already visible to a /wait-style relay). Other types still wait for api.ack.
+export const RELAY_AUTO_ACK_TYPES = ["chat"];
+export function relayAutoAckIds(events = []) {
+  return (events ?? []).filter(e => e && RELAY_AUTO_ACK_TYPES.includes(e.type) && e.eventId).map(e => e.eventId);
+}
+export function relayStaleChatIds(items = []) {
+  return (items ?? []).filter(i => i?.event && RELAY_AUTO_ACK_TYPES.includes(i.event.type) && i.event.eventId && (i.attempts > 0)).map(i => i.event.eventId);
+}
