@@ -8,6 +8,8 @@ import { parseLocal } from "./lib/local.mjs";
 import { isOwn as isOwnShipCard } from "./lib/ship.mjs";
 import { buildPayload } from "./lib/compact.mjs";
 import { VoiceCache } from "./lib/voicecache.mjs";
+import { TurnClipStore, resolveTurnClip, turnClipAudioMap } from "./lib/turnclips.mjs";
+import { ttsVoiceSlug, playVoicePreview } from "./lib/voices.mjs";
 import { Metrics } from "./lib/metrics.mjs";
 import { deliverDirect } from "./lib/direct.mjs";
 import { makeConfigApp } from "./config-app.mjs";
@@ -282,6 +284,18 @@ function setupPtt() {
     logoSrc: PANEL_LOGO_SRC, speechHints, speechFixes });
   pttInst.install({ keyboard: keyOn, notifyIfMissing: keyOn });
 }
+
+function onTtsVoiceChange(raw, play) {
+  const slug = ttsVoiceSlug(raw);
+  try { game.user?.setFlag?.(ID, "gmVoice", slug); } catch {}
+  if (play) playVoicePreview(raw);
+}
+function syncGmVoiceFlag() {
+  let raw = "en-GB-RyanNeural";
+  try { raw = game.settings.get(ID, "ttsVoice") || raw; } catch {}
+  onTtsVoiceChange(raw, false);
+}
+
 Hooks.once("init", () => {
   // 0.8.7: pre-ready stub so macros/scripts that run early can wait instead of throwing.
   { const mod = game.modules?.get?.(ID); let res; const p = new Promise(r => (res = r)); globalThis.__aigmReady = res;
@@ -312,7 +326,7 @@ Hooks.once("init", () => {
   reg("turnVoiceUsers", String, "");
   reg("voiceTurnPrompt", Boolean, true);
   reg("speechHints", String, "kick, dropkick, drop kick, slash, parry, dodge, block, strike, thrust, shoot, steal, sneak, hide, attack, defend, broken, agility, strength, presence, toughness, spirit");
-  reg("speechFixes", String, "drop cake=dropkick, drop cakes=dropkick, kik=kick, perry=parry");
+  reg("speechFixes", String, "drop cake=dropkick, drop cakes=dropkick, kik=kick, perry=parry, pulled up behind=ducked behind");
   reg("sessionLog", Boolean, true);
   // v0.8 house rule: pirateborg v1.9.0 ram ignores the target armour roll; on = subtract it
   reg("ramUsesArmor", Boolean, false);
@@ -325,12 +339,18 @@ Hooks.once("init", () => {
   game.settings.register(ID, "pushToTalkKey", { scope: "client", config: true, type: String, default: "Backquote", name: "AIGM.settings.pushToTalkKey.name", hint: "AIGM.settings.pushToTalkKey.hint", onChange: ptt });
   game.settings.register(ID, "pushToTalkNoticeShown", { scope: "client", config: false, type: Boolean, default: false });
   game.settings.register(ID, "pttPosition", { scope: "client", config: false, type: Object, default: { x: null, y: null } });
+  // Per-player spoken voice (client, not world). Mirrored to flags[ai-gm-bridge].gmVoice so the GM can read everyone's pick.
+  game.settings.register(ID, "ttsVoice", { scope: "client", config: true, type: String, default: "en-GB-RyanNeural",
+    name: "AIGM.settings.ttsVoice.name", hint: "AIGM.settings.ttsVoice.hint",
+    choices: { "en-GB-RyanNeural": "Ryan (British man)", "en-GB-ThomasNeural": "Thomas (British man)", "en-GB-SoniaNeural": "Sonia (British woman)", "en-US-AriaNeural": "Aria (American woman)" },
+    onChange: (v) => { try { onTtsVoiceChange(v, true); } catch {} } });
   reg("thinkingIndicator", Boolean, true); reg("thinkingTimeoutMs", Number, 90000);
   reg("aiPaused", Boolean, false, { config: false, onChange: (v) => { try { onAiPausedChange(v); } catch {} } });
   // v0.7 (GM-only: world setting, config menu is GM-only)
   // v0.7.0 stored the context journal list here. Kept hidden (config:false) only so v0.7.2 can clear it; never written otherwise.
   game.settings.register(ID, "contextJournals", { scope: "world", config: false, type: String, default: "" });
   game.settings.register(ID, "voiceCache", { scope: "world", config: false, type: Object, default: { entries: [] } });
+  game.settings.register(ID, "turnClips", { scope: "world", config: false, type: Object, default: { entries: [] } });
   game.settings.register(ID, "dedupeState", { scope: "world", config: false, type: Object, default: { entries: [] } });
   game.settings.register(ID, "outboxState", { scope: "world", config: false, type: Object, default: { items: [], seq: 0 } });
   game.settings.register(ID, "linkProbe", { scope: "world", config: false, type: Object, default: { nonce: "", at: 0, by: "", lastBotAt: 0 } });
@@ -340,6 +360,7 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", () => {
   try { setupPtt(); } catch (e) { console.warn(`${ID} | push-to-talk`, e); }
+  try { syncGmVoiceFlag(); } catch {} 
   try { injectStyles(); } catch {}
   try { statusPill = new GmStatusPill({ t: loc, onClick: (tip) => ui.notifications?.info?.(tip) }); statusPill.mount(); } catch {}
   const mod = game.modules.get(ID);
@@ -422,7 +443,7 @@ Hooks.once("ready", () => {
   try { globalThis.__aigmReady?.(mod.api); } catch {}
   game.socket.on(SOCKET, onSocket);
   if (game.user.isGM && game.users.activeGM?.id === game.user.id) cleanupContextJournals(game).then(r => r.cleared && log("v0.7.2: the context journal list is no longer stored in the world (players could read it). Set AIGM_CONTEXT_JOURNALS on the relay or pass journals per getContext call. Old value:", r.old)).catch(e => log("migrate", e?.message));
-  F.initFeatures({ get, amLeader, log, voice: (t) => S.voice?.get(t) ?? null, emit: emitEvent, dedupe: S.dedupe });
+  F.initFeatures({ get, amLeader, log, voice: (t, voice) => S.voice?.get(t, voice) ?? null, turnClip: (name, voice) => resolveTurnClip(name, voice, S.turnClips), turnAudio: (name) => turnClipAudioMap(name, S.turnClips), emit: emitEvent, dedupe: S.dedupe });
   try {
     audioQueue.onStart = () => thinkingOn({ kind: "speaking", broadcast: false });
     audioQueue.onIdle = () => { if (thinking.visible && thinking.kind === "speaking") thinkingOff({ broadcast: false }); };
@@ -491,8 +512,9 @@ Hooks.once("ready", () => {
 });
 
 function ctxFor() {
-  return { dedupe: S.dedupe, persistNow, ack: (ids) => game.modules.get(ID).api.ack(ids), voiceCache: S.voice, ttsMinChars: get("ttsMinChars"),
-    metrics: S.metrics, lastWake: S.lastWake, persistVoice: () => { clearTimeout(S.vt); S.vt = setTimeout(() => game.settings.set(ID, "voiceCache", { entries: S.voice.toJSON() }), 3000); } };
+  return { dedupe: S.dedupe, persistNow, ack: (ids) => game.modules.get(ID).api.ack(ids), voiceCache: S.voice, turnClips: S.turnClips, ttsMinChars: get("ttsMinChars"),
+    metrics: S.metrics, lastWake: S.lastWake, persistVoice: () => { clearTimeout(S.vt); S.vt = setTimeout(() => game.settings.set(ID, "voiceCache", { entries: S.voice.toJSON() }), 3000); },
+    persistTurnClips: () => { clearTimeout(S.ttc); S.ttc = setTimeout(() => game.settings.set(ID, "turnClips", { entries: S.turnClips.toJSON() }), 3000); } };
 }
 // Ack bookkeeping: ack latency per batch, and remember the ctx the bot has definitely seen (payload ctx is a diff against it).
 function onAcked(eventIds) {
@@ -521,6 +543,7 @@ function restart() {
   S.dedupe = new DedupeStore({ entries: get("dedupeState")?.entries ?? [] });
   const ob = get("outboxState") ?? {}; S.outbox = new Outbox({ items: ob.items ?? [], seq: ob.seq ?? 0 });
   S.voice = new VoiceCache({ entries: get("voiceCache")?.entries ?? [] });
+  S.turnClips = new TurnClipStore({ entries: get("turnClips")?.entries ?? [] });
   S.outbox.purgeDead(Date.now());
   ackRelayStaleChat();
   // Heartbeat is the only interval (leader liveness needs it). Flushes are event-driven: debounced chat bursts + retry wake-ups.

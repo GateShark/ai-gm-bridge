@@ -5,6 +5,8 @@ import { priorReply, recordReply, resolveReplyTo } from "./lib/replies.mjs";
 import { waitForPosition } from "./lib/movewait.mjs";
 import { moveWithFallback, setSceneBackground, formatResult } from "./lib/v081.mjs";
 import { VoiceCache, shouldSkipTts } from "./lib/voicecache.mjs";
+import { listTtsVoices, resolveTtsVoice, DEFAULT_TTS_VOICE, ttsVoiceSlug, localVoiceSlug, readUserVoiceSlug, normalizeAudioMap, pickAudioSrc } from "./lib/voices.mjs";
+import { parseTurnClipName, turnClipSlug, turnClipFile, TurnClipStore } from "./lib/turnclips.mjs";
 import { unwrapText } from "./lib/v081.mjs";
 import { AudioQueue, voiceOrText, showAudioUnlockPrompt } from "./lib/audioqueue.mjs";
 import { planUpload, DEFAULT_LIMITS, UPLOAD_ROOT } from "./lib/uploads.mjs";
@@ -95,12 +97,17 @@ export const audioQueue = new AudioQueue({ play: playClip, onBlocked: () => show
 // queue/unlock prompt. Instead emit on the module socket; every client (players included) plays through its own audioQueue.
 export const VOICE_SOCKET = "module.ai-gm-bridge";
 export function voiceAll(id, clip, g = globalThis.game) {
-  try { g?.socket?.emit?.(VOICE_SOCKET, { type: "voice", id, src: clip.src, volume: clip.volume }); } catch {}
-  return audioQueue.enqueue(id, clip);
+  const payload = { type: "voice", id, src: clip.src, volume: clip.volume };
+  if (clip.audio && typeof clip.audio === "object") payload.audio = clip.audio;
+  try { g?.socket?.emit?.(VOICE_SOCKET, payload); } catch {}
+  const src = pickAudioSrc(clip.audio, localVoiceSlug(g), clip.src);
+  return audioQueue.enqueue(id, { src, volume: clip.volume });
 }
 export function onVoiceSocket(data) {
-  if (data?.type !== "voice" || typeof data.src !== "string" || !data.src) return null;
-  return audioQueue.enqueue(data.id ?? data.src, { src: data.src, volume: typeof data.volume === "number" ? data.volume : undefined });
+  if (data?.type !== "voice") return null;
+  const src = pickAudioSrc(data.audio, localVoiceSlug(), typeof data.src === "string" ? data.src : null);
+  if (typeof src !== "string" || !src) return null;
+  return audioQueue.enqueue(data.id ?? src, { src, volume: typeof data.volume === "number" ? data.volume : undefined });
 }
 const checkAudio = async (src) => { try { return (await fetch(src, { method: "HEAD" })).ok; } catch { return false; } };
 const speaker = (alias) => alias ? { alias } : ChatMessage.getSpeaker();
@@ -262,30 +269,73 @@ export const COMMANDS = {
     recordReply(ctx.dedupe, a.replyTo, m.id, Date.now()); await ctx.persistNow(); await ackAfter(ctx, a.ackEventIds);
     return ok({ messageId: m.id, to: users.map(u => u.name) });
   }},
-  playAudio: { schema: { path: "string", id: "string?", volume: "number?", wait: "boolean?" }, async run(a) {
-    if (!(await checkAudio(a.path))) return fail(404, "audio not reachable");
-    const p = voiceAll(a.id ?? a.path, { src: a.path, volume: a.volume });
+  playAudio: { schema: { path: "string?", id: "string?", volume: "number?", wait: "boolean?", audio: "object?" }, async run(a) {
+    const map = normalizeAudioMap(a.audio);
+    const path = typeof a.path === "string" && a.path ? a.path : undefined;
+    const probe = pickAudioSrc(map, "ryan", path) || (map && Object.values(map)[0]);
+    if (!probe) return fail(400, "path or audio required");
+    if (!(await checkAudio(probe))) return fail(404, "audio not reachable");
+    const p = voiceAll(a.id ?? probe, { src: path || probe, audio: map || undefined, volume: a.volume });
     if (a.wait) return ok(await p);
-    return ok({ id: a.id ?? a.path, queued: true, queueLength: audioQueue.length });
+    return ok({ id: a.id ?? probe, queued: true, queueLength: audioQueue.length });
+  }},
+  listVoices: { schema: {}, async run() {
+    return ok({ voices: listTtsVoices(), default: DEFAULT_TTS_VOICE, selected: resolveTtsVoice(localVoiceSlug()) });
+  }},
+  voicePrefs: { schema: {}, async run() {
+    const raw = game.users?.contents ?? game.users ?? [];
+    const users = Array.isArray(raw) ? raw : [...raw];
+    return ok(users.map(u => ({ userId: u.id, name: u.name, active: !!u.active, voice: readUserVoiceSlug(u) })));
+  }},
+  listTurnClips: { schema: {}, async run(a, ctx) { return ok({ clips: ctx.turnClips?.list?.() ?? [] }); } },
+  // Register uploaded "Your turn" mp3s named turn-<pc|generic>-<ryan|thomas|sonia|aria>.mp3
+  // (a missing voice suffix means Ryan). Overwrites the same name+voice pair.
+  registerTurnClips: { schema: { clips: "array?", audioPath: "string?", path: "string?", name: "string?", voice: "string?", file: "string?" }, async run(a, ctx) {
+    const items = Array.isArray(a.clips) && a.clips.length ? a.clips : ((a.audioPath || a.path || a.file) ? [a] : []);
+    if (!items.length) return fail(400, "clips required");
+    const store = ctx.turnClips ?? new TurnClipStore();
+    const registered = [], errors = [];
+    for (const item of items) {
+      const path = item.audioPath || item.path;
+      if (!path) { errors.push({ error: "audioPath required", file: item.file ?? null }); continue; }
+      const parsed = parseTurnClipName(item.file || path);
+      const slug = (item.name != null && String(item.name).trim()) ? turnClipSlug(item.name) : parsed?.slug;
+      const voice = (item.voice != null && String(item.voice).trim()) ? resolveTtsVoice(item.voice) : (parsed?.voice ?? DEFAULT_TTS_VOICE);
+      if (!slug) { errors.push({ error: "could not parse turn clip name (expected turn-<name>-<voice>.mp3)", path, file: item.file ?? null }); continue; }
+      store.put(slug, voice, path);
+      registered.push({ slug, voice, voiceSlug: ttsVoiceSlug(voice), path, file: turnClipFile(slug, voice) });
+    }
+    if (!ctx.turnClips) ctx.turnClips = store;
+    ctx.persistTurnClips?.();
+    return ok({ registered, errors, clips: store.list() });
   }},
   // Reply with voice (uploaded mp3 path) and fall back to text if the audio is missing or the post fails.
   // ackEventIds are acked only after a post succeeds.
   // Ask before generating TTS: {cached:path} = reuse it (call postVoice without audioPath); {skipTts:true} = reply as text.
   voiceLookup: { schema: { content: "string", voice: "string?" }, async run(a, ctx) { if ("content" in a) a.content = unwrapText(a.content);
-    if (shouldSkipTts(a.content, ctx.ttsMinChars ?? 0)) return ok({ skipTts: true, cached: null });
-    return ok({ skipTts: false, cached: ctx.voiceCache?.get(a.content, a.voice) ?? null });
+    a.voice = resolveTtsVoice(a.voice);
+    if (shouldSkipTts(a.content, ctx.ttsMinChars ?? 0)) return ok({ skipTts: true, cached: null, voice: a.voice });
+    return ok({ skipTts: false, cached: ctx.voiceCache?.get(a.content, a.voice) ?? null, voice: a.voice });
   }},
-  postVoice: { schema: { content: "string", audioPath: "string?", voice: "string?", replyTo: "string?", speakerAlias: "string?", ackEventIds: "array?" }, async run(a, ctx) { a = withReplyTo(a, ctx); if ("content" in a) a.content = unwrapText(a.content);
+  postVoice: { schema: { content: "string", audioPath: "string?", audio: "object?", voice: "string?", replyTo: "string?", speakerAlias: "string?", ackEventIds: "array?" }, async run(a, ctx) { a = withReplyTo(a, ctx); if ("content" in a) a.content = unwrapText(a.content); a.voice = resolveTtsVoice(a.voice);
     const prev = priorReply(ctx.dedupe, a.replyTo); if (prev) { await ackAfter(ctx, a.ackEventIds); return ok({ messageId: prev, duplicate: true }); }
-    const flags = { "ai-gm-bridge": { replyTo: a.replyTo ?? null } };
+    const map = normalizeAudioMap(a.audio);
+    const flags = { "ai-gm-bridge": { replyTo: a.replyTo ?? null, ...(map ? { audio: map } : {}) } };
     let audioPath = a.audioPath, cacheHit = false, skippedTts = false;
     if (shouldSkipTts(a.content, ctx.ttsMinChars ?? 0)) { audioPath = undefined; skippedTts = true; ctx.metrics?.inc("ttsSkipped"); }
-    else if (!audioPath && ctx.voiceCache) { audioPath = ctx.voiceCache.get(a.content, a.voice) ?? undefined; cacheHit = !!audioPath; if (cacheHit) ctx.metrics?.inc("voiceCacheHits"); }
-    const r = await voiceOrText({ audioPath, checkAudio,
-      playVoice: (src) => voiceAll(a.replyTo ?? src, { src }),
+    else if (!audioPath && !map && ctx.voiceCache) {
+      audioPath = ctx.voiceCache.get(a.content, a.voice) ?? ctx.voiceCache.get(a.content, DEFAULT_TTS_VOICE) ?? undefined;
+      cacheHit = !!audioPath; if (cacheHit) ctx.metrics?.inc("voiceCacheHits");
+    }
+    const displaySrc = pickAudioSrc(map, a.voice, audioPath) || pickAudioSrc(map, "ryan", audioPath);
+    const r = await voiceOrText({ audioPath: displaySrc, checkAudio,
+      playVoice: (src) => voiceAll(a.replyTo ?? src, { src, audio: map || undefined }),
       postVoice: async (src) => (await ChatMessage.create({ content: `${a.content}<audio controls preload="none" src="${foundry.utils.escapeHTML?.(src) ?? src}"></audio>`, speaker: speaker(a.speakerAlias), flags })).id,
       postText: async () => (await ChatMessage.create({ content: a.content, speaker: speaker(a.speakerAlias), flags })).id });
-    if (r.mode === "voice" && a.audioPath && ctx.voiceCache) { ctx.voiceCache.put(a.content, a.audioPath, a.voice); ctx.persistVoice?.(); }
+    if (r.mode === "voice" && ctx.voiceCache) {
+      if (map) { for (const [slug, pth] of Object.entries(map)) ctx.voiceCache.put(a.content, pth, resolveTtsVoice(slug)); ctx.persistVoice?.(); }
+      else if (a.audioPath) { ctx.voiceCache.put(a.content, a.audioPath, a.voice); ctx.persistVoice?.(); }
+    }
     recordReply(ctx.dedupe, a.replyTo, r.messageId, Date.now()); await ctx.persistNow(); await ackAfter(ctx, a.ackEventIds);
     return ok({ ...r, cacheHit, skippedTts });
   }},

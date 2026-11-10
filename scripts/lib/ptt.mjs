@@ -18,9 +18,9 @@ export function joinResults(results) {
 }
 
 export const DEFAULT_SPEECH_HINTS = ["kick", "dropkick", "drop kick", "slash", "parry", "dodge", "block", "strike", "thrust", "shoot", "steal", "sneak", "hide", "attack", "defend", "broken", "agility", "strength", "presence", "toughness", "spirit"];
-export const DEFAULT_SPEECH_FIXES = [["drop cake", "dropkick"], ["drop cakes", "dropkick"], ["kik", "kick"], ["perry", "parry"]];
+export const DEFAULT_SPEECH_FIXES = [["drop cake", "dropkick"], ["drop cakes", "dropkick"], ["kik", "kick"], ["perry", "parry"], ["pulled up behind", "ducked behind"]];
 export const DEFAULT_SPEECH_HINTS_TEXT = DEFAULT_SPEECH_HINTS.join(", ");
-export const DEFAULT_SPEECH_FIXES_TEXT = "drop cake=dropkick, drop cakes=dropkick, kik=kick, perry=parry";
+export const DEFAULT_SPEECH_FIXES_TEXT = "drop cake=dropkick, drop cakes=dropkick, kik=kick, perry=parry, pulled up behind=ducked behind";
 export function parseSpeechHints(raw) {
   const extra = String(raw ?? "").split(",").map(s => s.trim()).filter(Boolean);
   const seen = new Set(); const out = [];

@@ -8,9 +8,10 @@ import { actorChanges, lineHtml, parseLines, recap as recapLines, TRACKED, stamp
 import { planRest, clampHp, diffReport, canRestoreResource } from "./lib/pbrest.mjs";
 import { createDownTracker } from "./lib/pcdown.mjs";
 import { sceneTokens } from "./lib/gmpanel.mjs";
+import { pickAudioSrc, localVoiceSlug } from "./lib/voices.mjs";
 
 const ID = "ai-gm-bridge"; const SOCKET = `module.${ID}`;
-const D = { emit: () => {}, get: () => undefined, voice: () => null, amLeader: () => true, log: () => {} };
+const D = { emit: () => {}, get: () => undefined, voice: () => null, turnClip: () => null, turnAudio: () => ({}), amLeader: () => true, log: () => {} };
 export function initFeatures(deps) { Object.assign(D, deps); }
 const strip = (s) => String(s ?? "").replace(/<[^>]+>/g, "").trim();
 const findUser = (u) => game.users.get(u) ?? game.users.find(x => x.name?.toLowerCase() === String(u ?? "").toLowerCase()) ?? null;
@@ -189,7 +190,9 @@ export async function turnPrompt(combat) {
   await ChatMessage.create({ content: turnText(t), speaker: { alias: D.get("speakerAlias") || "AI GM" }, flags: { [ID]: { local: true, turnPrompt: key } } });
   if (!t.ownerIds.length) return t;
   const spoken = t.name ? `Your turn: ${t.name}.` : "Your turn.";
-  const ping = { type: "turnPing", userIds: t.ownerIds, text: `Your turn: ${t.name}`, spoken, clip: D.voice(spoken),
+  const audio = D.turnAudio(t.name) || {};
+  const clip = audio.ryan || D.voice(spoken) || null;
+  const ping = { type: "turnPing", userIds: t.ownerIds, text: `Your turn: ${t.name}`, spoken, clip, audio,
     voiceUserIds: turnVoiceUserIds(t.ownerIds, {
       voiceTurnPrompt: D.get("voiceTurnPrompt") !== false,
       turnVoiceUsers: D.get("turnVoiceUsers"),
@@ -202,8 +205,8 @@ export function onTurnPing(p) {
   if (!p.userIds?.includes(game.user.id)) return;
   ui.notifications?.info(p.text);
   if (!p.voiceUserIds?.includes(game.user.id)) return;
-  if (p.clip) foundry.audio.AudioHelper.play({ src: p.clip, volume: 0.8, autoplay: true, loop: false }, false);
-  else if (globalThis.speechSynthesis && globalThis.SpeechSynthesisUtterance) speechSynthesis.speak(new SpeechSynthesisUtterance(p.spoken));
+  const src = pickAudioSrc(p.audio, localVoiceSlug(), p.clip);
+  if (src) foundry.audio.AudioHelper.play({ src, volume: 0.8, autoplay: true, loop: false }, false);
 }
 
 // ---------- session log ----------

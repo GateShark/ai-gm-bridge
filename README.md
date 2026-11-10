@@ -2,7 +2,7 @@
   <img src="assets/logo-256.webp" alt="AI GM Pirate Borg" width="160" height="160" />
 </p>
 
-# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.8.17
+# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.8.18
 
 > ⚠️ **Alpha:** this is still in testing. Expect bugs and breaking changes.
 
@@ -31,8 +31,13 @@ Created by Gate (GateShark).
 - The GM has an in-game **AI GM Pirate Borg** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM Pirate Borg** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
-## What's new since 0.8.0 (0.8.1–0.8.17)
-These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.17**.
+## What's new since 0.8.0 (0.8.1–0.8.18)
+These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.18**.
+
+**Recorded voices per player (0.8.18)**
+- Each player picks the GM voice they hear (Ryan, Thomas, Sonia, or Aria) on the Basic settings page. Play sample (and changing the dropdown) plays a bundled preview only on that computer. The pick is stored as that user's `gmVoice` flag; `voicePrefs` lists everyone's choice.
+- Your-turn and spoken replies use recorded clips only (no browser speech). Files are named `turn-<name>-<voice>.mp3`. If a clip is missing: that PC in the chosen voice, then generic in the chosen voice, then that PC in Ryan, then generic Ryan, then text only.
+- Voice messages can send an `audio` map keyed by voice slug so each client hears their pick (falling back to Ryan). Speech-to-text also corrects "pulled up behind" → "ducked behind".
 
 **Player-visible status, faster rolls, and the display name (0.8.17)**
 - Display title is now **AI GM Pirate Borg** (the module id is still `ai-gm-bridge`).

@@ -68,9 +68,13 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | getState | none |
 | post | content, replyTo?, speakerAlias?, allowMultiple?, ackEventIds? |
 | whisper | content, to: [user names or ids], replyTo?, ackEventIds? |
-| postVoice | content, audioPath? (uploaded mp3), voice?, replyTo?, ackEventIds?; falls back to text |
-| voiceLookup | content, voice?; returns {skipTts, cached}. Call it before TTS to reuse a clip or skip short replies |
-| playAudio | path, id?, volume?, wait? |
+| postVoice | content, audioPath? (uploaded mp3), audio? (map keyed by voice slug), voice?, replyTo?, ackEventIds?; each client plays their chosen voice and falls back to Ryan, then to text |
+| listVoices | none; returns {voices, default, selected}. Each voice includes id, name, label, locale, gender, slug, and preview (bundled `assets/voice-preview/voice-<slug>.mp3`). `selected` is this client's pick (empty → Ryan). Edit only `TTS_VOICES` in scripts/lib/voices.mjs to swap the list |
+| voicePrefs | none; returns [{userId, name, active, voice}] for every user. `voice` is that user's `flags['ai-gm-bridge'].gmVoice` slug, or `ryan` if unset |
+| registerTurnClips | clips: [{audioPath, file?, name?, voice?}] (or a single clip via top-level fields). Registers uploaded Your-turn mp3s named `turn-<pc\|generic>-<ryan\|thomas\|sonia\|aria>.mp3`. A missing voice suffix means Ryan. Returns {registered, errors, clips} |
+| listTurnClips | none; returns the registered Your-turn clips |
+| voiceLookup | content, voice?; returns {skipTts, cached, voice}. Call it before TTS to reuse a clip or skip short replies. `voice` is resolved against the table list (empty → Ryan) |
+| playAudio | path? and/or audio? (map keyed by voice slug), id?, volume?, wait?. Each client plays their chosen voice and falls back to Ryan |
 | roll | formula, flavor?, toChat? |
 | move | tokenId or tokenName, sceneId?, x, y; returns the final position. If a normal move doesn't arrive, it retries once as `TokenDocument.move` with action `displace` (ignoring walls and cost) and adds `via:"displace"`; 504 only if that also fails |
 | setBackground | src, sceneId? or sceneName? (default: viewed/active scene). Foundry v14 stores the background on the scene's first level, so it updates `scene.levels.contents[0]`; older versions update the scene. Returns {sceneId, via: level or scene, levelId, src} |
@@ -109,7 +113,7 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | speakBubble | tokenId or tokenName, sceneId?, text (plain, max 300), emote?. Shows a chat bubble over the token on every client (one socket message, no chat message) |
 
 ### v0.6 local features (no bot wake)
-- Turn prompts (`turnPrompts`, on): each turn change posts "Round N: X is up (Player). Next: Y." and notifies the owning player. By default (0.8.17 `voiceTurnPrompt`, on) every owner hears "Your turn: X." on their own client: a cached voice clip if you ever voiced that exact text, otherwise the browser's speech synthesis (no extra bot call). A non-empty `turnVoiceUsers` list still acts as an allowlist.
+- Turn prompts (`turnPrompts`, on): each turn change posts "Round N: X is up (Player). Next: Y." and notifies the owning player. By default (`voiceTurnPrompt`, on) every owner hears a recorded "Your turn" clip on their own client using their chosen voice (see Voice below). There is no browser speech: if no clip exists after the fallback chain, they get the text notification only. A non-empty `turnVoiceUsers` list still acts as an allowlist.
 - Chat: `!turn` (who is up), `!setup` (unowned player-looking pirates on this scene; warning only), `!rest <actor> [short|long] [starve|donteat] [infected]` (owner or GM), `!save [notes]` / `!load` (session snapshot; GM), `!start` / `!pause` (one-step Foundry + AI GM; `!pause` is GM-only, bare `start` in chat still follows the Unpause-on-start setting).
 - Session log (`sessionLog`, on): HP changes, 0 HP, items gained, Devil's Luck/rituals/extra resource changes, combat start/end and rests are written as timestamped lines to a GM-only journal "AI GM Session Log", one page per day, at most one write per 4 s.
 - Pirate Borg rest, mirrored from the system's rest action (pirateborg 1.9.0): short = heal d4 if eating and not infected, grog hours -1 (when grog is on). Long = starving d4 damage, infected d6 damage, heal d8 if eating and not infected, rituals = max(d4+Spirit, 0), the class extra resource (e.g. Prayers) re-rolled from the class formula, Devil's Luck re-rolled from the luck die only if it is 0, grog effects cleared. The system's own per-day and grog functions are used when they load; otherwise the same formulas run in the module.
@@ -164,12 +168,39 @@ if (!r.ok) console.warn(r.code, r.error); else await api.run({ name: "post", arg
 `summary`/`report` field when a command gives one.
 
 ### Voice
-The module never makes audio itself (no TTS keys live in the world). The voice path is:
-1. `voiceLookup {content, voice}`: if `cached` is a path, skip TTS; if `skipTts` is true, reply as text.
-2. Otherwise your bot or relay runs its own TTS and sends the mp3 with `upload {name:"line.mp3", data, kind:"audio"}`.
-3. `postVoice {content, audioPath: <path from upload>, replyTo}` posts the text with an audio player, plays it in order, and caches
-   it for the same text next time. A missing or broken file falls back to a text reply.
-Without any TTS, turn prompts for `turnVoiceUsers` use the player's browser speech synthesis. Use `playAudio` for sound effects.
+The module never makes audio itself (no TTS keys live in the world). Players pick the recorded voice they hear; the module never uses browser speech synthesis.
+
+**Voice list.** `listVoices` returns Ryan `en-GB-RyanNeural` (**default**), Thomas `en-GB-ThomasNeural`, Sonia `en-GB-SoniaNeural`, and Aria `en-US-AriaNeural`. Each entry has a `slug` (`ryan`, `thomas`, `sonia`, `aria`) and a `preview` path (`modules/ai-gm-bridge/assets/voice-preview/voice-ryan.mp3`, and the same pattern for the others). Those bundled previews are what the Spoken voice dropdown plays — not the Your-turn clips. `selected` is this client's pick. Pass the `id` or short name as `voice` on `voiceLookup`. An empty `voice` becomes Ryan. Unknown ids are left as-is.
+
+**Each player's pick.** `ttsVoice` is a per-player client setting (not world, not GM-only). On change and on ready, the module writes `flags['ai-gm-bridge'].gmVoice` to the slug (`ryan` / `thomas` / `sonia` / `aria`). Call `voicePrefs` to read `[{userId, name, active, voice}]` for every user; a missing flag is `ryan`.
+
+**Voice message format.** Prefer an `audio` map keyed by voice slug so each client hears their pick and falls back to Ryan:
+
+```json
+{ "name": "postVoice", "args": {
+  "content": "The skeleton swings.",
+  "audio": {
+    "ryan": "ai-gm-uploads/audio/<hash>-line-ryan.mp3",
+    "thomas": "ai-gm-uploads/audio/<hash>-line-thomas.mp3",
+    "sonia": "ai-gm-uploads/audio/<hash>-line-sonia.mp3",
+    "aria": "ai-gm-uploads/audio/<hash>-line-aria.mp3"
+  },
+  "replyTo": "chat:abc"
+} }
+```
+
+`playAudio` accepts the same `audio` map (and still accepts a single `path` for one shared sound). A legacy single `audioPath` / `path` plays for everyone. If the chosen slug is missing from the map, the client plays `ryan`. Generate each clip with Azure Neural using the matching id, `upload` it, then put the returned path in the map.
+
+**Your-turn clips.** File name: `turn-<pc-or-generic>-<ryan|thomas|sonia|aria>.mp3` (examples: `turn-tempus-thomas.mp3`, `turn-flood-sonia.mp3`, `turn-bart-aria.mp3`, `turn-seachest-ryan.mp3`, `turn-generic-thomas.mp3`). A name-only file such as `turn-tempus.mp3` is Ryan. "Sea Chest" matches `seachest`. Fallback for each listener: that PC in their chosen voice, then `turn-generic` in their chosen voice, then that PC in Ryan, then generic Ryan, then the text notification only.
+
+Register after upload (the upload path is content-hashed but still ends with the original name):
+
+```json
+{ "name": "upload", "args": { "name": "turn-tempus-thomas.mp3", "data": "<base64 mp3>", "kind": "audio" } }
+{ "name": "registerTurnClips", "args": { "clips": [ { "audioPath": "<path from upload>" } ] } }
+```
+
+You can also pass `file`, `name`, and/or `voice` if the path is not parseable. `listTurnClips` returns what is registered. Use `voicePrefs` when you generate spoken replies so you know which voices people asked for.
 
 ### Bot-author commands: `!` shortcuts typed by the bot are ignored
 `!turn`, `!rest`, `!morale`, `!ship`, `!roll`, `!hp`, `!luck`, `!prayers` and the other `!` shortcuts run locally only for messages
@@ -311,3 +342,8 @@ Player-visible status (all clients, small pill, optional elapsed seconds): see `
 `requestRoll { formula: "d4" or "1d4", label: "Broken" }` posts a button for non-d20 dice. After `rollTimeout` the original player button remains.
 
 Turn prompts say "Your turn" out loud by default (`voiceTurnPrompt`). Push-to-talk uses the module logo, is draggable, and applies a small configurable speech correction list (`speechHints` / `speechFixes`, e.g. "drop cake" → "dropkick", "Kik" → "kick").
+
+## v0.8.18: per-player recorded voices
+Each player picks Ryan, Thomas, Sonia, or Aria (`ttsVoice`, client setting). The dropdown Play sample (and a selection change) plays `assets/voice-preview/voice-<slug>.mp3` only on that computer. The pick is mirrored to `flags['ai-gm-bridge'].gmVoice`. `voicePrefs` returns everyone's slug (`ryan` if unset).
+
+`postVoice` / `playAudio` accept `audio: { ryan, thomas, sonia, aria }`. Each client plays their slug and falls back to Ryan. Register Your-turn files with `registerTurnClips` as `turn-<name>-<voice>.mp3` (example: upload `turn-tempus-thomas.mp3`, then `registerTurnClips { clips: [{ audioPath }] }`). Fallback: PC+chosen, generic+chosen, PC+Ryan, generic+Ryan, text only. No browser speech synthesis. "pulled up behind" is corrected to "ducked behind".

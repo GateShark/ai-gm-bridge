@@ -1,4 +1,5 @@
 // 0.8.8 chat polish: replay button on GM voice lines, collapse long lines.
+import { pickAudioSrc, localVoiceSlug } from "./voices.mjs";
 export const VOICE_COLLAPSE_CHARS = 280;
 const defaultEsc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -31,7 +32,8 @@ export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, c
   const audio = root.querySelector("audio[src]");
   if (!audio) return false;
   if (root.querySelector("[data-aigm-replay]")) return false;
-  const src = audio.getAttribute("src") || extractVoiceSrc(msg?.content);
+  const fallback = audio.getAttribute("src") || extractVoiceSrc(msg?.content);
+  const src = pickAudioSrc(msg?.flags?.["ai-gm-bridge"]?.audio, localVoiceSlug(), fallback) || fallback;
   if (!src) return false;
   const doc = root.ownerDocument ?? globalThis.document;
   const btn = doc.createElement("button");

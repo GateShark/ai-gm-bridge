@@ -83,7 +83,7 @@ export function turnText(t) {
   return `Round ${t.round}: ${t.name} is up${extra}.${t.next && t.next !== t.name ? ` Next: ${t.next}.` : ""}`;
 }
 export const voiceUsersFrom = (csv) => String(csv ?? "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
-// Empty turnVoiceUsers + voiceTurnPrompt (default on) voices every owner via speechSynthesis / a cached clip.
+// Empty turnVoiceUsers + voiceTurnPrompt (default on) voices every owner via a registered turn clip (recorded voices only).
 // A non-empty allowlist still filters (backward compatible).
 export function turnVoiceUserIds(ownerIds = [], { voiceTurnPrompt = true, turnVoiceUsers = "", users = [] } = {}) {
   const allow = voiceUsersFrom(turnVoiceUsers);

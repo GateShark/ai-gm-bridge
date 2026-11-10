@@ -1,6 +1,8 @@
 // 0.8.17: roll lag/dedupe, player-visible GM status, PTT logo+drag, speech fixes, voiced turns, d4 cards.
 import test from "node:test"; import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { classify, looksLikeAbilityRoll } from "../scripts/lib/filter.mjs";
 import { resolveReplyTo, priorReply, recordReply, priorRollReply, recordRollReply, replyKey, rollReplyKey } from "../scripts/lib/replies.mjs";
 import { DedupeStore } from "../scripts/lib/dedupe.mjs";
@@ -12,6 +14,8 @@ import { formatPanelLink } from "../scripts/lib/presence.mjs";
 import { ThinkingIndicator } from "../scripts/lib/thinking.mjs";
 import { groupFor } from "../scripts/lib/settingsui.mjs";
 import { COMMANDS, runCommand } from "../scripts/commands.mjs";
+import { TTS_VOICES, DEFAULT_TTS_VOICE, resolveTtsVoice, findTtsVoice, listTtsVoices, ttsVoiceSlug, voicePreviewSrc, pickAudioSrc, readUserVoiceSlug } from "../scripts/lib/voices.mjs";
+import { turnClipSlug, turnClipFile, parseTurnClipName, resolveTurnClip, turnClipAudioMap, TurnClipStore } from "../scripts/lib/turnclips.mjs";
 
 test("0.8.17 ability rolls wake urgently; damage dice stay plainRoll", () => {
   const base = { botUserId: "bot", ignorePlainRolls: true };
@@ -118,7 +122,9 @@ test("0.8.17 voiced turn prompt defaults to every owner", () => {
 test("0.8.17 speech correction: drop cake and Kik, no extra mappings", () => {
   assert.equal(correctSpeech("I drop cake him"), "I dropkick him");
   assert.equal(correctSpeech("Kik the door"), "Kick the door");
+  assert.equal(correctSpeech("I pulled up behind the crate"), "I ducked behind the crate");
   assert.equal(correctSpeech("slash the pirate"), "slash the pirate");
+  assert.ok(DEFAULT_SPEECH_FIXES.some(([from, to]) => from === "pulled up behind" && to === "ducked behind"));
   assert.ok(!DEFAULT_SPEECH_FIXES.some(([from]) => /kike/i.test(from)));
   assert.ok(parseSpeechFixes("foo=bar").some(([a, b]) => a === "foo" && b === "bar"));
 });
@@ -175,15 +181,90 @@ test("0.8.17 GM status states, aliases, elapsed, setGmStatus", async () => {
   assert.equal((await runCommand({ name: "setGmStatus", args: { state: "nope" } }, {})).ok, false);
 });
 
-test("0.8.17 settings grouping, title, version and docs", () => {
+
+test("0.8.18 TTS voices are one swap-friendly list with Ryan as default", async () => {
+  assert.equal(DEFAULT_TTS_VOICE, "en-GB-RyanNeural");
+  assert.deepEqual(TTS_VOICES.map(v => v.id), ["en-GB-RyanNeural", "en-GB-ThomasNeural", "en-GB-SoniaNeural", "en-US-AriaNeural"]);
+  assert.equal(TTS_VOICES.filter(v => v.default).length, 1);
+  assert.equal(resolveTtsVoice(""), "en-GB-RyanNeural");
+  assert.equal(resolveTtsVoice("Ryan"), "en-GB-RyanNeural");
+  assert.equal(resolveTtsVoice("sonia"), "en-GB-SoniaNeural");
+  assert.equal(resolveTtsVoice("en-US-AriaNeural"), "en-US-AriaNeural");
+  assert.equal(resolveTtsVoice("Thomas Neural"), "en-GB-ThomasNeural");
+  assert.equal(resolveTtsVoice("thomas"), "en-GB-ThomasNeural");
+  assert.equal(resolveTtsVoice("Christopher"), "Christopher");
+  assert.equal(resolveTtsVoice("custom-other"), "custom-other");
+  assert.equal(findTtsVoice("Aria").label, "Aria (American woman)");
+  assert.equal(ttsVoiceSlug("en-GB-ThomasNeural"), "thomas");
+  assert.equal(voicePreviewSrc("Sonia"), "modules/ai-gm-bridge/assets/voice-preview/voice-sonia.mp3");
+  const listed = listTtsVoices();
+  assert.equal(listed.length, 4);
+  assert.deepEqual(listed.map(v => v.slug), ["ryan", "thomas", "sonia", "aria"]);
+  assert.equal(listed[0].preview, "modules/ai-gm-bridge/assets/voice-preview/voice-ryan.mp3");
+  listed[0].id = "mutated";
+  assert.equal(TTS_VOICES[0].id, "en-GB-RyanNeural");
+  assert.ok(COMMANDS.listVoices);
+  const r = await runCommand({ name: "listVoices" }, {});
+  assert.equal(r.ok, true);
+  assert.equal(r.result.default, "en-GB-RyanNeural");
+  assert.equal(r.result.selected, "en-GB-RyanNeural");
+  assert.deepEqual(r.result.voices.map(v => v.name), ["Ryan", "Thomas", "Sonia", "Aria"]);
+  for (const slug of ["ryan", "thomas", "sonia", "aria"]) {
+    assert.ok(existsSync(new URL(`../assets/voice-preview/voice-${slug}.mp3`, import.meta.url)), slug);
+  }
+});
+
+test("0.8.18 turn clips use turn-<name>-<voice>.mp3 and fall back through Ryan", async () => {
+  assert.equal(turnClipSlug("Tempus"), "tempus");
+  assert.equal(turnClipSlug("Sea Chest"), "seachest");
+  assert.equal(turnClipSlug("Sea-Chest"), "seachest");
+  assert.equal(turnClipSlug(""), "generic");
+  assert.equal(turnClipFile("Tempus", "thomas"), "turn-tempus-thomas.mp3");
+  assert.deepEqual(parseTurnClipName("turn-tempus-thomas.mp3"), { slug: "tempus", voice: "en-GB-ThomasNeural", voiceSlug: "thomas", file: "turn-tempus-thomas.mp3" });
+  assert.equal(parseTurnClipName("ai-gm-uploads/audio/ab12-turn-tempus.mp3").voice, "en-GB-RyanNeural");
+  assert.equal(parseTurnClipName("voice-ryan.mp3"), null);
+  const store = new TurnClipStore();
+  const ctx = { turnClips: store, persistTurnClips() { ctx.saved = true; } };
+  const r = await runCommand({ name: "registerTurnClips", args: { clips: [
+    { audioPath: "ai-gm-uploads/audio/h1-turn-tempus-thomas.mp3" },
+    { audioPath: "ai-gm-uploads/audio/h2-turn-tempus.mp3" },
+    { audioPath: "ai-gm-uploads/audio/h3-turn-generic-sonia.mp3" },
+    { audioPath: "uploads/x.mp3", file: "turn-seachest-aria.mp3" }
+  ] } }, ctx);
+  assert.equal(r.ok, true);
+  assert.equal(ctx.saved, true);
+  assert.equal(r.result.registered.length, 4);
+  assert.equal(resolveTurnClip("Tempus", "thomas", store), "ai-gm-uploads/audio/h1-turn-tempus-thomas.mp3");
+  assert.equal(resolveTurnClip("Tempus", "Ryan", store), "ai-gm-uploads/audio/h2-turn-tempus.mp3");
+  assert.equal(resolveTurnClip("Unknown PC", "sonia", store), "ai-gm-uploads/audio/h3-turn-generic-sonia.mp3");
+  assert.equal(resolveTurnClip("Sea Chest", "aria", store), "uploads/x.mp3");
+  assert.equal(resolveTurnClip("Tempus", "sonia", store), "ai-gm-uploads/audio/h3-turn-generic-sonia.mp3");
+  const onlyThomas = new TurnClipStore();
+  onlyThomas.put("tempus", "thomas", "t-tempus-thomas.mp3");
+  assert.equal(resolveTurnClip("Tempus", "sonia", onlyThomas), null);
+  onlyThomas.put("tempus", "ryan", "t-tempus-ryan.mp3");
+  assert.equal(resolveTurnClip("Tempus", "sonia", onlyThomas), "t-tempus-ryan.mp3");
+  onlyThomas.put("generic", "ryan", "t-generic-ryan.mp3");
+  assert.equal(resolveTurnClip("Unknown", "aria", onlyThomas), "t-generic-ryan.mp3");
+  assert.equal(turnClipAudioMap("Tempus", store).thomas, "ai-gm-uploads/audio/h1-turn-tempus-thomas.mp3");
+  assert.equal(pickAudioSrc({ thomas: "a-t.mp3", ryan: "a-r.mp3" }, "sonia"), "a-r.mp3");
+  assert.equal(pickAudioSrc({ thomas: "a-t.mp3" }, "thomas", "legacy.mp3"), "a-t.mp3");
+  assert.equal(pickAudioSrc(null, "thomas", "legacy.mp3"), "legacy.mp3");
+  const listed = await runCommand({ name: "listTurnClips" }, ctx);
+  assert.equal(listed.result.clips.length, 4);
+  assert.equal((await runCommand({ name: "registerTurnClips", args: {} }, ctx)).ok, false);
+});
+test("0.8.18 settings grouping, title, version and docs", () => {
   for (const k of ["voiceTurnPrompt", "speechHints", "speechFixes"]) assert.equal(groupFor(k), "advanced", k);
+  assert.equal(groupFor("ttsVoice"), "basic");
+  assert.equal(groupFor("turnClips"), "hidden");
   assert.equal(groupFor("pttPosition"), "hidden");
   const mj = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8"));
   assert.equal(mj.id, "ai-gm-bridge");
   assert.equal(mj.title, "AI GM Pirate Borg");
-  assert.equal(mj.version, "0.8.17");
+  assert.equal(mj.version, "0.8.18");
   assert.match(mj.url, /GateShark\/ai-gm-bridge/);
-  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.8.17");
+  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.8.18");
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   assert.match(readme, /AI GM Pirate Borg/);
   assert.match(readme, /Previously called AI GM Bridge/);
@@ -191,10 +272,19 @@ test("0.8.17 settings grouping, title, version and docs", () => {
   assert.match(readme, /Gate \(GateShark\)/);
   assert.doesNotMatch(readme, /Kevin|Allen/);
   const log = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
+  assert.match(log, /## 0\.8\.18/);
   assert.match(log, /## 0\.8\.17/);
   assert.match(log, /AI GM Pirate Borg/);
   const api = readFileSync(new URL("../docs/BOT-API.md", import.meta.url), "utf8");
   assert.match(api, /setGmStatus/);
+  assert.match(api, /listVoices/);
+  assert.match(api, /registerTurnClips/);
+  assert.match(api, /voicePrefs/);
+  assert.match(api, /gmVoice/);
+  assert.match(api, /turn-tempus-thomas/);
+  assert.match(api, /en-GB-RyanNeural/);
+  assert.match(api, /en-GB-ThomasNeural/);
+  assert.match(api, /voice-ryan/);
   assert.match(api, /AI GM Pirate Borg/);
   assert.match(api, /ai-gm-bridge/);
   const en = JSON.parse(readFileSync(new URL("../lang/en.json", import.meta.url), "utf8")).AIGM;
@@ -205,6 +295,50 @@ test("0.8.17 settings grouping, title, version and docs", () => {
   assert.match(main, /setGmStatus/);
   assert.match(main, /name !== "ping"/);
   assert.match(readFileSync(new URL("../scripts/features.mjs", import.meta.url), "utf8"), /Your turn:/);
+  assert.match(readFileSync(new URL("../scripts/features.mjs", import.meta.url), "utf8"), /D\.turnAudio/);
+  const cfg = readFileSync(new URL("../scripts/config-app.mjs", import.meta.url), "utf8");
+  assert.match(cfg, /data-aigm-voice-preview/);
+  assert.match(cfg, /ttsVoice/);
+  assert.match(cfg, /\[name=ttsVoice\].*addEventListener\("change"/s);
+  assert.match(main, /register\(ID, "ttsVoice"/);
+  assert.match(main, /scope: "client"/);
+  assert.match(main, /syncGmVoiceFlag/);
+  assert.match(main, /gmVoice/);
+  assert.doesNotMatch(main, /reg\("ttsVoice"/);
+});
+
+test("0.8.18 voicePrefs uses gmVoice flags and defaults to ryan", async () => {
+  const prev = globalThis.game;
+  globalThis.game = { users: [
+    { id: "u1", name: "Pat", active: true, flags: { "ai-gm-bridge": { gmVoice: "thomas" } }, getFlag: (ns, k) => ns === "ai-gm-bridge" && k === "gmVoice" ? "thomas" : undefined },
+    { id: "u2", name: "Lee", active: false, flags: {}, getFlag: () => undefined }
+  ] };
+  try {
+    const r = await runCommand({ name: "voicePrefs" }, {});
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.result, [
+      { userId: "u1", name: "Pat", active: true, voice: "thomas" },
+      { userId: "u2", name: "Lee", active: false, voice: "ryan" }
+    ]);
+    assert.equal(readUserVoiceSlug({ flags: {} }), "ryan");
+  } finally { globalThis.game = prev; }
+});
+
+test("0.8.18 scripts never reference speechSynthesis", () => {
+  const root = fileURLToPath(new URL("../scripts/", import.meta.url));
+  const files = [];
+  const rec = (dir) => {
+    for (const name of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, name.name);
+      if (name.isDirectory()) rec(p);
+      else if (name.name.endsWith(".mjs")) files.push(p);
+    }
+  };
+  rec(root);
+  assert.ok(files.length > 10);
+  for (const file of files) {
+    assert.doesNotMatch(readFileSync(file, "utf8"), /speechSynthesis/i, file);
+  }
 });
 
 test.after(() => setImmediate(() => process.exit(0)));

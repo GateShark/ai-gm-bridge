@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.18
+- Spoken voices live in one easy-to-swap list (`TTS_VOICES`): Ryan (en-GB-RyanNeural, default), Thomas (en-GB-ThomasNeural), Sonia (en-GB-SoniaNeural), Aria (en-US-AriaNeural). Each player picks the voice they hear (`ttsVoice`, client setting, on the Basic page and in Foundry module settings). Changing the dropdown or clicking Play sample plays a bundled preview (`assets/voice-preview/voice-<slug>.mp3`) only on that player's computer. The pick is mirrored to `flags['ai-gm-bridge'].gmVoice` (the slug: ryan/thomas/sonia/aria) on change and on ready. `voicePrefs` returns `[{userId, name, active, voice}]` for every user (missing picks fall back to ryan).
+- Voice messages accept an `audio` map keyed by voice slug (`{ ryan, thomas, sonia, aria }`). Each client plays their chosen voice and falls back to Ryan if that clip is missing. A single `audioPath` / `path` still plays for everyone (legacy). `registerTurnClips` stores Your-turn files named `turn-<name>-<voice>.mp3` (a name-only `turn-tempus.mp3` is Ryan).
+- Turn-clip fallback (recorded voices only, no browser speech): the PC's clip in the chosen voice, then `turn-generic` in the chosen voice, then the PC's clip in Ryan, then generic Ryan, then text only.
+- Speech-to-text also corrects "pulled up behind" → "ducked behind".
+- The module still does not call a TTS provider or store TTS keys.
+
 ## 0.8.17
 - Display title is now **AI GM Pirate Borg** everywhere players and GMs see it (module listing, panel, settings menu, notifications, README). The module id remains `ai-gm-bridge`; setting keys, flags, `game.modules.get("ai-gm-bridge")`, zip/folder names, and GitHub/manifest URLs are unchanged. Previously called AI GM Bridge.
 - Roll reply lag: ability tests (d20 / Pirate Borg sheet outcomes) now wake immediately (`urgent`) even when plain rolls are ignored. Damage dice stay filtered. The remaining delay after a `rollResult` is almost certainly the external bot (for example a ~20s unanswered/AWAKE fallback plus model/TTS), not module debounce (1.2s), max wait (3.5s), or the first outbox retry (2s).

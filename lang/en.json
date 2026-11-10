@@ -183,7 +183,11 @@
       },
       "voiceTurnPrompt": {
         "name": "Voiced turn prompts",
-        "hint": "Say 'Your turn' out loud to the player whose turn it is (browser speech, or a cached clip). No extra bot call. Turn off to keep turn prompts as text and notifications only."
+        "hint": "Play a recorded 'Your turn' clip for the player whose turn it is (turn-<name>-<voice>.mp3, with fallbacks). No extra bot call and no browser speech. Turn off to keep turn prompts as text and notifications only."
+      },
+      "ttsVoice": {
+        "name": "Spoken voice",
+        "hint": "Which recorded GM voice you hear (this browser). Play sample to preview it; the sample plays only on your computer. Your pick is saved as your gmVoice flag so the GM can see it."
       },
       "speechHints": {
         "name": "Speech vocabulary hints",
@@ -232,6 +236,7 @@
       "webhookSecret": "Webhook secret (direct mode)",
       "secretHint": "Write-only here. World settings are readable by scripts of any logged-in user, so prefer the relay (env-only secret) for shared worlds.",
       "clearSecret": "Clear stored secret",
+      "playVoiceSample": "Play sample",
       "testConnection": "Test connection",
       "testing": "Testing…",
       "testOk": "OK",

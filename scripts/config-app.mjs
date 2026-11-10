@@ -2,6 +2,7 @@
 import { BASIC_FIELDS, ADVANCED_FIELDS, testConnection } from "./lib/settingsui.mjs";
 import { liveSetupCheck, formatConnectionWithSetup } from "./lib/setupcheck.mjs";
 import { runLinkProbe, formatLinkCheckLine, presenceSnapshot } from "./lib/presence.mjs";
+import { TTS_VOICES, resolveTtsVoice, playVoicePreview } from "./lib/voices.mjs";
 const ID = "ai-gm-bridge";
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const ALL_FIELDS = [...BASIC_FIELDS, ...ADVANCED_FIELDS];
@@ -20,6 +21,11 @@ export function makeConfigApp() {
         const v = g(k);
         const input = type === "checkbox" ? `<input type="checkbox" name="${k}" ${v ? "checked" : ""}>`
           : type === "select" ? `<select name="${k}">${opts.map(o => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select>`
+          : type === "voice" ? (() => {
+            const cur = resolveTtsVoice(v);
+            const optsHtml = TTS_VOICES.map(voice => `<option value="${esc(voice.id)}" ${voice.id === cur ? "selected" : ""}>${esc(voice.label)}</option>`).join("");
+            return `<select name="${k}">${optsHtml}</select><button type="button" data-aigm-voice-preview>${esc(t("AIGM.config.playVoiceSample", "Play sample"))}</button>`;
+          })()
           : `<input type="${type}" name="${k}" value="${esc(v)}">`;
         return `<div class="form-group"><label>${esc(labelFor(k))}</label><div class="form-fields">${input}</div></div>`;
       };
@@ -47,6 +53,14 @@ export function makeConfigApp() {
     }
     _replaceHTML(html, content) {
       content.innerHTML = html;
+      content.querySelector("[data-aigm-voice-preview]")?.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        playVoicePreview(content.querySelector("[name=ttsVoice]")?.value);
+      });
+      content.querySelector("[name=ttsVoice]")?.addEventListener("change", (ev) => {
+        const id = ev.target?.value;
+        try { game.settings.set(ID, "ttsVoice", id); } catch { playVoicePreview(id); }
+      });
       content.querySelector("[data-aigm-test]")?.addEventListener("click", async (ev) => {
         ev.preventDefault();
         const status = content.querySelector("[data-aigm-test-status]");

@@ -212,8 +212,8 @@ test("0.8.14 panel header logo and offline line; settings and wiring", () => {
 
 test("0.8.14 version, logo files, and module.json media", () => {
   const mj = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8"));
-  assert.match(mj.version, /^0\.8\.1[4567]$/);
-  assert.match(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, /^0\.8\.1[4567]$/);
+  assert.match(mj.version, /^0\.8\.1[45678]$/);
+  assert.match(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, /^0\.8\.1[45678]$/);
   assert.ok(Array.isArray(mj.media));
   const types = mj.media.map(m => m.type);
   assert.ok(types.includes("icon"));

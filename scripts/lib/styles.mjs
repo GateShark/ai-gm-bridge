@@ -37,6 +37,7 @@ export const CSS = `
 .aigm-panel-recap{white-space:pre-wrap;max-height:180px;overflow:auto;background:rgba(0,0,0,.25);padding:6px;border-radius:4px}
 #aigm-sidebar-btn{cursor:pointer}
 details.aigm-advanced{margin:12px 0;padding:8px;border:1px solid rgba(255,255,255,.15);border-radius:6px}
+.aigm-config [data-aigm-voice-preview]{margin-left:8px}
 details.aigm-advanced>summary{cursor:pointer;font-weight:600}
 [data-aigm-test-status][data-ok="1"]{color:#3c3}
 [data-aigm-test-status][data-ok="0"]{color:#e66}
