@@ -29,6 +29,7 @@ details.aigm-advanced{margin:12px 0;padding:8px;border:1px solid rgba(255,255,25
 details.aigm-advanced>summary{cursor:pointer;font-weight:600}
 [data-aigm-test-status][data-ok="1"]{color:#3c3}
 [data-aigm-test-status][data-ok="0"]{color:#e66}
+.aigm-setup-warn{margin:4px 0;padding:8px;border-left:3px solid #b33;background:rgba(160,40,40,.18);color:#f2c2c2}
 `;
 export function injectStyles(doc = globalThis.document) {
   if (!doc || doc.getElementById("aigm-styles")) return false;

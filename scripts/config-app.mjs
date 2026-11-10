@@ -1,5 +1,6 @@
 // GM-only settings form: Basic page + collapsed Advanced. The secret is write-only here.
 import { BASIC_FIELDS, ADVANCED_FIELDS, testConnection } from "./lib/settingsui.mjs";
+import { liveSetupCheck, formatConnectionWithSetup } from "./lib/setupcheck.mjs";
 const ID = "ai-gm-bridge";
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const ALL_FIELDS = [...BASIC_FIELDS, ...ADVANCED_FIELDS];
@@ -57,8 +58,10 @@ export function makeConfigApp() {
         const botId = content.querySelector("[name=botUserId]")?.value || game.settings.get(ID, "botUserId");
         const bot = game.users.get(botId) ?? game.users.find(u => u.isGM && botId && u.id === botId);
         const r = await testConnection({ url, secret, header, botActive: bot ? !!bot.active : null });
+        const setup = liveSetupCheck({ scene: globalThis.canvas?.scene ?? game.scenes?.viewed, combat: game.combat, users: game.users?.contents ?? [] });
         if (status) {
-          status.textContent = r.ok ? (r.message || t("AIGM.config.testOk", "OK")) : (r.error || t("AIGM.config.testFail", "Failed"));
+          const base = r.ok ? (r.message || t("AIGM.config.testOk", "OK")) : (r.error || t("AIGM.config.testFail", "Failed"));
+          status.textContent = formatConnectionWithSetup({ ...r, message: base, error: base }, setup);
           status.dataset.ok = r.ok ? "1" : "0";
         }
       });

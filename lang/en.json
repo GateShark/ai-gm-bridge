@@ -236,6 +236,8 @@
       "stuckCount": "{total} stuck ({queued} queued, {dead} dead).",
       "noStuck": "No stuck events.",
       "clearedStuck": "Cleared {n} stuck event(s).",
+      "setupCheck": "Check setup",
+      "setupOk": "All player-looking pirates here have a player owner.",
       "open": "Open AI GM panel"
     }
   }

@@ -12,6 +12,7 @@ export function parseLocal(text, prefix = "!") {
   if ((c === "roll" || c === "r") && /^[\dd+\-*/()khl\s]+$/i.test(arg) && arg) return { name: "roll", args: { formula: arg } };
   if (c === "music" && arg) return /\s+stop$/i.test(arg) ? { name: "music", args: { playlist: arg.replace(/\s+stop$/i, ""), action: "stop" } } : { name: "music", args: { playlist: arg, action: "play" } };
   if (c === "turn" && !arg) return { name: "turnStatus", args: {} };
+  if ((c === "setup" || c === "setupcheck") && !arg) return { name: "setupCheck", args: {} };
   if (c === "rest" && arg) {
     const w = rest.slice(); const o = { length: "long", food: "eat", infected: false };
     while (w.length > 1 && /^(short|long|starve|donteat|infected)$/i.test(w.at(-1))) { const x = w.pop().toLowerCase();

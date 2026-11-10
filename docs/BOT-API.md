@@ -86,13 +86,14 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | setVision | tokenId or tokenName, sceneId?, vision?, light? (same shapes as spawnAndVision) |
 | requestRoll | user (name or id), actorId? or actorName? (default: the user's character), stat (strength/agility/presence/toughness/spirit, or str/agi/pre/tou/spi), dr, label?, requestId?, timeoutMs? (default setting, 120000). Posts a card with a Roll button only that player or a GM can use. Any d20 roll by that player after the card (button, sheet, or Pixels dice) answers it. Returns {requestId, messageId, status}; the same requestId returns the existing card and result with duplicate:true. You get one `rollResult` event. On timeout you get `rollTimeout` and a GM-only "roll for them" button appears. **v0.8.4 any formula:** pass `formula` (any Foundry formula, e.g. `1d6`, `2d4+1`, `1d20+@abilities.agility.value`, evaluated with the actor's roll data) with `label`; then `stat` and `dr` are optional. Same button and same `rollResult` event, plus `formula` and `label`; `success` is null when no `dr` was given (true/false vs `dr` otherwise). Non-d20 formula requests are answered only by their card button. Errors: BAD_FORMULA, BAD_STAT, BAD_ARGS (stat test without dr) |
 | turnStatus | none; returns {active, round, turn, name, ownerNames, ownerIds, next, isNPC, expect} where `expect` is `{combatId, round, turn}` ready to pass to nextTurn (null when there is no combat). `isNPC` uses the same helper as turn events (combatant.isNPC / hasPlayerOwner / character type / token actor / combatant.players) |
+| setupCheck | none; returns {ok, scene, checked, unowned, warning, text}. Lists scene/combat actors that look like player pirates (character type or a class item) but have no non-GM owner. Warning only — nothing is changed |
 | recap | since? (ms epoch or ISO), max? (40); returns {count, counts, summary, lines} from the GM-only "AI GM Session Log" journal. Lines are newest first; each starts with Today, Yesterday, or the date, plus the time |
 | rest | actorId or actorName, or tokenId/tokenName (+sceneId); length?: short or long (default long; `kind` is accepted as an alias), food?: eat, starve or donteat (default eat), infected?. Unknown rest types are rejected (`length must be short or long`) instead of doing a long rest. Rituals and class resources are skipped when the actor has none (`max` is 0). Pirate Borg rules (see below); returns before, after, report and rolls, and posts a summary card |
 | speakBubble | tokenId or tokenName, sceneId?, text (plain, max 300), emote?. Shows a chat bubble over the token on every client (one socket message, no chat message) |
 
 ### v0.6 local features (no bot wake)
 - Turn prompts (`turnPrompts`, on): each turn change posts "Round N: X is up (Player). Next: Y." and notifies the owning player. Players listed in `turnVoiceUsers` also hear it on their own client: a cached voice clip if the bot ever voiced the exact text "X, you're up." (use `postVoice`, or `voiceLookup` to check), otherwise the browser's speech synthesis.
-- Chat: `!turn` (who is up), `!rest <actor> [short|long] [starve|donteat] [infected]` (owner or GM).
+- Chat: `!turn` (who is up), `!setup` (unowned player-looking pirates on this scene; warning only), `!rest <actor> [short|long] [starve|donteat] [infected]` (owner or GM).
 - Session log (`sessionLog`, on): HP changes, 0 HP, items gained, Devil's Luck/rituals/extra resource changes, combat start/end and rests are written as timestamped lines to a GM-only journal "AI GM Session Log", one page per day, at most one write per 4 s.
 - Pirate Borg rest, mirrored from the system's rest action (pirateborg 1.9.0): short = heal d4 if eating and not infected, grog hours -1 (when grog is on). Long = starving d4 damage, infected d6 damage, heal d8 if eating and not infected, rituals = max(d4+Spirit, 0), the class extra resource (e.g. Prayers) re-rolled from the class formula, Devil's Luck re-rolled from the luck die only if it is 0, grog effects cleared. The system's own per-day and grog functions are used when they load; otherwise the same formulas run in the module.
 
@@ -184,7 +185,7 @@ Turn it off with the `thinkingIndicator` world setting. Text: `AIGM.thinking` in
 ## v0.8.3: combat start/end events
 When Foundry combat starts (`combatStart`, or `updateCombat` reaching round 1) or ends (`deleteCombat`; ending combat deletes it), the module sends one event at once, skipping the debounce:
 ```json
-{ "eventId": "combat:<id>:start", "type": "combat", "state": "start", "combatId": "<id>", "sceneId": "<id>", "round": 1, "combatants": ["Hero", "Bilge Rat"] }
+{ "eventId": "combat:<id>:start", "type": "combat", "state": "start", "combatId": "<id>", "sceneId": "<id>", "round": 1, "combatants": ["Hero", "Bilge Rat"], "roster": [{ "name": "Hero", "hp": 8, "max": 10, "isNPC": false, "owner": "Pat" }], "ownerWarning": "optional — pirate with no player owner" }
 ```
 `state` is `"start"` or `"end"` (`round` is the last round on end). Only the leader client (bot user, else the active GM) sends it, and the eventId is deduped, so each combat gives at most one start and one end. A combat deleted before it started sends no end.
 Use it to keep the bot awake during fights and let it sleep otherwise. Setting `combatEvents` (default on).
@@ -244,3 +245,10 @@ The GM panel **Clear stuck** button (and `api.clearStuck()`) acks every remainin
 
 ## v0.8.12: turnStatus PC ownership
 `turnStatus` / `turnInfo` use the same `combatantIsNpc` helper as `turn` events, so an unlinked player-owned token is not labeled `isNPC: true` with empty owners. `combatant.players` is included in `ownerIds`/`ownerNames` even when the synthetic token actor does not report OWNER via `testUserPermission`.
+
+## v0.8.13: setup check, fight roster, pcDown
+`setupCheck` (command, `api.setupCheck()`, panel **Check setup**, Test connection, or local `!setup`) reports character-type or classed pirates on the viewed scene (and in the current combat) who have no non-GM owner. It never changes ownership or world data.
+
+Combat-start events keep the `combatants` name list and add a compact `roster` of `{name, hp, max, isNPC, owner?}` using the same PC/NPC helper as turn events. If any pirate-looking combatant has no player owner, `ownerWarning` (and `unownedPirates`) is included so the bot does not play them as a monster. End events omit the roster to stay small.
+
+`pcDown` is emitted once when a player-owned character's HP (`system.attributes.hp`) drops from above 0 to 0 or below: `{type:"pcDown", actor, actorId, tokenId, hp:{value,max}, combatId?, round?, turn?}`. It re-arms when HP goes back above 0. Unowned characters and monsters are ignored. In relay mode `pcDown` is marked received after emit (same as combat/turn/roll outcomes).

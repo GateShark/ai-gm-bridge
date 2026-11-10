@@ -171,15 +171,16 @@ test("0.8.10 panel Clear stuck UI and count helpers", () => {
 });
 
 test("0.8.10 relay auto-ack covers combat, turns and roll-request outcomes, not control", () => {
-  assert.deepEqual(RELAY_AUTO_ACK_TYPES, ["chat", "combat", "turn", "rollResult", "rollTimeout", "rollCancelled"]);
+  assert.deepEqual(RELAY_AUTO_ACK_TYPES, ["chat", "combat", "turn", "rollResult", "rollTimeout", "rollCancelled", "pcDown"]);
   assert.deepEqual(relayAutoAckIds([
     { eventId: "chat:a", type: "chat" },
     { eventId: "combat:x:start", type: "combat" },
     { eventId: "rollreq:1", type: "rollResult" },
     { eventId: "rollreq:1:timeout", type: "rollTimeout" },
     { eventId: "rollreq:1:cancel", type: "rollCancelled" },
+    { eventId: "pcdown:t:1", type: "pcDown" },
     { eventId: "control:pause:1", type: "control" }
-  ]), ["chat:a", "combat:x:start", "rollreq:1", "rollreq:1:timeout", "rollreq:1:cancel"]);
+  ]), ["chat:a", "combat:x:start", "rollreq:1", "rollreq:1:timeout", "rollreq:1:cancel", "pcdown:t:1"]);
   assert.deepEqual(relayStaleChatIds([
     { event: { eventId: "combat:old", type: "combat" }, attempts: 2 },
     { event: { eventId: "control:x", type: "control" }, attempts: 3 },

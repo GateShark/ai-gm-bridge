@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.13
+- `setupCheck` lists scene (and combat) actors that look like player pirates — `character` type or a class item — but have no non-GM owner, so they would be treated as monsters. It only warns; nothing is changed. The same helper appears in the AI GM panel (banner + **Check setup**), on Test connection (appended to the result), as `api.setupCheck()` / the `setupCheck` command, and as local `!setup`.
+- Combat-start events include a compact `roster` (name, HP value/max, `isNPC` from the shared turn helper, owner name when known) plus `ownerWarning` / `unownedPirates` when any of those pirates have no player owner. The original `combatants` name list is unchanged. End events stay small (no roster).
+- `pcDown` fires once when a player-owned character's HP drops from above 0 to 0 or below (read from `system.attributes.hp`), with actor, token, HP, and combat id/round/turn. It re-arms when HP goes back above 0. Unowned characters and monsters are ignored. Relay mode marks `pcDown` received after emit so it does not pile up in the outbox.
+- Cheap cleanup from the 0.8.9–0.8.12 review: in-game turn-prompt memory is cleared when a combat is deleted; the panel reuses one scene-token walk for HP and the setup check; `isNPC: false` and HP 0 survive payload compaction.
+
 ## 0.8.12
 - `turnStatus` (and the in-game turn prompt) now uses the same PC/NPC helper as turn-wake events: Foundry's `combatant.isNPC`, `hasPlayerOwner`, `character` type, the token actor, and `combatant.players`. An unlinked player token like Tempus is no longer reported as a monster with no owner just because `testUserPermission` failed on the synthetic actor.
 

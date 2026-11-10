@@ -14,6 +14,7 @@ import { getContext } from "./context.mjs";
 import * as SHIP from "./ship.mjs";
 import { targetActor, targetInfo, sceneTokenForActor } from "./lib/target.mjs";
 import { combatExpect } from "./lib/turns.mjs";
+import { liveSetupCheck } from "./lib/setupcheck.mjs";
 import { resolveResource, nextValue, summarize, parseAmount } from "./lib/pirateborg.mjs";
 
 // Class item's own label for extraResource (e.g. "Prayers"); field name varies, so search string fields.
@@ -270,6 +271,9 @@ export const COMMANDS = {
     async run(a) { return F.requestRoll(a); } },
   cancelRoll: { schema: { requestId: "string" }, async run(a) { return F.cancelRollRequest(a.requestId); } },
   turnStatus: { schema: {}, async run() { const t = F.turnStatus(); return ok({ active: !!t, ...(t ?? {}), expect: t?.expect ?? null }); } },
+  setupCheck: { schema: {}, async run() {
+    return ok(liveSetupCheck({ scene: globalThis.canvas?.scene ?? game.scenes?.viewed ?? game.scenes?.active, combat: game.combat, users: game.users?.contents ?? [] }));
+  } },
   recap: { schema: { since: "any?", max: "number?" }, async run(a) { return ok(await F.recap(a)); } },
   rest: { schema: { actorId: "string?", actorName: "string?", ...TOK, length: "string?", kind: "string?", food: "string?", infected: "boolean?" }, async run(a) {
     const tg = findTarget(a); if (tg.error) return fail("NOT_FOUND", tg.error.error); return F.rest(tg.actor, { ...a, length: a.length ?? a.kind }); } },

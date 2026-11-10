@@ -1,4 +1,4 @@
-# AI GM Bridge (module id `ai-gm-bridge`) v0.8.12
+# AI GM Bridge (module id `ai-gm-bridge`) v0.8.13
 
 > ⚠️ **Alpha:** still in testing. Expect bugs and breaking changes.
 
@@ -26,7 +26,7 @@ batched chat events to your bot's webhook, and your bot sends typed JSON command
 ## What it does
 - **Exactly once:** one leader client handles events (the bot GM user is preferred), with persisted dedupe and acked retries.
   A `batchId` always stands for the same set of events.
-- **Relay ack (v0.8.12):** in relay mode, player chat, combat start/end, turns, and roll-request outcomes are marked received after they are handed to the relay (socket + hook), so they are not retried. Control events still wait for `api.ack`. Redo/skip fall back to the newest player chat ids when the last wake is unknown.
+- **Relay ack (v0.8.13):** in relay mode, player chat, combat start/end, turns, and roll-request outcomes are marked received after they are handed to the relay (socket + hook), so they are not retried. Control events still wait for `api.ack`. Redo/skip fall back to the newest player chat ids when the last wake is unknown.
 - **Fewer wakes:** chat bursts are grouped into one batch. Noise is filtered out (OOC, the bot's own posts, plain rolls,
   ignored users). Simple `!` commands are handled locally.
 - **Small payloads:** text is plain and trimmed, empty fields are dropped, and combat/scene context is sent only when it changes.

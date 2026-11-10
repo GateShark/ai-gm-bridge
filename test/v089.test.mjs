@@ -114,7 +114,8 @@ test("0.8.9 panel HP comes from scene tokens (unlinked HP, including 0; no off-s
 
 test("0.8.9 main refreshes an open panel on roll-request chat changes and reads scene tokens", () => {
   const m = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
-  assert.match(m, /collectHp\(sceneTokens\(canvas\?\.scene \?\? game\.scenes\?\.viewed\)/);
+  assert.match(m, /sceneTokens\(scene\)/);
+  assert.match(m, /collectHp\(tokens/);
   assert.match(m, /function refreshPanel/);
   assert.match(m, /msg\.flags\?\.\[ID\]\?\.rollRequest\) refreshPanel\(\)/);
   assert.match(m, /Hooks\.on\("updateChatMessage"/);

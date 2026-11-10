@@ -43,8 +43,8 @@ test("0.8.12 turnStatus does not label an unlinked player-owned Tempus as an NPC
 
 test("0.8.12 version and wiring share combatantIsNpc", () => {
   const ver = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version;
-  assert.equal(ver, "0.8.12");
-  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.8.12");
+  assert.match(ver, /^0\.8\.\d+$/);
+  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, ver);
   const main = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
   assert.match(main, /shouldWakeOnTurn\(c, get\("turnWake"\), game\.users\?\.contents/);
   assert.match(main, /isNPC: combatantIsNpc\(c\.combatant, game\.users\?\.contents/);
@@ -52,5 +52,5 @@ test("0.8.12 version and wiring share combatantIsNpc", () => {
   assert.match(turns, /isNPC: combatantIsNpc\(cb, users\)/);
   assert.match(turns, /export function combatantOwners/);
   assert.match(readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8"), /## 0\.8\.12/);
-  assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /v0\.8\.12/);
+  assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), new RegExp(`v${ver.replaceAll(".", "\\.")}`));
 });

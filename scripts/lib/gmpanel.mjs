@@ -64,7 +64,7 @@ export function newestChatEventIds(messages = [], { limit = 5, skip } = {}) {
   return out;
 }
 
-export function panelHtml({ paused = false, turn = null, pending = [], hp = [], recapText = "", stuck = null, t = (k, f) => f || k } = {}) {
+export function panelHtml({ paused = false, turn = null, pending = [], hp = [], recapText = "", stuck = null, setup = null, t = (k, f) => f || k } = {}) {
   const turnLine = turn?.name
     ? (t("AIGM.panel.turnLine", "Round {round}: {name} is up.").replace("{round}", turn.round ?? "?").replace("{name}", turn.name) + (turn.next ? ` ${t("AIGM.panel.next", "Next: {name}.").replace("{name}", turn.next)}` : ""))
     : t("AIGM.panel.noCombat", "No active combat.");
@@ -87,7 +87,9 @@ export function panelHtml({ paused = false, turn = null, pending = [], hp = [], 
       <button type="button" data-aigm-action="skip">${esc(t("AIGM.panel.skip", "Skip last reply"))}</button>
       <button type="button" data-aigm-action="recap">${esc(t("AIGM.panel.recap", "Recap"))}</button>
       <button type="button" data-aigm-action="clearStuck"${stuckCounts(stuck).total ? "" : " disabled"}>${esc(t("AIGM.panel.clearStuck", "Clear stuck"))}</button>
+      <button type="button" data-aigm-action="setupCheck">${esc(t("AIGM.panel.setupCheck", "Check setup"))}</button>
     </div>
+    ${setup?.warning ? `<div class="aigm-setup-warn" role="status">${esc(setup.warning)}</div>` : ""}
     <p class="aigm-panel-stuck">${esc(formatStuckCount(stuck, t))}</p>
     <h3>${esc(t("AIGM.panel.turn", "Current turn"))}</h3>
     <p class="aigm-panel-turn">${esc(turnLine)}</p>

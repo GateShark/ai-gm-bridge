@@ -6,9 +6,15 @@ import { DedupeStore } from "../scripts/lib/dedupe.mjs";
 const c = { id: "C1", scene: { id: "S1" }, round: 1, started: true, combatants: { contents: [{ name: "Hero" }, { actor: { name: "Bilge Rat" } }, {}] } };
 
 test("combat start/end payload shape", () => {
-  assert.deepEqual(combatEvent(c, "start"), { eventId: "combat:C1:start", type: "combat", state: "start", combatId: "C1", sceneId: "S1", round: 1, combatants: ["Hero", "Bilge Rat"] });
+  const start = combatEvent(c, "start");
+  assert.equal(start.eventId, "combat:C1:start"); assert.equal(start.type, "combat"); assert.equal(start.state, "start");
+  assert.equal(start.combatId, "C1"); assert.equal(start.sceneId, "S1"); assert.equal(start.round, 1);
+  assert.deepEqual(start.combatants, ["Hero", "Bilge Rat"]);
+  assert.deepEqual(start.roster, [{ name: "Hero", isNPC: true }, { name: "Bilge Rat", isNPC: true }]);
+  assert.equal(start.ownerWarning, undefined);
   const e = combatEvent({ ...c, scene: null, sceneId: "S2", round: 4, combatants: [{ name: "A" }] }, "end");
   assert.equal(e.state, "end"); assert.equal(e.sceneId, "S2"); assert.equal(e.round, 4); assert.deepEqual(e.combatants, ["A"]);
+  assert.equal(e.roster, undefined); assert.equal(e.ownerWarning, undefined);
   assert.equal(combatEvent(c, "pause"), null); assert.equal(combatEvent(null, "start"), null);
 });
 test("startedNow: only when started and round becomes 1", () => {

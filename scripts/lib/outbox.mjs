@@ -40,7 +40,7 @@ export class Outbox {
 
 // v0.8.10: in relay mode the module marks these types received after emit (Foundry chat
 // and the matching socket/hook events). Control still waits for api.ack.
-export const RELAY_AUTO_ACK_TYPES = ["chat", "combat", "turn", "rollResult", "rollTimeout", "rollCancelled"];
+export const RELAY_AUTO_ACK_TYPES = ["chat", "combat", "turn", "rollResult", "rollTimeout", "rollCancelled", "pcDown"];
 export function relayAutoAckIds(events = []) {
   return (events ?? []).filter(e => e && RELAY_AUTO_ACK_TYPES.includes(e.type) && e.eventId).map(e => e.eventId);
 }

@@ -23,6 +23,7 @@ import { getContext } from "./context.mjs";
 import { cleanupContextJournals } from "./gmstore.mjs";
 import { turnText, shouldWakeOnTurn, combatantIsNpc } from "./lib/turns.mjs";
 import { combatEvent, startedNow } from "./lib/combatevents.mjs";
+import { liveSetupCheck } from "./lib/setupcheck.mjs";
 import { rollBreakdown } from "./lib/rollreq.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
 import { PushToTalk, speechLang } from "./lib/ptt.mjs";
@@ -103,6 +104,12 @@ async function panelAction(action, data = {}) {
     }
     game.socket.emit(SOCKET, { type: "gmControl", action: "clearStuck" });
     return;
+  }
+  if (action === "setupCheck") {
+    const setup = liveSetupCheck({ scene: globalThis.canvas?.scene ?? game.scenes?.viewed, combat: game.combat, users: game.users?.contents ?? [] });
+    const msg = setup.warning || setup.text;
+    if (setup.warning) ui.notifications?.warn?.(msg); else ui.notifications?.info?.(msg);
+    return setup;
   }
 }
 const log = (...a) => console.log(`${ID} |`, ...a);
@@ -204,6 +211,7 @@ Hooks.once("ready", () => {
     // GM-only, returned to the caller only. Players get 403 and nothing is sent anywhere.
     context: (o = {}) => getContext(game, o),
     turnStatus: () => F.turnStatus(), recap: (o) => F.recap(o),
+    setupCheck: () => liveSetupCheck({ scene: globalThis.canvas?.scene ?? game.scenes?.viewed, combat: game.combat, users: game.users?.contents ?? [] }),
     takeBatch: () => S.lastBatch, // relay stub can poll this on the headless client
     paused: () => !!get("aiPaused"),
     gmStatus: () => statusPill?.state ?? deriveGmStatus({ thinking: thinking.visible, paused: !!get("aiPaused"), enabled: enabled() }),
@@ -220,7 +228,10 @@ Hooks.once("ready", () => {
         gather: () => {
           const dead = S.outbox?.dead().length ?? 0;
           const queued = Math.max(0, (S.outbox?.items.length ?? 0) - dead);
-          return { paused: !!get("aiPaused"), turn: F.turnStatus(), pending: F.pendingRequests(), hp: collectHp(sceneTokens(canvas?.scene ?? game.scenes?.viewed), { hpPath: get("hpPath") }), stuck: { queued, dead } };
+          const scene = globalThis.canvas?.scene ?? game.scenes?.viewed;
+          const tokens = sceneTokens(scene);
+          const setup = liveSetupCheck({ scene, combat: game.combat, users: game.users?.contents ?? [], tokens });
+          return { paused: !!get("aiPaused"), turn: F.turnStatus(), pending: F.pendingRequests(), hp: collectHp(tokens, { hpPath: get("hpPath") }), setup, stuck: { queued, dead } };
         },
         confirm: async (msg) => {
           try {
@@ -353,7 +364,7 @@ Hooks.on("createChatMessage", async (msg) => {
 });
 Hooks.on("updateChatMessage", (msg) => { if (enabled() && msg.flags?.[ID]?.rollRequest) refreshPanel(); });
 Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCard(msg, html); enhanceVoiceMessage(msg, html, { t: loc, replay: (src) => audioQueue.enqueue(`replay:${src}:${Date.now()}`, { src }) }); } });
-Hooks.on("updateActor", (a, change) => { if (enabled() && amLeader()) F.onActorUpdate(a, change); });
+Hooks.on("updateActor", (a, change) => { if (enabled() && amLeader()) F.onActorUpdate(a, change); if (enabled()) refreshPanel(); });
 Hooks.on("createActor", (a) => { if (enabled() && amLeader()) F.onActorUpdate(a, {}); });
 Hooks.on("createItem", (i) => { if (enabled() && amLeader()) F.onItemCreate(i); });
 Hooks.on("deleteCombat", (c) => { if (enabled()) thinking.hide(); if (enabled()) refreshStatus(); if (enabled() && amLeader()) { F.onCombatDelete(c); F.cancelCombatRolls(c).catch(e => log("cancelCombatRolls", e?.message)); combatState(c, "end"); } }); // v0.8.6: hide runs on every client
@@ -362,7 +373,7 @@ function combatState(c, state) {
   if (!enabled() || !amLeader() || !get("combatEvents")) return;
   if (state === "end") thinkingOff({ broadcast: true }); // v0.8.6
   if (state === "end" && !c?.started && !(c?.round > 0)) return; // never started: no end event
-  const ev = combatEvent(c, state); if (ev) emitEvent(ev, { urgent: true });
+  const ev = combatEvent(c, state, { users: game.users?.contents ?? [] }); if (ev) emitEvent(ev, { urgent: true });
 }
 Hooks.on("combatStart", (c) => combatState(c, "start"));
 function filterOpts(botId) {
@@ -406,6 +417,7 @@ function tryLocal(msg, plain, author) {
     S.dedupe.mark(eventId, r.ok ? "acked" : "failed", Date.now()); persistSoon(); S.metrics.inc("local");
     if (cmd.name === "setResource") await reply(r.ok ? `${actor?.name ?? cmd.args.actorName}: ${r.result.resource} ${r.result.before} → ${r.result.after}` : `!${cmd.args.resource}: ${r.error}`);
     else if (cmd.name === "rest") { if (!r.ok) await reply(`!rest: ${r.error}`); } // success posts its own card
+    else if (cmd.name === "setupCheck" && r.ok) await reply(r.result.warning || r.result.text);
     else if (cmd.name === "getShip" && r.ok) { const x = r.result; await reply(`${x.name}: HP ${x.hp.value}/${x.hp.max}, hull ${x.armorDie}, crew ${x.crew.value}/${x.crew.max}, shanties ${x.shanties.value}/${x.shanties.max}${x.sinking ? ", sinking" : ""}`); }
     else if (!r.ok) await reply(`${cmd.name}: ${r.error}`);
   })().catch(e => log("local command failed", e?.message));
