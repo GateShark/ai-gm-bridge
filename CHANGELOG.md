@@ -1,13 +1,26 @@
 # Changelog
 
 ## 0.8.13
-- `setupCheck` lists scene (and combat) actors that look like player pirates — `character` type or a class item — but have no non-GM owner, so they would be treated as monsters. It only warns; nothing is changed. The same helper appears in the AI GM panel (banner + **Check setup**), on Test connection (appended to the result), as `api.setupCheck()` / the `setupCheck` command, and as local `!setup`.
-- Combat-start events include a compact `roster` (name, HP value/max, `isNPC` from the shared turn helper, owner name when known) plus `ownerWarning` / `unownedPirates` when any of those pirates have no player owner. The original `combatants` name list is unchanged. End events stay small (no roster).
-- `pcDown` fires once when a player-owned character's HP drops from above 0 to 0 or below (read from `system.attributes.hp`), with actor, token, HP, and combat id/round/turn. It re-arms when HP goes back above 0. Unowned characters and monsters are ignored. Relay mode marks `pcDown` received after emit so it does not pile up in the outbox.
-- Cheap cleanup from the 0.8.9–0.8.12 review: in-game turn-prompt memory is cleared when a combat is deleted; the panel reuses one scene-token walk for HP and the setup check; `isNPC: false` and HP 0 survive payload compaction.
+Alpha release. Credit: Gate (GateShark).
+
+This version:
+- Setup check (`setupCheck`, panel **Check setup**, Test connection, `api.setupCheck()`, or local `!setup`) lists actors on the current scene (and in the current combat) that look like player pirates — character type or a class item — but have no non-GM owner, so they would be treated as monsters. It only warns; nothing is changed.
+- Combat-start events include a compact roster (name, current and maximum HP, whether the combatant is a PC or NPC, and the owner name when known). If any pirate-looking combatant has no player owner, the event also carries a clear `ownerWarning`. The original list of combatant names is unchanged. End events stay small (no roster).
+- When a player-owned character's HP drops from above 0 to 0 or below, the module emits a `pcDown` event (actor, token, HP, and combat context). It fires once per drop and can fire again only after that character is healed above 0. Unowned characters and monsters are ignored. Relay mode marks `pcDown` received after emit so it does not pile up in the outbox.
+- Small cleanups: in-game turn-prompt memory is cleared when a combat is deleted; the panel walks scene tokens once for both HP and the setup check; `isNPC: false` and HP 0 survive payload compaction.
+
+Highlights since 0.8.0 (0.8.1–0.8.13), in plain language:
+- Combat start and end events; NPC/monster turns can wake the bot while player-character turns stay local; `turnStatus` returns a ready `expect` for `nextTurn`; pending combat rolls are cancelled when the fight ends.
+- Player-owned and unlinked tokens are classified consistently as PCs (including in `turnStatus`), and scene tokens are preferred for HP, resources, and rest.
+- Game summary reads live Pirate Borg HP; player-owned characters are labeled as PCs even if the token looks hostile. Rest rejects unknown types and does not restore empty resource pools.
+- In-game GM panel (pause, redo/skip, recap, turn, pending rolls, HP, clear stuck, setup check), a status light, a Basic/Advanced settings page with Test connection, clearer roll cards, and voice replay.
+- Relay mode no longer retries chat, combat, turns, roll outcomes, or `pcDown` after they have been handed to the relay. Control events still wait for an explicit ack.
+- Voice is broadcast to every client, failed clips are retried, and blocked audio resumes after a gesture or returning to the tab. Optional push-to-talk is available per browser. Known issue: voice may not be heard when the GM plays a character as a player (needs more testing).
+- Other helpers: any-formula roll requests, a move fallback, Foundry v14 scene backgrounds, readable command formatting, and JSON text unwrapping.
+
 
 ## 0.8.12
-- `turnStatus` (and the in-game turn prompt) now uses the same PC/NPC helper as turn-wake events: Foundry's `combatant.isNPC`, `hasPlayerOwner`, `character` type, the token actor, and `combatant.players`. An unlinked player token like Tempus is no longer reported as a monster with no owner just because `testUserPermission` failed on the synthetic actor.
+- `turnStatus` (and the in-game turn prompt) now uses the same PC/NPC helper as turn-wake events: Foundry's `combatant.isNPC`, `hasPlayerOwner`, `character` type, the token actor, and `combatant.players`. An unlinked player-owned token is no longer reported as a monster with no owner just because `testUserPermission` failed on the synthetic actor.
 
 ## 0.8.11
 - `turnWake` now defaults on and only wakes the bot for NPC/monster turns (never for player-character turns). The setting is labeled **Wake on NPC/monster turns**. Worlds that already saved the setting stay as they are (an explicit off is not flipped on); worlds that never stored a value pick up the new default.
@@ -16,7 +29,7 @@
 
 ## 0.8.10
 - Game summary (`getContext`): HP is read from Pirate Borg's live `system.attributes.hp` (falling back to `system.hp`, then the `hpPath` setting). The default `hpPath` is now `system.attributes.hp.value`. Worlds still saved as the stale `system.hp.value` are migrated on ready. Player-owned or `character` tokens are always labeled as PCs, even when their token disposition is hostile.
-- Resource reads, rest, and other actor-targeted commands prefer the viewed scene token's actor when the caller only passed `actorId`/`actorName`, so unlinked tokens (like a wounded Tempus at 2/10) are used instead of the base sheet.
+- Resource reads, rest, and other actor-targeted commands prefer the viewed scene token's actor when the caller only passed `actorId`/`actorName`, so unlinked tokens (for example a wounded player token) are used instead of the base sheet.
 - Rest: `kind` is accepted as an alias for `length`. Unknown or malformed rest types are rejected with "length must be short or long" instead of silently doing a long rest. Rituals, slots, and other class resources are not restored when the actor has none (`max` is 0).
 - GM panel: **Clear stuck** empties un-acked and dead outbox events (with a confirm and a toast of how many were cleared). The panel shows the stuck count. Non-leader GMs forward the clear to the leader so it is persisted.
 - Relay mode now also marks `combat`, `turn`, `rollResult`, `rollTimeout`, and `rollCancelled` received after emit, so those events do not sit in the queue until they die. `control` still waits for an explicit `api.ack`.
