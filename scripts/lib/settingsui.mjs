@@ -3,13 +3,15 @@
 // state is never shown in the form.
 export const HIDDEN_KEYS = ["dedupeState", "outboxState", "voiceCache", "turnClips", "contextJournals", "pushToTalkNoticeShown", "pttPosition", "linkProbe", "sessionSnapshot", "presenceSuspendUntil"];
 // Shown on the Basic page (plus the bot-user dropdown and webhook secret).
-export const BASIC_KEYS = ["enabled", "botUserId", "delivery", "webhookUrl", "webhookSecret", "alwaysVoiceUsers", "ttsVoice", "pushToTalkKey", "combatEvents"];
+export const BASIC_KEYS = ["enabled", "botUserId", "delivery", "webhookUrl", "webhookSecret", "alwaysVoiceUsers", "ttsVoice", "voiceVolume", "voiceCaptions", "pushToTalkKey", "combatEvents"];
 export const BASIC_FIELDS = [
   ["enabled", "checkbox"],
   ["delivery", "select", ["relay", "direct"]],
   ["webhookUrl", "text"],
   ["alwaysVoiceUsers", "text"],
   ["ttsVoice", "voice"],
+  ["voiceVolume", "number"],
+  ["voiceCaptions", "checkbox"],
   ["pushToTalkKey", "text"],
   ["combatEvents", "checkbox"],
 ];
@@ -53,9 +55,12 @@ export const ADVANCED_FIELDS = [
   ["thinkingIndicator", "checkbox"],
   ["thinkingTimeoutMs", "number"],
   ["metricsLogEvery", "number"],
+  ["moodPlaylists", "textarea"],
+  ["moodFollowsCombat", "checkbox"],
+  ["moralePrompts", "checkbox"],
 ];
 export const ADVANCED_KEYS = ADVANCED_FIELDS.map(f => f[0]);
-export const CLIENT_KEYS = ["pushToTalk", "pushToTalkKey", "pushToTalkNoticeShown", "pttPosition", "ttsVoice"];
+export const CLIENT_KEYS = ["pushToTalk", "pushToTalkKey", "pushToTalkNoticeShown", "pttPosition", "ttsVoice", "voiceVolume", "voiceCaptions"];
 // Runtime control used by the GM panel; not listed in the settings form.
 export const PANEL_KEYS = ["aiPaused"];
 export const ALL_KNOWN_KEYS = [...new Set([...BASIC_KEYS, ...ADVANCED_KEYS, ...HIDDEN_KEYS, ...CLIENT_KEYS, ...PANEL_KEYS])];

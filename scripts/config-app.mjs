@@ -26,6 +26,8 @@ export function makeConfigApp() {
             const optsHtml = TTS_VOICES.map(voice => `<option value="${esc(voice.id)}" ${voice.id === cur ? "selected" : ""}>${esc(voice.label)}</option>`).join("");
             return `<select name="${k}">${optsHtml}</select><button type="button" data-aigm-voice-preview>${esc(t("AIGM.config.playVoiceSample", "Play sample"))}</button>`;
           })()
+          : type === "textarea" ? `<textarea name="${k}" rows="6">${esc(v)}</textarea>`
+          : type === "number" && k === "voiceVolume" ? `<input type="number" name="${k}" min="0" max="100" step="1" value="${esc(v)}">`
           : `<input type="${type}" name="${k}" value="${esc(v)}">`;
         return `<div class="form-group"><label>${esc(labelFor(k))}</label><div class="form-fields">${input}</div></div>`;
       };

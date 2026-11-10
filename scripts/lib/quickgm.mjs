@@ -84,3 +84,32 @@ export function normalizeTargetArgs(a = {}) {
     hasExplicit: !!(tokenIds.length || tokenNames.length || actorIds.length || actorNames.length)
   };
 }
+
+export const DEFAULT_LOOT_TABLE_NAMES = ["Treasure", "Loot", "Plunder", "Cargo"];
+
+export function tableNameScore(name) {
+  const n = String(name ?? "").toLowerCase();
+  if (n === "treasure" || n.startsWith("treasure ")) return 100;
+  if (n === "loot" || n.includes("loot")) return 80;
+  if (n === "plunder" || n.includes("plunder")) return 70;
+  if (n === "cargo" || n.includes("cargo")) return 40;
+  return 0;
+}
+
+export function pickDefaultLootTable(tables = []) {
+  let best = null, score = 0;
+  for (const t of toList(tables)) {
+    const s = tableNameScore(t?.name);
+    if (s > score) { best = t; score = s; }
+  }
+  return best;
+}
+
+export function parseSilverText(text) {
+  const s = String(text ?? "");
+  const formula = s.match(/(\d+d\d+(?:\s*[+-]\s*\d+)?)\s*(?:silver|silvers)\b/i);
+  if (formula) return { formula: formula[1], amount: null };
+  const flat = s.match(/(\d+)\s*(?:silver|silvers)\b/i);
+  if (flat) return { amount: Number(flat[1]), formula: null };
+  return { amount: 0, formula: null };
+}

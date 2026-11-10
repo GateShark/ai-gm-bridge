@@ -3,6 +3,7 @@ import { combatantActor, combatantIsNpc, combatantOwners } from "./turns.mjs";
 import { readActorHp } from "./hp.mjs";
 import { combatantsOf, runSetupCheck } from "./setupcheck.mjs";
 import { shipRosterFields } from "./shiptrack.mjs";
+import { combatEndSides } from "./morale.mjs";
 
 export { combatantsOf };
 export function combatRoster(combat, users = []) {
@@ -32,6 +33,12 @@ export function combatEvent(c, state, { users = [] } = {}) {
     ev.roster = combatRoster(c, users);
     const check = runSetupCheck({ combatants: list, users });
     if (check.warning) { ev.ownerWarning = check.warning; ev.unownedPirates = check.unowned.map(u => u.name); }
+  }
+  if (state === "end") {
+    const sides = combatEndSides(c, users);
+    ev.defeated = sides.defeated;
+    ev.pcs = sides.pcs;
+    ev.combatEnded = true;
   }
   return ev;
 }

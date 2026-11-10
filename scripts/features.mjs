@@ -8,7 +8,8 @@ import { actorChanges, lineHtml, parseLines, recap as recapLines, TRACKED, stamp
 import { planRest, clampHp, diffReport, canRestoreResource } from "./lib/pbrest.mjs";
 import { createDownTracker } from "./lib/pcdown.mjs";
 import { sceneTokens } from "./lib/gmpanel.mjs";
-import { pickAudioSrc, localVoiceSlug } from "./lib/voices.mjs";
+import { pickAudioSrc, localVoiceSlug, playLocalVoice } from "./lib/voices.mjs";
+import { createMoralePromptTracker } from "./lib/moraleprompt.mjs";
 
 const ID = "ai-gm-bridge"; const SOCKET = `module.${ID}`;
 const D = { emit: () => {}, get: () => undefined, voice: () => null, turnClip: () => null, turnAudio: () => ({}), amLeader: () => true, log: () => {} };
@@ -206,27 +207,33 @@ export function onTurnPing(p) {
   ui.notifications?.info(p.text);
   if (!p.voiceUserIds?.includes(game.user.id)) return;
   const src = pickAudioSrc(p.audio, localVoiceSlug(), p.clip);
-  if (src) foundry.audio.AudioHelper.play({ src, volume: 0.8, autoplay: true, loop: false }, false);
+  if (src) playLocalVoice(src, { text: p.spoken || p.text });
 }
 
 // ---------- session log ----------
 export const LOG_NAME = "AI GM Session Log";
 const snap = new Map(); let buf = []; let flushT = null; const started = new Set();
 const downs = createDownTracker();
+const moralePrompts = createMoralePromptTracker();
 const pick = (a) => { const o = {}; for (const p of Object.values(TRACKED)) foundry.utils.setProperty(o, p, foundry.utils.getProperty(a, p)); const hp = D.get("hpPath"); if (hp) foundry.utils.setProperty(o, hp, foundry.utils.getProperty(a, hp)); return o; };
 export function seedSnapshots() {
   downs.reset();
-  for (const a of game.actors) { snap.set(a.id, pick(a)); downs.observe(a); }
+  moralePrompts.reset();
+  for (const a of game.actors) { snap.set(a.id, pick(a)); downs.observe(a); moralePrompts.seed(a); }
   try {
     const scene = globalThis.canvas?.scene ?? game.scenes?.viewed;
-    for (const tok of sceneTokens(scene)) if (tok?.actor) downs.observe(tok.actor, { token: tok });
+    for (const tok of sceneTokens(scene)) if (tok?.actor) { downs.observe(tok.actor, { token: tok }); moralePrompts.seed(tok.actor); }
   } catch {}
 }
 export function logLine(kind, text, at = Date.now()) { if (!D.get("sessionLog")) return; buf.push(lineHtml(at, kind, text)); clearTimeout(flushT); flushT = setTimeout(flushLog, 4000); }
 export function onActorUpdate(actor, change) {
   const g = typeof globalThis.game === "object" ? globalThis.game : null;
-  const ev = downs.observe(actor, { users: g?.users?.contents ?? g?.users ?? [], token: actor?.token ?? null, combat: g?.combat?.started ? g.combat : null });
+  const users = g?.users?.contents ?? g?.users ?? [];
+  const combat = g?.combat?.started ? g.combat : null;
+  const ev = downs.observe(actor, { users, token: actor?.token ?? null, combat });
   if (ev) D.emit(ev, { urgent: true });
+  const prompt = moralePrompts.observe(actor, { users, combat, enabled: D.get("moralePrompts") !== false });
+  if (prompt) D.emit(prompt, { urgent: true });
   const before = snap.get(actor.id); snap.set(actor.id, pick(actor)); if (!before) return;
   const hpPath = foundry.utils.getProperty(actor, "system.attributes.hp") ? undefined : D.get("hpPath");
   for (const c of actorChanges(actor.name, before, pick(actor), { extraLabel: actor.extraResourceNamePlural || "", hpPath })) logLine(c.kind, c.text);
@@ -235,7 +242,7 @@ export function onItemCreate(item) { const a = item.parent; if (a?.documentName 
 export function onCombatUpdate(c, change) {
   if (change.round === 1 && !started.has(c.id)) { started.add(c.id); logLine("combat", `Combat started (${c.combatants.map(x => x.name).join(", ")})`); }
 }
-export function onCombatDelete(c) { if (c?.id) lastPrompt.delete(c.id); if (c.started || c.round > 0) logLine("combat", `Combat ended after round ${c.round}`); }
+export function onCombatDelete(c) { if (c?.id) { lastPrompt.delete(c.id); moralePrompts.reset(c.id); } if (c.started || c.round > 0) logLine("combat", `Combat ended after round ${c.round}`); }
 async function logJournal() {
   let j = game.journal.getName(LOG_NAME);
   if (!j) j = await JournalEntry.create({ name: LOG_NAME, ownership: { default: 0 } });

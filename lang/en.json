@@ -196,6 +196,26 @@
       "speechFixes": {
         "name": "Speech phrase fixes",
         "hint": "Comma-separated replacements as heard=intended, for example drop cake=dropkick, kik=kick. Applied before near-miss correction."
+      },
+      "voiceVolume": {
+        "name": "GM voice volume",
+        "hint": "How loud GM voice, voice previews, and Your-turn clips play on this computer (0–100%). This is separate from Foundry's music and ambience volume."
+      },
+      "voiceCaptions": {
+        "name": "Big captions",
+        "hint": "When on, a large caption of the current spoken line appears near the bottom of the screen while the clip plays, then clears. It does not block the canvas."
+      },
+      "moodPlaylists": {
+        "name": "Mood playlists",
+        "hint": "Map scene moods to Foundry playlist names, one per line (combat=Battle, storm=Storm at Sea, tavern=Tavern, explore=Explore, tense=Tense, calm=Calm). Leave a mood blank to match a playlist by name. The module does not bundle music."
+      },
+      "moodFollowsCombat": {
+        "name": "Mood follows combat",
+        "hint": "When combat starts, switch to the combat mood playlist (if mapped or matched by name) and restore the previous mood when combat ends."
+      },
+      "moralePrompts": {
+        "name": "Morale prompts",
+        "hint": "Wake the bot with a moralePrompt event when the first enemy dies or half the enemies are down. The module does not roll morale by itself."
       }
     },
     "audio": {

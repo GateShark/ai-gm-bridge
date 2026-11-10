@@ -5,7 +5,10 @@ import { priorReply, recordReply, resolveReplyTo } from "./lib/replies.mjs";
 import { waitForPosition } from "./lib/movewait.mjs";
 import { moveWithFallback, setSceneBackground, formatResult } from "./lib/v081.mjs";
 import { VoiceCache, shouldSkipTts } from "./lib/voicecache.mjs";
-import { listTtsVoices, resolveTtsVoice, DEFAULT_TTS_VOICE, ttsVoiceSlug, localVoiceSlug, readUserVoiceSlug, normalizeAudioMap, pickAudioSrc } from "./lib/voices.mjs";
+import { listTtsVoices, resolveTtsVoice, DEFAULT_TTS_VOICE, ttsVoiceSlug, localVoiceSlug, readUserVoiceSlug, normalizeAudioMap, pickAudioSrc, readVoiceVolume } from "./lib/voices.mjs";
+import { showVoiceCaption, hideVoiceCaption, captionText } from "./lib/captions.mjs";
+import { applyMood, parseMoodPlaylists, moodState, clampFadeMs } from "./lib/mood.mjs";
+import { livingHostiles } from "./lib/morale.mjs";
 import { parseTurnClipName, turnClipSlug, turnClipFile, TurnClipStore } from "./lib/turnclips.mjs";
 import { unwrapText } from "./lib/v081.mjs";
 import { AudioQueue, voiceOrText, showAudioUnlockPrompt } from "./lib/audioqueue.mjs";
@@ -65,7 +68,7 @@ async function runPing() {
 import { resolveResource, nextValue, summarize, parseAmount } from "./lib/pirateborg.mjs";
 import { collectSessionSnapshot, formatSessionRecap, applySessionHpPlan } from "./lib/session.mjs";
 import { readPetFlag, petFlagData, listPetsFrom, planPetPlacement } from "./lib/pets.mjs";
-import { listTables, planDamage, planLoot, summarizeDraw, normalizeTargetArgs } from "./lib/quickgm.mjs";
+import { listTables, planDamage, planLoot, summarizeDraw, normalizeTargetArgs, pickDefaultLootTable, parseSilverText, tableNameScore } from "./lib/quickgm.mjs";
 import { collectShips, crewTracker, planShipFight } from "./lib/shiptrack.mjs";
 import { sceneTokens } from "./lib/gmpanel.mjs";
 import { readActorHp } from "./lib/hp.mjs";
@@ -77,17 +80,20 @@ function extraLabel(actor) {
   for (const i of actor.items?.filter?.(i => i.type === "class") ?? []) { const v = i.system?.extraResourceNamePlural || i.system?.extraResourceNameSingular; if (v) return v; }
   return "";
 }
-function playClip({ src, volume = 0.8 }) {
+function playClip({ src, volume, text }) {
   return new Promise(async (resolve, reject) => {
     try {
       if (game.audio?.locked) { const e = new Error("autoplay blocked"); e.blocked = true; throw e; }
-      const sound = await foundry.audio.AudioHelper.play({ src, volume, autoplay: true, loop: false }, false); // local only: each client plays via its own queue (#12)
+      const vol = typeof volume === "number" && Number.isFinite(volume) ? volume : readVoiceVolume();
+      const spoken = captionText(text);
+      if (spoken) showVoiceCaption(spoken);
+      const sound = await foundry.audio.AudioHelper.play({ src, volume: vol, autoplay: true, loop: false }, false); // local only: each client plays via its own queue (#12)
       if (!sound) throw new Error("clip did not start");
-      let done = false; const fin = () => { if (!done) { done = true; resolve(); } };
+      let done = false; const fin = () => { if (!done) { done = true; if (spoken) hideVoiceCaption(); resolve(); } };
       sound?.addEventListener?.("end", fin);
       const ms = (sound?.duration && isFinite(sound.duration) ? sound.duration * 1000 : 30000) + 500;
       setTimeout(fin, Math.min(ms, 180000));
-    } catch (e) { reject(e); }
+    } catch (e) { if (text) hideVoiceCaption(); reject(e); }
   });
 }
 export const audioQueue = new AudioQueue({ play: playClip, onBlocked: () => showAudioUnlockPrompt({
@@ -99,15 +105,18 @@ export const VOICE_SOCKET = "module.ai-gm-bridge";
 export function voiceAll(id, clip, g = globalThis.game) {
   const payload = { type: "voice", id, src: clip.src, volume: clip.volume };
   if (clip.audio && typeof clip.audio === "object") payload.audio = clip.audio;
+  const spoken = captionText(clip.text);
+  if (spoken) payload.text = spoken;
   try { g?.socket?.emit?.(VOICE_SOCKET, payload); } catch {}
   const src = pickAudioSrc(clip.audio, localVoiceSlug(g), clip.src);
-  return audioQueue.enqueue(id, { src, volume: clip.volume });
+  return audioQueue.enqueue(id, { src, volume: clip.volume, text: spoken || undefined });
 }
 export function onVoiceSocket(data) {
   if (data?.type !== "voice") return null;
   const src = pickAudioSrc(data.audio, localVoiceSlug(), typeof data.src === "string" ? data.src : null);
   if (typeof src !== "string" || !src) return null;
-  return audioQueue.enqueue(data.id ?? src, { src, volume: typeof data.volume === "number" ? data.volume : undefined });
+  const spoken = captionText(data.text);
+  return audioQueue.enqueue(data.id ?? src, { src, volume: typeof data.volume === "number" ? data.volume : undefined, text: spoken || undefined });
 }
 const checkAudio = async (src) => { try { return (await fetch(src, { method: "HEAD" })).ok; } catch { return false; } };
 const speaker = (alias) => alias ? { alias } : ChatMessage.getSpeaker();
@@ -132,6 +141,146 @@ function findToken(a) {
   const scene = a.sceneId ? game.scenes.get(a.sceneId) : canvas?.scene ?? game.scenes.active;
   if (!scene) return null;
   return scene.tokens.get(a.tokenId) ?? scene.tokens.find(t => t.name === a.tokenName) ?? null;
+}
+
+
+function collectMoraleTargets(a) {
+  const tokenIds = [];
+  const addTok = (x) => { if (x != null && x !== "") tokenIds.push(String(x)); };
+  for (const x of (Array.isArray(a.tokenIds) ? a.tokenIds : [])) addTok(x);
+  if (a.tokenId) addTok(a.tokenId);
+  const actorIds = [];
+  for (const x of (Array.isArray(a.actorIds) ? a.actorIds : [])) if (x != null && x !== "") actorIds.push(String(x));
+  const hasExplicit = !!(tokenIds.length || actorIds.length || a.actorId || a.actorName || a.tokenName);
+  const wantsAll = a.all === true || a.hostile === true || (!hasExplicit && (a.morale == null || String(a.morale).trim() === ""));
+  const list = [];
+  const seen = new Set();
+  const push = (actor, tokenId, name) => {
+    if (!actor || seen.has(actor.id)) return;
+    seen.add(actor.id);
+    list.push({ actor, tokenId: tokenId ?? null, name: name || actor.name });
+  };
+  if (hasExplicit) {
+    for (const tokenId of tokenIds) {
+      const tok = findToken({ tokenId, sceneId: a.sceneId });
+      if (!tok) return { error: fail(404, "token not found") };
+      const actor = tok.actor ?? tok.object?.actor;
+      if (!actor) return { error: fail(404, "actor not found") };
+      push(actor, tok.id, tok.name);
+    }
+    if (a.tokenName && !tokenIds.length) {
+      const tok = findToken({ tokenName: a.tokenName, sceneId: a.sceneId });
+      if (!tok) return { error: fail(404, "token not found") };
+      const actor = tok.actor ?? tok.object?.actor;
+      if (!actor) return { error: fail(404, "actor not found") };
+      push(actor, tok.id, tok.name);
+    }
+    for (const actorId of actorIds) {
+      const actor = game.actors.get(actorId);
+      if (!actor) return { error: fail(404, "actor not found") };
+      push(actor, null, actor.name);
+    }
+    if (a.actorId || a.actorName) {
+      const actor = findActor(a);
+      if (!actor) return { error: fail(404, "actor not found") };
+      push(actor, null, actor.name);
+    }
+    return { list };
+  }
+  if (wantsAll) {
+    const users = game.users?.contents ?? game.users ?? [];
+    for (const h of livingHostiles(game.combat, users)) {
+      if (h.actor) push(h.actor, h.tokenId, h.name);
+    }
+    return { list };
+  }
+  return { list };
+}
+
+function resolveLootActors(a) {
+  const refs = normalizeTargetArgs(a);
+  const list = [];
+  const seen = new Set();
+  const add = (actor) => { if (actor && !seen.has(actor.id)) { seen.add(actor.id); list.push(actor); } };
+  if (refs.hasExplicit) {
+    const pairs = Math.max(refs.tokenIds.length, refs.tokenNames.length, refs.actorIds.length, refs.actorNames.length, 1);
+    for (let i = 0; i < pairs; i++) {
+      const tg = findTarget({
+        tokenId: refs.tokenIds[i], tokenName: refs.tokenNames[i],
+        actorId: refs.actorIds[i], actorName: refs.actorNames[i], sceneId: refs.sceneId
+      });
+      if (tg.error && pairs === 1) return { error: tg.error };
+      if (!tg.error) add(tg.actor);
+    }
+    if (!list.length) return { error: fail(404, "actor not found") };
+    return { list };
+  }
+  const selected = (globalThis.canvas?.tokens?.controlled ?? []).map(tok => tok.actor).filter(Boolean);
+  for (const actor of selected) add(actor);
+  return { list };
+}
+
+async function resolveLootTable(a) {
+  const name = a.table || a.tableName || a.tableId;
+  const world = game.tables;
+  if (name) {
+    const hit = world?.get?.(name) ?? world?.getName?.(name);
+    if (hit) return hit;
+    for (const pack of game.packs ?? []) {
+      if (pack.documentName && pack.documentName !== "RollTable") continue;
+      let index = pack.index;
+      try { if (!index && pack.getIndex) index = await pack.getIndex(); } catch {}
+      const entries = index?.contents ?? (index ? [...index] : []);
+      const entry = entries.find(e => e._id === name || e.id === name || e.name === name || String(e.name || "").toLowerCase() === String(name).toLowerCase());
+      if (entry && pack.getDocument) return pack.getDocument(entry._id || entry.id);
+    }
+    return null;
+  }
+  const worldHit = pickDefaultLootTable(world?.contents ?? world ?? []);
+  if (worldHit) return worldHit;
+  let best = null, score = 0, bestPack = null;
+  for (const pack of game.packs ?? []) {
+    if (pack.documentName && pack.documentName !== "RollTable") continue;
+    let index = pack.index;
+    try { if (!index && pack.getIndex) index = await pack.getIndex(); } catch {}
+    for (const e of (index?.contents ?? (index ? [...index] : []))) {
+      const s = tableNameScore(e.name);
+      if (s > score) { score = s; best = e; bestPack = pack; }
+    }
+  }
+  if (best && bestPack?.getDocument) return bestPack.getDocument(best._id || best.id);
+  return null;
+}
+
+async function awardLootFromTable(actor, table, { displayChat = true, count = 1 } = {}) {
+  const added = [], texts = [];
+  let silver = 0;
+  for (let i = 0; i < count; i++) {
+    const draw = await table.draw({ displayChat });
+    const planned = planLoot([...(draw?.results ?? [])]);
+    for (const it of planned.items) {
+      let item = null;
+      try { if (it.uuid && globalThis.fromUuid) item = await fromUuid(it.uuid); } catch {}
+      if (!item && it.id) item = game.items?.get?.(it.id) ?? null;
+      if (item?.toObject) { await actor.createEmbeddedDocuments("Item", [item.toObject()]); added.push(item.name); }
+      else if (it.name) added.push(it.name);
+    }
+    for (const text of planned.texts) {
+      texts.push(text);
+      const parsed = parseSilverText(text);
+      if (parsed.formula) {
+        try { silver += (await new Roll(parsed.formula).evaluate()).total || 0; } catch {}
+      } else if (parsed.amount) silver += parsed.amount;
+    }
+  }
+  if (silver) {
+    const before = Number(actor.system?.silver) || 0;
+    const after = before + silver;
+    if (typeof actor.updateSilver === "function") await actor.updateSilver(after);
+    else if (typeof actor.update === "function") await actor.update({ "system.silver": after });
+    else if (actor.system) actor.system.silver = after;
+  }
+  return { actorId: actor.id, name: actor.name, added, texts, silver, table: table.name };
 }
 
 const FP = () => globalThis.foundry?.applications?.apps?.FilePicker?.implementation ?? globalThis.FilePicker;
@@ -241,7 +390,20 @@ export const COMMANDS = {
     if (a.sound) { const s = p.sounds.find(x => x.id === a.sound || x.name === a.sound); if (!s) return fail(404, "sound not found"); await p.playSound(s); }
     else await p.playAll();
     return ok({ playlist: p.id, playing: true, sound: a.sound ?? null });
-  }},
+  } },
+  setMood: { schema: { mood: "string", fadeMs: "number?" }, async run(a) {
+    const mapping = parseMoodPlaylists((() => { try { return game.settings.get(MODULE_ID, "moodPlaylists"); } catch { return ""; } })());
+    const playlists = game.playlists?.contents ?? game.playlists ?? [];
+    const r = await applyMood(a.mood, {
+      playlists, mapping, fadeMs: a.fadeMs, currentId: moodState().playlistId,
+      playAll: async (pl) => pl.playAll?.(),
+      stopAll: async (pl) => pl.stopAll?.()
+    });
+    if (!r.ok) return fail(r.code || 404, r.error);
+    moodState().current = r.mood;
+    moodState().playlistId = r.playlistId ?? null;
+    return ok({ mood: r.mood, playlist: r.playlist ?? null, playlistId: r.playlistId ?? null, playing: !!r.playing, already: !!r.already, matched: r.matched ?? null, fadeMs: clampFadeMs(a.fadeMs) });
+  } },
   roll: { schema: { formula: "string", flavor: "string?", toChat: "boolean?" }, async run(a) {
     let roll; try { roll = await new Roll(a.formula).evaluate(); } catch (e) { return fail(400, `bad formula: ${e.message}`); }
     let messageId = null;
@@ -329,7 +491,7 @@ export const COMMANDS = {
     }
     const displaySrc = pickAudioSrc(map, a.voice, audioPath) || pickAudioSrc(map, "ryan", audioPath);
     const r = await voiceOrText({ audioPath: displaySrc, checkAudio,
-      playVoice: (src) => voiceAll(a.replyTo ?? src, { src, audio: map || undefined }),
+      playVoice: (src) => voiceAll(a.replyTo ?? src, { src, audio: map || undefined, text: a.content }),
       postVoice: async (src) => (await ChatMessage.create({ content: `${a.content}<audio controls preload="none" src="${foundry.utils.escapeHTML?.(src) ?? src}"></audio>`, speaker: speaker(a.speakerAlias), flags })).id,
       postText: async () => (await ChatMessage.create({ content: a.content, speaker: speaker(a.speakerAlias), flags })).id });
     if (r.mode === "voice" && ctx.voiceCache) {
@@ -389,9 +551,23 @@ export const COMMANDS = {
     await t.update(upd); return ok({ tokenId: t.id, ...upd });
   }},
   // v0.8 Pirate Borg morale + ships (system outcome builders, no dialogs). toChat:false = result only, no card.
-  moraleCheck: { schema: { actorId: "string?", actorName: "string?", morale: "any?", toChat: "boolean?" }, async run(a) {
-    const actor = a.actorId || a.actorName ? findActor(a) : null; if ((a.actorId || a.actorName) && !actor) return fail(404, "actor not found");
-    return SHIP.moraleCheck(actor, a); } },
+  moraleCheck: { schema: { actorId: "string?", actorName: "string?", tokenId: "string?", tokenName: "string?", tokenIds: "array?", actorIds: "array?", all: "boolean?", hostile: "boolean?", morale: "any?", reason: "string?", markStatus: "boolean?", toChat: "boolean?", sceneId: "string?" }, async run(a) {
+    const targets = collectMoraleTargets(a);
+    if (targets.error) return targets.error;
+    if (!targets.list.length && !(a.actorId || a.actorName) && a.morale != null && String(a.morale).trim() !== "") {
+      return SHIP.moraleCheck(null, a);
+    }
+    if (!targets.list.length) return fail(400, "no morale targets: pass tokenIds, actorIds, actorName, or all:true while combat is active");
+    const results = [];
+    for (const tg of targets.list) {
+      const r = await SHIP.moraleCheck(tg.actor, { ...a, morale: a.morale });
+      if (!r.ok) results.push({ ok: false, actorId: tg.actor?.id ?? null, name: tg.actor?.name ?? tg.name, error: r.error });
+      else results.push({ ...r.result, tokenId: tg.tokenId ?? r.result.tokenId ?? null });
+    }
+    const payload = { results, reason: a.reason ?? null, checked: results.length };
+    if (results.length === 1) Object.assign(payload, results[0]);
+    return ok(payload);
+  } },
   shipAction: { schema: { actorId: "string?", actorName: "string?", action: "string", crewActorId: "string?", crewActorName: "string?", dr: "number?", armor: "string?",
     targetTokenId: "string?", targetTokenName: "string?", sceneId: "string?", movement: "number?", toChat: "boolean?" }, async run(a) {
     const actor = findActor(a); if (!actor) return fail(404, "ship not found");
@@ -500,31 +676,35 @@ export const COMMANDS = {
     const results = [...(draw?.results ?? [])].map(r => ({ text: r.text, name: r.name, type: r.type, documentId: r.documentId, documentUuid: r.documentUuid }));
     return ok({ tableId: table.id, table: table.name, ...summarizeDraw(results, table.name), results });
   } },
-  giveLoot: { schema: { tableId: "string?", tableName: "string?", ...TARGET }, async run(a) {
-    const table = game.tables?.get?.(a.tableId) ?? game.tables?.getName?.(a.tableName);
+  giveLoot: { schema: { tableId: "string?", tableName: "string?", table: "string?", ...TARGET }, async run(a) {
+    const table = await resolveLootTable(a);
     if (!table) return fail(404, "roll table not found");
-    const refs = normalizeTargetArgs(a);
-    let actor = null;
-    if (refs.hasExplicit) {
-      const tg = findTarget({
-        tokenId: refs.tokenIds[0], tokenName: refs.tokenNames[0],
-        actorId: refs.actorIds[0], actorName: refs.actorNames[0], sceneId: refs.sceneId
-      });
-      if (tg.error) return tg.error; actor = tg.actor;
-    } else {
-      actor = (globalThis.canvas?.tokens?.controlled ?? [])[0]?.actor ?? null;
-    }
+    const actors = resolveLootActors(a);
+    if (actors.error) return actors.error;
+    const actor = actors.list[0];
     if (!actor) return fail(400, "select a token or pass actor/token");
-    const draw = await table.draw({ displayChat: true });
-    const planned = planLoot([...(draw?.results ?? [])]);
-    const added = [];
-    for (const it of planned.items) {
-      let item = null;
-      try { if (it.uuid && globalThis.fromUuid) item = await fromUuid(it.uuid); } catch {}
-      if (!item && it.id) item = game.items?.get?.(it.id) ?? null;
-      if (item?.toObject) { await actor.createEmbeddedDocuments("Item", [item.toObject()]); added.push(item.name); }
+    const given = await awardLootFromTable(actor, table, { displayChat: true, count: 1 }); // table.draw after the recipient is known
+    if (given.error) return fail(400, given.error);
+    return ok(given);
+  } },
+  rollLoot: { schema: { table: "string?", tableId: "string?", tableName: "string?", count: "number?", toChat: "boolean?", ...TARGET }, async run(a) {
+    const table = await resolveLootTable(a);
+    if (!table) return fail(404, "loot table not found (pass table, or add a world/compendium table named Treasure, Loot, Plunder, or Cargo)");
+    const actors = resolveLootActors(a);
+    if (actors.error) return actors.error;
+    if (!actors.list.length) return fail(400, "select a token or pass actor/token targets");
+    const count = Math.max(1, Math.min(20, Number(a.count) || 1));
+    const granted = [];
+    for (const actor of actors.list) {
+      const one = await awardLootFromTable(actor, table, { displayChat: a.toChat !== false, count });
+      if (one.error) return fail(400, one.error);
+      granted.push(one);
     }
-    return ok({ actorId: actor.id, name: actor.name, added, texts: planned.texts, table: table.name });
+    if (a.toChat !== false) {
+      const lines = granted.map(g => `<b>${g.name}</b>: ${(g.added || []).join(", ") || (g.texts || []).join("; ") || "nothing"}${g.silver ? ` (${g.silver} silver)` : ""}`);
+      await ChatMessage.create({ content: `Loot (${table.name}):<br>${lines.join("<br>")}`, speaker: { alias: "AI GM" }, flags: { "ai-gm-bridge": { local: true } } });
+    }
+    return ok({ table: table.name, tableId: table.id ?? null, count, targets: granted });
   } },
   applyDamage: { schema: { amount: "number", ...TARGET }, async run(a) {
     const planned = planDamage([{ id: "x", hp: { value: 1 } }], a.amount);

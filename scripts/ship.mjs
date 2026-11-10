@@ -16,16 +16,41 @@ const pbOnly = () => game.system?.id === "pirateborg" ? null : fail(400, "needs 
 const hullDies = () => { const t = globalThis.CONFIG?.PB?.armorTiers; return t ? Object.fromEntries(Object.entries(t).map(([k, v]) => [k, v.damageReductionDie])) : HULL_DIE; };
 const tokenObj = (doc) => doc ? (doc.object ?? globalThis.canvas?.tokens?.get?.(doc.id) ?? null) : null;
 
+async function markMoraleStatus(actor, result) {
+  const id = result === "flees" ? "fear" : result === "surrenders" ? "restrained" : null;
+  if (!id || !actor) return null;
+  try {
+    if (typeof actor.toggleStatusEffect === "function") await actor.toggleStatusEffect(id, { active: true });
+  } catch {}
+  return id;
+}
+
 export async function moraleCheck(actor, a = {}) {
   const no = pbOnly(); if (no) return no;
-  const morale = parseMorale(a.morale) ?? parseMorale(actor?.system?.attributes?.morale);
-  if (morale === null) return fail(400, "no morale value: pass morale or use a creature with one");
+  const hasOverride = a.morale !== undefined && a.morale !== null && String(a.morale).trim() !== "";
+  const raw = hasOverride ? a.morale : actor?.system?.attributes?.morale;
+  const hasSource = !!actor || hasOverride;
+  if (!hasSource) return fail(400, "no morale value: pass morale or use a creature with one");
+  const morale = parseMorale(raw);
+  if (morale === null) {
+    const name = actor?.name ?? "Creature";
+    if (a.toChat !== false) {
+      await ChatMessage.create({
+        content: `<b>${name}</b> does not break (morale —).`,
+        speaker: { alias: "AI GM" },
+        flags: { "ai-gm-bridge": { local: true } }
+      });
+    }
+    return ok({ actorId: actor?.id ?? null, name: actor?.name ?? null, morale: raw ?? null, total: null, second: null, result: "stands", unbreakable: true, status: null });
+  }
   const { createMoraleOutcome } = await sys("outcome/creature/morale-outcome.js");
   const o = await createMoraleOutcome({ actor: { morale } }); // the builder only reads actor.morale
   const second = o.secondaryOutcome?.roll?.total ?? null;
   const result = o.isStandingFirm ? "stands" : o.isFleeing ? "flees" : o.isSurrendering ? "surrenders" : moraleResult(o.roll?.total, morale, second);
   if (a.toChat !== false) await card({ title: L("PB.Morale"), actor, outcomes: [o] });
-  return ok({ actorId: actor?.id ?? null, name: actor?.name ?? null, morale, total: o.roll?.total, second, result });
+  let status = null;
+  if (a.markStatus !== false) status = await markMoraleStatus(actor, result);
+  return ok({ actorId: actor?.id ?? null, name: actor?.name ?? null, morale, total: o.roll?.total, second, result, unbreakable: false, status });
 }
 
 export async function shipAction(actor, a = {}, { findActor, findToken }) {

@@ -40,7 +40,8 @@ export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, c
   btn.type = "button"; btn.className = "aigm-voice-replay"; btn.dataset.aigmReplay = src;
   btn.title = t("AIGM.voice.replay", "Replay"); btn.textContent = "▶";
   btn.setAttribute("aria-label", t("AIGM.voice.replay", "Replay"));
-  btn.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); replay?.(src); });
+  const spoken = plainVoiceText(msg?.content ?? root.textContent);
+  btn.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); replay?.(src, { text: spoken }); });
   audio.parentNode?.insertBefore(btn, audio);
   const text = plainVoiceText(msg?.content ?? root.textContent);
   const parts = collapseParts(text, collapseAt);

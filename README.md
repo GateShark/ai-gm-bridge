@@ -2,7 +2,7 @@
   <img src="assets/logo-256.webp" alt="AI GM Pirate Borg" width="160" height="160" />
 </p>
 
-# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.8.18
+# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.8.19
 
 > ⚠️ **Alpha:** this is still in testing. Expect bugs and breaking changes.
 
@@ -31,8 +31,16 @@ Created by Gate (GateShark).
 - The GM has an in-game **AI GM Pirate Borg** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM Pirate Borg** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
-## What's new since 0.8.0 (0.8.1–0.8.18)
-These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.18**.
+## What's new since 0.8.0 (0.8.1–0.8.19)
+These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.19**.
+
+**Replay, volume, captions, mood, morale, and loot (0.8.19)**
+- Every voiced GM line has a ▶ replay button. It plays that player's chosen recorded voice on their computer only and does not wake the bot.
+- Each player sets **GM voice volume** (0–100%, default 80%) on the Basic page. It applies to GM voice, previews, and Your-turn clips, separate from Foundry's music and ambience.
+- **Big captions** (off by default) show the current spoken line in large text near the bottom of the screen while the clip plays, then clear. They do not block the map.
+- `setMood` plays a mapped Foundry playlist for combat, storm, tavern, explore, tense, calm, or none, and can follow combat automatically. No music files are bundled; a missing playlist is reported and nothing plays.
+- `moraleCheck` can check one creature, several tokens, or every living hostile in combat. Morale is read from `system.attributes.morale`. A value of `-` or none means the creature never breaks. The bot can get a `moralePrompt` wake when the first enemy dies or half the enemies are down (no automatic roll).
+- When a fight ends, the combat end event includes defeated enemies and PCs (`combatEnded`) so the bot can call `giveLoot` or `rollLoot`. `rollLoot` draws official-style loot/treasure tables (world or compendium) and puts items or silver on sheets.
 
 **Recorded voices per player (0.8.18)**
 - Each player picks the GM voice they hear (Ryan, Thomas, Sonia, or Aria) on the Basic settings page. Play sample (and changing the dropdown) plays a bundled preview only on that computer. The pick is stored as that user's `gmVoice` flag; `voicePrefs` lists everyone's choice.

@@ -82,7 +82,8 @@ test("moraleCheck reuses system createMoraleOutcome; creature morale or explicit
   assert.equal(L.isOwn({ flags: { pirateborg: { outcomes: cards.at(-1).outcomes } } }), true);
   nextRoll = [4]; const n = cards.length;
   const s = await run("moraleCheck", { morale: "8", toChat: false }); assert.equal(s.result.result, "stands"); assert.equal(cards.length, n);
-  assert.equal((await run("moraleCheck", { actorName: "Anne" })).code, 400);
+  const anne = await run("moraleCheck", { actorName: "Anne" });
+  assert.equal(anne.ok, true); assert.equal(anne.result.result, "stands"); assert.equal(anne.result.unbreakable, true);
 });
 
 test("shipAction broadsides: no dialog, crew + dr + target armor from the system", async () => {

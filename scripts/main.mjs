@@ -10,6 +10,7 @@ import { buildPayload } from "./lib/compact.mjs";
 import { VoiceCache } from "./lib/voicecache.mjs";
 import { TurnClipStore, resolveTurnClip, turnClipAudioMap } from "./lib/turnclips.mjs";
 import { ttsVoiceSlug, playVoicePreview } from "./lib/voices.mjs";
+import { applyMood, parseMoodPlaylists, moodState, rememberMood, restoreMoodKey } from "./lib/mood.mjs";
 import { Metrics } from "./lib/metrics.mjs";
 import { deliverDirect } from "./lib/direct.mjs";
 import { makeConfigApp } from "./config-app.mjs";
@@ -344,6 +345,13 @@ Hooks.once("init", () => {
     name: "AIGM.settings.ttsVoice.name", hint: "AIGM.settings.ttsVoice.hint",
     choices: { "en-GB-RyanNeural": "Ryan (British man)", "en-GB-ThomasNeural": "Thomas (British man)", "en-GB-SoniaNeural": "Sonia (British woman)", "en-US-AriaNeural": "Aria (American woman)" },
     onChange: (v) => { try { onTtsVoiceChange(v, true); } catch {} } });
+  game.settings.register(ID, "voiceVolume", { scope: "client", config: true, type: Number, default: 80,
+    name: "AIGM.settings.voiceVolume.name", hint: "AIGM.settings.voiceVolume.hint" });
+  game.settings.register(ID, "voiceCaptions", { scope: "client", config: true, type: Boolean, default: false,
+    name: "AIGM.settings.voiceCaptions.name", hint: "AIGM.settings.voiceCaptions.hint" });
+  reg("moodPlaylists", String, "");
+  reg("moodFollowsCombat", Boolean, true);
+  reg("moralePrompts", Boolean, true);
   reg("thinkingIndicator", Boolean, true); reg("thinkingTimeoutMs", Number, 90000);
   reg("aiPaused", Boolean, false, { config: false, onChange: (v) => { try { onAiPausedChange(v); } catch {} } });
   // v0.7 (GM-only: world setting, config menu is GM-only)
@@ -632,7 +640,7 @@ Hooks.on("createChatMessage", async (msg) => {
   handleChat(msg);
 });
 Hooks.on("updateChatMessage", (msg) => { if (enabled() && msg.flags?.[ID]?.rollRequest) refreshPanel(); });
-Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCard(msg, html); enhanceVoiceMessage(msg, html, { t: loc, replay: (src) => audioQueue.enqueue(`replay:${src}:${Date.now()}`, { src }) }); } });
+Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCard(msg, html); enhanceVoiceMessage(msg, html, { t: loc, replay: (src, meta) => audioQueue.enqueue(`replay:${src}:${Date.now()}`, { src, text: meta?.text }) }); } });
 Hooks.on("updateActor", (a, change) => { if (enabled() && amLeader()) F.onActorUpdate(a, change); if (enabled()) refreshPanel(); });
 Hooks.on("createActor", (a) => { if (enabled() && amLeader()) F.onActorUpdate(a, {}); if (enabled()) refreshPanel(); });
 Hooks.on("deleteActor", () => { if (enabled()) refreshPanel(); });
@@ -642,10 +650,28 @@ Hooks.on("deleteToken", () => { if (enabled()) refreshPanel(); });
 Hooks.on("createItem", (i) => { if (enabled() && amLeader()) F.onItemCreate(i); });
 Hooks.on("deleteCombat", (c) => { if (enabled()) thinking.hide(); if (enabled()) refreshStatus(); if (enabled() && amLeader()) { F.onCombatDelete(c); F.cancelCombatRolls(c).catch(e => log("cancelCombatRolls", e?.message)); combatState(c, "end"); } }); // v0.8.6: hide runs on every client
 // v0.8.3: only the leader (bot user, else active GM) sends; eventId dedupe means one start/end per combat.
+async function applyStoredMood(mood) {
+  const mapping = parseMoodPlaylists(get("moodPlaylists"));
+  const playlists = game.playlists?.contents ?? game.playlists ?? [];
+  const r = await applyMood(mood, {
+    playlists, mapping, currentId: moodState().playlistId,
+    playAll: async (pl) => pl.playAll?.(),
+    stopAll: async (pl) => pl.stopAll?.()
+  });
+  if (r.ok) { moodState().current = r.mood; moodState().playlistId = r.playlistId ?? null; }
+  else log("setMood", r.error);
+}
+function syncCombatMood(state) {
+  if (!enabled() || !amLeader() || get("moodFollowsCombat") === false) return;
+  const run = state === "start" ? (rememberMood(), applyStoredMood("combat")) : applyStoredMood(restoreMoodKey());
+  Promise.resolve(run).catch(e => log("setMood", e?.message));
+}
 function combatState(c, state) {
+  const neverStarted = state === "end" && !c?.started && !(c?.round > 0);
+  if (!neverStarted) syncCombatMood(state);
   if (!enabled() || !amLeader() || !get("combatEvents")) return;
   if (state === "end") thinkingOff({ broadcast: true }); // v0.8.6
-  if (state === "end" && !c?.started && !(c?.round > 0)) return; // never started: no end event
+  if (neverStarted) return;
   const ev = combatEvent(c, state, { users: game.users?.contents ?? [] }); if (ev) emitEvent(ev, { urgent: true });
 }
 Hooks.on("combatStart", (c) => combatState(c, "start"));
@@ -680,7 +706,7 @@ function handleChat(msg) {
 function tryLocal(msg, plain, author) {
   const cmd = parseLocal(plain, get("localPrefix") || "!"); if (!cmd) return false;
   const eventId = `local:${msg.id}`; if (!S.dedupe.claim(eventId, Date.now())) return true;
-  const gmOnly = cmd.name === "music" || cmd.name === "scene" || ["saveSession", "loadSession", "setPet", "listPets", "placePets", "start", "pause", "rollTable", "giveLoot", "applyDamage", "startShipCombat", "shipStatus"].includes(cmd.name);
+  const gmOnly = cmd.name === "music" || cmd.name === "scene" || ["saveSession", "loadSession", "setPet", "listPets", "placePets", "start", "pause", "rollTable", "giveLoot", "rollLoot", "applyDamage", "startShipCombat", "shipStatus", "setMood"].includes(cmd.name);
   if (cmd.name === "turnStatus") { ChatMessage.create({ content: turnText(F.turnStatus()), whisper: [author.id], speaker: { alias: "AI GM" }, flags: { [ID]: { local: true } } }); S.dedupe.mark(eventId, "acked", Date.now()); return true; }
   const actor = cmd.args.actorName ? game.actors.getName(cmd.args.actorName) : null;
   const allowed = author?.isGM || (!gmOnly && (cmd.name === "roll" || actor?.testUserPermission?.(author, "OWNER")));

@@ -262,9 +262,9 @@ test("0.8.18 settings grouping, title, version and docs", () => {
   const mj = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8"));
   assert.equal(mj.id, "ai-gm-bridge");
   assert.equal(mj.title, "AI GM Pirate Borg");
-  assert.equal(mj.version, "0.8.18");
+  assert.equal(mj.version, "0.8.19");
   assert.match(mj.url, /GateShark\/ai-gm-bridge/);
-  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.8.18");
+  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.8.19");
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   assert.match(readme, /AI GM Pirate Borg/);
   assert.match(readme, /Previously called AI GM Bridge/);
@@ -272,6 +272,7 @@ test("0.8.18 settings grouping, title, version and docs", () => {
   assert.match(readme, /Gate \(GateShark\)/);
   assert.doesNotMatch(readme, /Kevin|Allen/);
   const log = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
+  assert.match(log, /## 0\.8\.19/);
   assert.match(log, /## 0\.8\.18/);
   assert.match(log, /## 0\.8\.17/);
   assert.match(log, /AI GM Pirate Borg/);

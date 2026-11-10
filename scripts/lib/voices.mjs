@@ -1,3 +1,4 @@
+import { showVoiceCaption, hideVoiceCaption, captionText } from "./captions.mjs";
 // Table TTS voice list. Edit only TTS_VOICES to swap who the table can use.
 // The module never calls a TTS provider; these ids are what the bot should pass to its own Azure Neural TTS
 // and to voiceLookup / postVoice so the clip cache keys match.
@@ -12,6 +13,23 @@ export const DEFAULT_TTS_VOICE = TTS_VOICES.find(v => v.default)?.id ?? TTS_VOIC
 export const DEFAULT_TTS_VOICE_SLUG = "ryan";
 export const VOICE_PREVIEW_BASE = "modules/ai-gm-bridge/assets/voice-preview";
 const ID = "ai-gm-bridge";
+export const DEFAULT_VOICE_VOLUME = 80;
+
+export function clampVoiceVolume(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return DEFAULT_VOICE_VOLUME;
+  return Math.max(0, Math.min(100, Math.round(v)));
+}
+
+export function readVoiceVolume(g = globalThis.game) {
+  let raw = DEFAULT_VOICE_VOLUME;
+  try {
+    const v = g?.settings?.get?.(ID, "voiceVolume");
+    if (v != null && v !== "") raw = v;
+  } catch {}
+  return clampVoiceVolume(raw) / 100;
+}
+
 
 export function listTtsVoices() {
   return TTS_VOICES.map(v => ({ ...v, slug: ttsVoiceSlug(v.id), preview: voicePreviewSrc(v.id) }));
@@ -84,7 +102,27 @@ export function pickAudioSrc(audio, slug, path) {
 }
 
 // Second AudioHelper argument is always false: play only on this client.
+export function playLocalVoice(src, { helper = globalThis.foundry?.audio?.AudioHelper, volume, text } = {}) {
+  if (!src) return null;
+  const vol = typeof volume === "number" && Number.isFinite(volume) ? volume : readVoiceVolume();
+  const spoken = captionText(text);
+  if (spoken) showVoiceCaption(spoken);
+  try {
+    const played = helper?.play?.({ src, volume: vol, autoplay: true, loop: false }, false);
+    if (spoken && played && typeof played.then === "function") {
+      Promise.resolve(played).then(sound => {
+        const hide = () => hideVoiceCaption();
+        sound?.addEventListener?.("end", hide);
+        setTimeout(hide, 30000);
+      }).catch(() => hideVoiceCaption());
+    }
+    return played;
+  } catch {
+    if (spoken) hideVoiceCaption();
+    return null;
+  }
+}
+
 export function playVoicePreview(raw, helper = globalThis.foundry?.audio?.AudioHelper) {
-  const src = voicePreviewSrc(raw);
-  try { return helper?.play?.({ src, volume: 0.8, autoplay: true, loop: false }, false); } catch { return null; }
+  return playLocalVoice(voicePreviewSrc(raw), { helper });
 }

@@ -21,7 +21,7 @@ export const CSS = `
 #aigm-audio-unlock{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:10000;padding:10px 18px;font-size:15px;font-weight:600;cursor:pointer;border-radius:8px;border:0;background:#1b5e20;color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.35)}
 .aigm-roll-btn{display:block;width:100%;margin-top:8px;padding:10px 16px;font-size:16px;font-weight:700;cursor:pointer;border-radius:8px}
 .aigm-rollreq[data-status="done"],.aigm-rollreq[data-status="cancelled"],.aigm-rollreq[data-status="expired"]{opacity:.7}
-.aigm-voice-replay{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin:0 6px 0 0;padding:0;border-radius:50%;cursor:pointer;font-size:11px;line-height:1;vertical-align:middle}
+.aigm-voice-replay{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;margin:0 6px 0 0;padding:0;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;vertical-align:middle}
 .aigm-voice-more{margin-left:6px;cursor:pointer;background:none;border:0;text-decoration:underline;color:inherit;font:inherit}
 .aigm-panel{padding:8px;display:flex;flex-direction:column;gap:10px}
 .aigm-panel-brand{display:flex;align-items:center;gap:10px;margin:0 0 2px}
@@ -38,6 +38,8 @@ export const CSS = `
 #aigm-sidebar-btn{cursor:pointer}
 details.aigm-advanced{margin:12px 0;padding:8px;border:1px solid rgba(255,255,255,.15);border-radius:6px}
 .aigm-config [data-aigm-voice-preview]{margin-left:8px}
+#aigm-voice-caption{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);z-index:9990;max-width:min(72vw,720px);padding:12px 22px;border-radius:10px;background:rgba(10,10,14,.78);color:#f4f1e8;font-size:28px;line-height:1.35;font-weight:650;text-align:center;pointer-events:none;text-shadow:0 1px 2px #000;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+#aigm-voice-caption[hidden]{display:none}
 details.aigm-advanced>summary{cursor:pointer;font-weight:600}
 [data-aigm-test-status][data-ok="1"]{color:#3c3}
 [data-aigm-test-status][data-ok="0"]{color:#e66}

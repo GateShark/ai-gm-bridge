@@ -85,6 +85,7 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | nextTurn / endCombat | expect: {combatId, round, turn} (copy `expect` from turnStatus). nextTurn: 400 if expect is missing, with the current combatant/round/turn in the error; 409 if stale, naming who is actually up |
 | scene | sceneId or sceneName, activate? |
 | music | playlist, sound?, action: play or stop |
+| setMood | mood: combat\|storm\|tavern\|explore\|tense\|calm\|none, fadeMs? (default 1500). GM-side only. Plays the mapped Foundry playlist and crossfades the previous one. Mapping is the world setting `moodPlaylists` (`combat=Playlist Name` lines). Unmapped moods match a playlist by name. If a mapped playlist is missing: 404, nothing plays. `none` fades out the current playlist. No music files are bundled |
 | unpause | none |
 | lockToken | tokenId or tokenName, sceneId?, locked, scope?: "move" (default; blocks player x/y/elevation/rotation) or "all" (blocks every player edit). GMs are never blocked |
 | upload | name (e.g. map.png), data (base64 or data: URL), kind?: images/audio/text. GM-only. Saved as `ai-gm-uploads/<kind>/<hash>-<name>`; the same bytes return the same path with existed:true and no re-upload. Limits come from settings: size (default 8 MB) and types (png, jpg, jpeg, webp, gif, mp3, ogg, wav, webm, txt, md, json). The content must match its extension. Errors: 403, 413, 415 |
@@ -105,7 +106,8 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 | start | none; unpauses Foundry, clears aiPaused, emits control `start` (wake). Same as panel Start game / api.startGame() |
 | pause | none; sets aiPaused, pauses Foundry, emits control `pause`. Queued non-control events are held (not dropped) until Start or Clear stuck. Same as panel Pause game / api.pauseGame() |
 | rollTable | tableId or tableName, displayChat? (default true). Draws a world RollTable |
-| giveLoot | tableId or tableName, plus actor/token or a selected token. Draws the table and adds Item results to that actor |
+| giveLoot | tableId or tableName or table, plus actor/token or a selected token. Draws the table and adds Item results (and silver text such as "12 silver") to that actor |
+| rollLoot | table? (name or id; default: a world or compendium table named Treasure, Loot, Plunder, or Cargo), count? (1–20, default 1), targets (same shapes as giveLoot), toChat?. Draws the table, puts items or silver (`system.silver`) on each target sheet, and posts a summary card. Reuses the giveLoot award helper |
 | applyDamage | amount (absolute), tokenIds? or actorIds? (default: selected tokens). Subtracts HP and clamps at 0 |
 | startShipCombat | tokenIds? (default: selected ship tokens, else every ship on the scene). Adds them to combat, starts it if needed, emits `shipCombat` |
 | shipStatus | none; ships on the viewed scene plus the in-memory crew-action counts for the current combat round |
@@ -148,7 +150,7 @@ This posts no chat messages and wakes no bot. It uses the world's debounce and c
 
 ## v0.8.0: morale and ships (Pirate Borg)
 Uses the pirateborg system's own outcome builders and chat card, without its crew-action dialog. Every command takes `toChat` (default true: post the system card; false: result only). Cards posted this way never wake the bot.
-- `moraleCheck {actorId|actorName?, morale?}`: system morale rule (2d6 ≤ morale stands, else 1d6: 1-3 flees, 4-6 surrenders). Morale comes from `morale` or the creature's sheet. → `{morale, total, second, result: "stands"|"flees"|"surrenders"}`
+- `moraleCheck {actorId|actorName?, tokenIds?|actorIds?, all?, morale?, reason?, markStatus?, toChat?}`: Pirate Borg morale. The official creature field is `system.attributes.morale` (see the pirateborg `template.json` creature). Rule (same as the system's `createMoraleOutcome`): 2d6 ≤ morale stands; else 1d6, 1-3 flees, 4-6 surrenders. Morale of `-` or none means the creature never breaks (`unbreakable: true`, result `stands`, no roll). `all: true` (or no specific target while combat is active) checks every living hostile in combat. Each creature gets a chat card (`toChat` default true; cards are marked so they never wake the bot). `markStatus` (default true) can set `fear` on flee and `restrained` on surrender. → `{results:[{actorId, name, morale, total, second, result, unbreakable, status}], reason, checked}` (a single target also copies those fields onto the top-level result).
 - `shipAction {actorId|actorName, action, crewActorId|crewActorName?, dr?, armor?, targetTokenId|targetTokenName?, movement?}`; action is one of broadsides, smallArms, ram, repair, fullSail, comeAbout, dropAnchor, weighAnchor, shanty, sink (aliases ok: "broadside", "full sail", "sing"). `crew` adds that PC's ability like the sheet's PC action. `armor` defaults to the target's own armor die (ship hull tier). Ram rolls ram die + movement (scaled by size). By default it matches the pirateborg system exactly: the target's armor is rolled and shown on the card but not subtracted. The GM world setting `ramUsesArmor` (house rule, default off) subtracts the armor roll. Shanty spends one use (409 when none). → `{action, title, total, dr, success, crit, fumble, damageFormula?, damage?, sinkResult?, shantiesLeft?}`
 - `shipDamage {actorId|actorName, amount | formula, armor?}`: subtracts the ship's hull armor die roll (unless `armor:false`), sets HP with the system's `updateHp`, never below 0. → `{rolled, armorDie, reduction, damage, before, after, sinking}`
 - `getShip {actorId|actorName}` → hp, hull + armorDie, agility, skill, speed, crew, shanties, cargo, weapons dice, captain, crewActors, sinking.
@@ -236,6 +238,7 @@ When Foundry combat starts (`combatStart`, or `updateCombat` reaching round 1) o
 { "eventId": "combat:<id>:start", "type": "combat", "state": "start", "combatId": "<id>", "sceneId": "<id>", "round": 1, "combatants": ["Hero", "Bilge Rat"], "roster": [{ "name": "Hero", "hp": 8, "max": 10, "isNPC": false, "owner": "Pat" }], "ownerWarning": "optional — pirate with no player owner" }
 ```
 `state` is `"start"` or `"end"` (`round` is the last round on end). Only the leader client (bot user, else the active GM) sends it, and the eventId is deduped, so each combat gives at most one start and one end. A combat deleted before it started sends no end.
+On end the same event is the combatEnded payload: it keeps `type: "combat"` (so existing bots keep working) and adds `combatEnded: true`, `defeated` (hostile combatants with HP at 0 or below), and `pcs` (player-owned combatants). Use those lists to call `giveLoot` / `rollLoot`. No second wake is sent.
 Use it to keep the bot awake during fights and let it sleep otherwise. Setting `combatEvents` (default on).
 Optional per-turn events: `turnWake` (default on since v0.8.11) sends `{type:"turn", combat:{id,round,turn}, combatant, isNPC}` on NPC/monster turn changes, without debounce. Player-character turns never send this event.
 
@@ -347,3 +350,35 @@ Turn prompts say "Your turn" out loud by default (`voiceTurnPrompt`). Push-to-ta
 Each player picks Ryan, Thomas, Sonia, or Aria (`ttsVoice`, client setting). The dropdown Play sample (and a selection change) plays `assets/voice-preview/voice-<slug>.mp3` only on that computer. The pick is mirrored to `flags['ai-gm-bridge'].gmVoice`. `voicePrefs` returns everyone's slug (`ryan` if unset).
 
 `postVoice` / `playAudio` accept `audio: { ryan, thomas, sonia, aria }`. Each client plays their slug and falls back to Ryan. Register Your-turn files with `registerTurnClips` as `turn-<name>-<voice>.mp3` (example: upload `turn-tempus-thomas.mp3`, then `registerTurnClips { clips: [{ audioPath }] }`). Fallback: PC+chosen, generic+chosen, PC+Ryan, generic+Ryan, text only. No browser speech synthesis. "pulled up behind" is corrected to "ducked behind".
+
+## v0.8.19: replay, volume, captions, mood, morale, loot
+Voiced chat lines already show a ▶ replay button (since 0.8.8). It now plays that listener's chosen recorded voice (`flags['ai-gm-bridge'].audio` map, same fallback as live playback) on their computer only (`AudioHelper.play(..., false)` via the local audio queue, id `replay:<src>:<now>`). Replay does not post chat and does not wake the bot.
+
+`voiceVolume` is a per-player client setting (Basic page, 0–100, default 80). It applies to GM voice, dropdown previews, and Your-turn clips, and is independent of Foundry's playlist/music/ambience volume. `voiceCaptions` (client, default off) shows a large caption of the current spoken line near the bottom of the screen while the clip plays and clears it when the clip ends.
+
+```json
+{ "name": "setMood", "args": { "mood": "storm", "fadeMs": 1500 } }
+```
+
+`moodPlaylists` example:
+```
+combat=Battle
+storm=Storm at Sea
+tavern=The Salty Den
+explore=Open Water
+tense=Something's Wrong
+calm=Safe Harbor
+```
+
+`moralePrompt` (urgent, auto-acked in relay like `pcDown`) when the first enemy dies or half the enemies are down:
+```json
+{ "eventId": "moraleprompt:<combatId>:firstEnemyDown", "type": "moralePrompt", "reason": "firstEnemyDown", "reasons": ["firstEnemyDown"], "combatId": "…", "round": 2, "down": 1, "total": 4, "enemies": [{ "name": "Skeleton", "actorId": "…", "hp": 0 }] }
+```
+This is a wake only — call `moraleCheck` yourself if you want rolls. Setting `moralePrompts` (default on).
+
+```json
+{ "name": "moraleCheck", "args": { "all": true, "reason": "firstEnemyDown" } }
+{ "name": "rollLoot", "args": { "table": "Treasure", "count": 1, "actorName": "Tempus" } }
+```
+
+`rollLoot` looks up a RollTable by name or id in the world, then in compendium packs (including the official `pirateborg.rolls-gamemaster` and `pirateborg.rolls-ships` packs). If you omit `table`, it picks a table named Treasure, Loot, Plunder, or Cargo. The official system pack ships GM tables such as Mystical Mishaps, Reaction, and Broken; a dedicated treasure table may live in the world or another module. Drawn item documents go on the sheet; text matching `N silver` / `NdX silver` is added to `system.silver`.
