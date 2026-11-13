@@ -3,7 +3,7 @@
 // last confirmed nonce on the bot's own page). Local heartbeats are not enough.
 import { formatOfflineLabel, isLinkFresh } from "./presence.mjs";
 export const STATUS_ID = "aigm-gm-status";
-export const STATUS_STATES = ["listening", "asleep", "waking", "reading", "thinking", "rolling", "voicing", "speaking", "paused", "offline"];
+export const STATUS_STATES = ["listening", "asleep", "waking", "reading", "thinking", "rolling", "voicing", "speaking", "paused", "reconnecting", "offline"];
 export const ACTIVITY_STATES = ["asleep", "waking", "reading", "thinking", "rolling", "voicing", "speaking"];
 export const STATUS_ALIASES = {
   idle: "listening", ready: "listening", listen: "listening", listening: "listening",
@@ -15,6 +15,7 @@ export const STATUS_ALIASES = {
   voice: "voicing", voicing: "voicing", sendingvoice: "voicing", tts: "voicing",
   speak: "speaking", speaking: "speaking",
   pause: "paused", paused: "paused",
+  reconnecting: "reconnecting", reconnect: "reconnecting",
   offline: "offline"
 };
 export function normalizeGmStatus(raw) {
@@ -77,6 +78,7 @@ export class GmStatusPill {
       voicing: this.t("AIGM.status.voicing", "GM is sending a voice message…"),
       speaking: this.t("AIGM.status.speaking", "GM speaking"),
       paused: this.t("AIGM.status.paused", "GM paused"),
+      reconnecting: this.t("AIGM.status.reconnecting", "AI GM reconnecting…"),
       offline: this.t("AIGM.status.offline", "AI GM offline")
     };
   }
@@ -100,6 +102,7 @@ export class GmStatusPill {
     if (now !== undefined) this.now = now;
     if (since !== undefined) this.since = since;
     if (note !== undefined) this.note = note;
+    if (arguments[1] && "notified" in arguments[1]) this.notified = !!arguments[1].notified;
     if (!this.el) this.mount();
     this._paint(); return this.state;
   }
@@ -109,7 +112,7 @@ export class GmStatusPill {
     el.dataset.state = this.state;
     const clock = this.now ?? Date.now();
     let text = this.state === "offline"
-      ? formatOfflineLabel(this.lastSeen, clock, this.t)
+      ? (this.notified ? this.t("AIGM.status.offlineHost", "AI GM offline, host notified") : formatOfflineLabel(this.lastSeen, clock, this.t))
       : (labels[this.state] || this.state);
     if (ACTIVITY_STATES.includes(this.state)) {
       const elapsed = formatElapsed(this.since, clock);

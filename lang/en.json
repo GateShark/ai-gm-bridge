@@ -216,6 +216,23 @@
       "moralePrompts": {
         "name": "Morale prompts",
         "hint": "Wake the bot with a moralePrompt event when the first enemy dies or half the enemies are down. The module does not roll morale by itself."
+      },
+      "captionFont": {
+        "name": "Caption font",
+        "hint": "Font for the big captions, on this computer only. Only fonts that Foundry or the game system already include are listed, so nothing is downloaded. The preview below the list shows how it looks.",
+        "default": "Default"
+      },
+      "voiceOtherTurns": {
+        "name": "Hear ally and enemy turns",
+        "hint": "When on, you hear a short recorded \"<name> is up\" in your chosen GM voice when an ally or enemy starts its turn. This computer only."
+      },
+      "moraleAuto": {
+        "name": "Roll morale right away",
+        "hint": "When the first enemy falls or half the enemies are down, roll morale for the living enemies at once (one card each, once per trigger), before the next enemy acts. The bot gets the results. Off = send the prompt only."
+      },
+      "offlineNotifyAfterMs": {
+        "name": "Offline notice after (ms)",
+        "hint": "How long the AI GM can be unreachable before players see \"AI GM offline, host notified\" instead of \"reconnecting\". Default 180000 (3 minutes)."
       }
     },
     "audio": {
@@ -242,7 +259,11 @@
       "reading": "GM reading",
       "rolling": "GM requesting a roll",
       "voicing": "GM is sending a voice message…",
-      "speaking": "GM speaking"
+      "speaking": "GM speaking",
+      "reconnecting": "AI GM reconnecting…",
+      "reconnectingSaved": "AI GM reconnecting, your message is saved.",
+      "offlineNotified": "AI GM offline, the host has been notified. Your message is saved.",
+      "offlineHost": "AI GM offline, host notified"
     },
     "voice": {
       "replay": "Replay",

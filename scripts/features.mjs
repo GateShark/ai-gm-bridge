@@ -1,7 +1,7 @@
 // v0.6 runtime features: requestRoll, turn prompts, session log, Pirate Borg rest, speakBubble.
 // Deps are injected by main.mjs via initFeatures() so commands.mjs and tests can use them.
 import { ok, fail } from "./lib/result.mjs";
-import { normStat, formulaFor, normalizeFormula, evaluate, evaluateFormula, reqFormula, canClick, reqIdFrom, cardHtml, matchRoll, naturalOf, d20Of, rollBreakdown, rollsOf, isOpen } from "./lib/rollreq.mjs";
+import { normStat, formulaFor, normalizeFormula, evaluate, evaluateFormula, reqFormula, canClick, reqIdFrom, cardHtml, matchRoll, naturalOf, d20Of, rollBreakdown, rollsOf, isOpen, judgeWithBonus, bonusText, standingBonus, normBonus, findNearDuplicate } from "./lib/rollreq.mjs";
 import { turnInfo, turnText, voiceUsersFrom, turnVoiceUserIds } from "./lib/turns.mjs";
 import { resolveReplyTo, priorRollReply, recordRollReply } from "./lib/replies.mjs";
 import { actorChanges, lineHtml, parseLines, recap as recapLines, TRACKED, stamp } from "./lib/sessionlog.mjs";
@@ -10,10 +10,14 @@ import { createDownTracker } from "./lib/pcdown.mjs";
 import { sceneTokens } from "./lib/gmpanel.mjs";
 import { pickAudioSrc, localVoiceSlug, playLocalVoice } from "./lib/voices.mjs";
 import { createMoralePromptTracker } from "./lib/moraleprompt.mjs";
+import { combatantSide } from "./lib/morale.mjs";
+import { upSpoken } from "./lib/turnclips.mjs";
 
 const ID = "ai-gm-bridge"; const SOCKET = `module.${ID}`;
-const D = { emit: () => {}, get: () => undefined, voice: () => null, turnClip: () => null, turnAudio: () => ({}), amLeader: () => true, log: () => {} };
+const D = { emit: () => {}, get: () => undefined, voice: () => null, turnClip: () => null, turnAudio: () => ({}), upAudio: () => ({}), amLeader: () => true, log: () => {} };
 export function initFeatures(deps) { Object.assign(D, deps); }
+// 0.8.20: read the live store (main.mjs replaces it on restart/leader change; a copy taken at ready was null).
+const dedupeStore = () => (typeof D.dedupeOf === "function" ? D.dedupeOf() : null) ?? D.dedupe ?? null;
 const strip = (s) => String(s ?? "").replace(/<[^>]+>/g, "").trim();
 const findUser = (u) => game.users.get(u) ?? game.users.find(x => x.name?.toLowerCase() === String(u ?? "").toLowerCase()) ?? null;
 
@@ -34,9 +38,11 @@ export async function requestRoll(a) {
   const id = reqIdFrom(a.requestId, foundry.utils.randomID()); // idempotent: same requestId returns the existing card/result
   const prior = reqMessages().find(m => m.flags[ID].rollRequest.id === id);
   if (prior) { const r = prior.flags[ID].rollRequest; return ok({ requestId: id, messageId: prior.id, status: r.status, result: r.result ?? null, duplicate: true }); }
+  // 0.8.20 #1/#9: only an explicit replyTo locks the roll slot; one guessed from the last wake does not.
   const replyTo = resolveReplyTo(a.replyTo);
-  if (replyTo) {
-    const locked = priorRollReply(D.dedupe, replyTo);
+  const lockable = replyTo && a._replyInferred !== true;
+  if (lockable) {
+    const locked = priorRollReply(dedupeStore(), replyTo);
     if (locked && (locked.s === "acked" || locked.s === "sent")) {
       const hit = reqMessages().find(m => m.flags[ID].rollRequest.id === locked.requestId) ?? reqMessages().find(m => m.id === locked.messageId);
       if (hit) {
@@ -56,16 +62,39 @@ export async function requestRoll(a) {
   const user = findUser(a.user); if (!user) return fail("NOT_FOUND", `user ${a.user} not found`);
   const actor = (a.actorId && game.actors.get(a.actorId)) || (a.actorName && game.actors.getName(a.actorName)) || user.character;
   if (!actor) return fail("NOT_FOUND", "no actor (pass actorId/actorName or give the user a character)");
-  const twin = existingOpenRequest(pendingRequests(), { userId: user.id, actorId: actor.id, formula, stat, label: a.label ?? "" });
+  const combatId = a.combatId || game.combat?.id || null;
+  const live = combatId && game.combat?.id === combatId && game.combat?.started ? game.combat : null;
+  const want = { userId: user.id, actorId: actor.id, formula, stat, label: a.label ?? "", dr: a.dr ?? null, ...(a.rollKey ? { rollKey: String(a.rollKey) } : {}),
+    ...(combatId ? { combatId } : {}), ...(live ? { round: live.round, turn: live.turn } : {}) };
+  // 0.8.20 #15: one card per attack. Exact twins (0.8.17) and near-identical requests (same test + DR in the same
+  // combat turn, or the same rollKey) reuse the open card. allowDuplicate:true forces a second card.
+  const twin = a.allowDuplicate === true ? null : (existingOpenRequest(pendingRequests(), want) ?? findNearDuplicate(pendingRequests(), want));
   if (twin) return ok({ requestId: twin.id, messageId: twin.messageId, status: twin.status, result: twin.result ?? null, duplicate: true, ...(twin.timeoutAt ? { timeoutAt: twin.timeoutAt } : {}), ...(twin.combatId ? { combatId: twin.combatId } : {}) });
   const timeoutMs = Math.max(5000, a.timeoutMs ?? D.get("rollRequestTimeoutMs") ?? 120000);
-  const combatId = a.combatId || game.combat?.id || null;
+  const standing = a.bonus == null ? standingBonus(D.get("rollBonuses"), { actorId: actor.id, userId: user.id }) : null;
+  const bonus = a.bonus != null ? normBonus(a.bonus) : (standing?.bonus ?? 0);
+  const bonusLabel = a.bonus != null ? (a.bonusLabel ?? "") : (standing?.label ?? "");
   const req = { id, userId: user.id, userName: user.name, actorId: actor.id, actorName: actor.name, stat, ...(formula ? { formula } : {}), dr: a.dr ?? null, label: a.label ?? "", status: "pending", at: Date.now(), timeoutAt: Date.now() + timeoutMs,
-    expireAt: Date.now() + timeoutMs + Math.max(0, a.expireAfterMs ?? D.get("rollRequestExpireMs") ?? 600000), ...(combatId ? { combatId } : {}) };
+    expireAt: Date.now() + timeoutMs + Math.max(0, a.expireAfterMs ?? D.get("rollRequestExpireMs") ?? 600000), ...(combatId ? { combatId } : {}),
+    ...(live ? { round: live.round, turn: live.turn } : {}), ...(want.rollKey ? { rollKey: want.rollKey } : {}), ...(bonus ? { bonus, ...(bonusLabel ? { bonusLabel } : {}) } : {}) };
   const msg = await ChatMessage.create({ content: cardHtml(req), speaker: { alias: D.get("speakerAlias") || "AI GM" }, flags: { [ID]: { local: true, rollRequest: req } } });
   armTimeout(req, msg.id);
-  if (replyTo) recordRollReply(D.dedupe, replyTo, id, msg.id, Date.now());
+  if (lockable) recordRollReply(dedupeStore(), replyTo, id, msg.id, Date.now());
   return ok({ requestId: id, messageId: msg.id, status: "pending", timeoutAt: req.timeoutAt, ...(combatId ? { combatId } : {}) });
+}
+// 0.8.20 #13: standing roll bonus per actor (or user). bonus 0 clears it. Stored in the world setting rollBonuses.
+export async function setRollBonus(a = {}) {
+  const user = a.user ? findUser(a.user) : null;
+  if (a.user && !user) return fail("NOT_FOUND", `user ${a.user} not found`);
+  const actor = (a.actorId && game.actors.get(a.actorId)) || (a.actorName && game.actors.getName(a.actorName)) || null;
+  if ((a.actorId || a.actorName) && !actor) return fail("NOT_FOUND", "actor not found");
+  if (!actor && !user) return fail("BAD_ARGS", "actorId, actorName, or user is required");
+  const key = actor ? `actor:${actor.id}` : `user:${user.id}`;
+  const map = { ...(D.get("rollBonuses") || {}) };
+  const bonus = normBonus(a.bonus);
+  if (bonus) map[key] = { bonus, label: a.label ? String(a.label).slice(0, 40) : "" }; else delete map[key];
+  await game.settings.set(ID, "rollBonuses", map);
+  return ok({ key, bonus, label: map[key]?.label ?? "", bonuses: map });
 }
 // pending -> (timeoutAt) timeout: GM fallback button + rollTimeout event -> (expireAt) expired: no longer answerable.
 function armTimeout(req, messageId) {
@@ -87,11 +116,12 @@ export async function onRollMessage(msg) {
   const roll = req.formula ? (rollsOf(msg)[0]?.roll ?? d20Of(msg)) : d20Of(msg);
   const result = req.formula ? evaluateFormula({ total: roll.total, natural: naturalOf(roll), dr: req.dr }) : evaluate({ total: roll.total, natural: naturalOf(roll), dr: req.dr });
   const bd = rollBreakdown(roll); if (bd) Object.assign(result, { breakdown: bd.text, dice: bd.dice, modifier: bd.modifier }); // v0.8.6
+  Object.assign(result, judgeWithBonus(result, req)); // 0.8.20 #13
   const via = msg.flags?.[ID]?.rollRequestId ? "button" : msg.flags?.pirateborg?.outcomes ? "sheet roll" : "roll";
   const done = { ...req, status: "done", result, rollMessageId: msg.id, answeredBy: `${via} by ${(typeof by === "object" ? by?.name : game.users.get(by)?.name) ?? "?"}` }; delete done.messageId;
   clearTimeout(timers.get(req.id));
   const card = game.messages.get(req.messageId); if (card) await card.update({ content: cardHtml(done), [`flags.${ID}.rollRequest`]: done });
-  if (D.get("rollAnswerNote") !== false) await ChatMessage.create({ content: `<small>↳ answers ${req.label || req.formula || req.stat}${req.dr != null ? ` DR ${req.dr}` : ""} for ${req.actorName}: ${result.breakdown ?? result.total}${result.success === null ? "" : result.success ? " success" : " fail"}</small>`,
+  if (D.get("rollAnswerNote") !== false) await ChatMessage.create({ content: `<small>↳ answers ${req.label || req.formula || req.stat}${req.dr != null ? ` DR ${req.dr}` : ""} for ${req.actorName}: ${result.breakdown ?? result.total}${bonusText(result)}${result.success === null ? "" : result.success ? " success" : " fail"}</small>`,
     speaker: { alias: D.get("speakerAlias") || "AI GM" }, flags: { [ID]: { local: true, rollAnswer: req.id } } });
   D.emit({ eventId: `rollreq:${req.id}`, type: "rollResult", requestId: req.id, actor: req.actorName, user: req.userName, by: (typeof by === "object" ? by?.name : game.users.get(by)?.name) ?? null,
     via, stat: req.stat, ...(req.formula ? { formula: req.formula, label: req.label || null } : {}), dr: req.dr, ...result, success: result.success === true, crit: result.crit === true, fumble: result.fumble === true, ...(req.formula && result.success === null ? { success: null } : {}) }, { urgent: true });
@@ -189,7 +219,7 @@ export async function turnPrompt(combat) {
   const t = turnStatus(combat); if (!t) return null;
   const key = `${t.round}.${t.turn}`; if (lastPrompt.get(combat.id) === key) return null; lastPrompt.set(combat.id, key);
   await ChatMessage.create({ content: turnText(t), speaker: { alias: D.get("speakerAlias") || "AI GM" }, flags: { [ID]: { local: true, turnPrompt: key } } });
-  if (!t.ownerIds.length) return t;
+  if (!t.ownerIds.length) { upPrompt(t, combat); return t; }
   const spoken = t.name ? `Your turn: ${t.name}.` : "Your turn.";
   const audio = D.turnAudio(t.name) || {};
   const clip = audio.ryan || D.voice(spoken) || null;
@@ -201,6 +231,32 @@ export async function turnPrompt(combat) {
     }) };
   game.socket.emit(SOCKET, ping); onTurnPing(ping);
   return t;
+}
+// 0.8.20 #5: ally/enemy turns. Every player hears "<name> is up" in their own chosen recorded voice (zero wakes,
+// no browser speech). voiceOtherTurns (client, default on) lets a player turn it off for themselves.
+export function upPrompt(t, combat = game.combat) {
+  if (!t?.name || D.get("voiceTurnPrompt") === false) return null;
+  const side = combatantSide(combat?.combatant, game.users?.contents ?? []);
+  const audio = D.upAudio(t.name, side === "ally" ? "ally" : "enemy") || {};
+  if (!Object.keys(audio).length) return null;
+  const ping = { type: "upPing", id: `up:${t.combatId}:${t.round}.${t.turn}`, name: t.name, side, text: upSpoken(t.name), audio };
+  try { game.socket.emit(SOCKET, ping); } catch {}
+  onUpPing(ping);
+  return ping;
+}
+export function shouldHearUp(p, { user, isBot = false, enabled = true } = {}) {
+  if (!p || p.type !== "upPing" || !enabled || isBot) return false;
+  if (!user) return false;
+  return true;
+}
+export function onUpPing(p) {
+  let enabled = true; try { enabled = game.settings.get(ID, "voiceOtherTurns") !== false; } catch {}
+  if (!shouldHearUp(p, { user: game.user, isBot: D.isBot?.(game.user) === true, enabled })) return false;
+  const src = pickAudioSrc(p.audio, localVoiceSlug(), null);
+  if (!src) return false;
+  if (typeof D.queueClip === "function") D.queueClip(p.id, { src, text: p.text });
+  else playLocalVoice(src, { text: p.text });
+  return true;
 }
 export function onTurnPing(p) {
   if (!p.userIds?.includes(game.user.id)) return;
@@ -233,10 +289,23 @@ export function onActorUpdate(actor, change) {
   const ev = downs.observe(actor, { users, token: actor?.token ?? null, combat });
   if (ev) D.emit(ev, { urgent: true });
   const prompt = moralePrompts.observe(actor, { users, combat, enabled: D.get("moralePrompts") !== false });
-  if (prompt) D.emit(prompt, { urgent: true });
+  if (prompt) handleMoralePrompt(prompt);
   const before = snap.get(actor.id); snap.set(actor.id, pick(actor)); if (!before) return;
   const hpPath = foundry.utils.getProperty(actor, "system.attributes.hp") ? undefined : D.get("hpPath");
   for (const c of actorChanges(actor.name, before, pick(actor), { extraLabel: actor.extraResourceNamePlural || "", hpPath })) logLine(c.kind, c.text);
+}
+// 0.8.20 #2: with moraleAuto (default on) the leader rolls morale for the living enemies right away, so the result
+// is on the table before the next enemy turn. The moralePrompt event then carries resolved:true and the results;
+// the bot should narrate them and not roll again (a repeat moraleCheck returns duplicate:true and posts nothing).
+export function handleMoralePrompt(prompt) {
+  if (D.get("moraleAuto") === false || typeof D.runMorale !== "function") { D.emit(prompt, { urgent: true }); return null; }
+  let job;
+  try { job = Promise.resolve(D.runMorale(prompt)); } catch (e) { job = Promise.resolve({ ok: false, error: e?.message }); }
+  return job.then((r) => {
+    const results = r?.ok ? (r.result?.results ?? []).map(x => ({ name: x.name ?? null, tokenId: x.tokenId ?? null, result: x.result ?? null, total: x.total ?? null, morale: x.morale ?? null, status: x.status ?? null, ...(x.ok === false ? { error: x.error } : {}) })) : [];
+    D.emit({ ...prompt, resolved: !!r?.ok, ...(r?.ok ? { results, duplicate: !!r.result?.duplicate } : { error: r?.error ?? "morale check failed" }) }, { urgent: true });
+    return r;
+  }).catch(() => { D.emit(prompt, { urgent: true }); return null; });
 }
 export function onItemCreate(item) { const a = item.parent; if (a?.documentName === "Actor" && item.type !== "class") logLine("item", `${a.name} gained ${item.name}`); }
 export function onCombatUpdate(c, change) {

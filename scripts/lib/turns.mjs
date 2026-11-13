@@ -23,15 +23,44 @@ export function combatantOwners(combatant, users = []) {
 }
 // Same rule for turn events and turnStatus: Foundry's combatant.isNPC, then hasPlayerOwner /
 // character type / listed players (unlinked token actors often fail testUserPermission).
+// 0.8.20 #12: Foundry's isNPC=true is not final. An unlinked PC token (or a PC whose player is only assigned as
+// user.character, without OWNER) reads isNPC=true, which marked Tempus as an NPC. A combatant is a PC when any of:
+// Foundry says isNPC=false, it or its token/base actor has a player owner, it lists players, a user (active or not)
+// has it as their character, or an active non-GM user owns it.
+function baseActorOf(combatant) {
+  const id = combatant?.actorId ?? combatant?.token?.actorId ?? combatantActor(combatant)?.id ?? null;
+  try { return id ? (globalThis.game?.actors?.get?.(id) ?? null) : null; } catch { return null; }
+}
+export function isAssignedCharacter(actor, users = [], baseId = null) {
+  const ids = new Set([actor?.id, baseId].filter(Boolean));
+  if (!ids.size) return false;
+  for (const u of users ?? []) {
+    if (!u || u.isGM) continue;
+    const c = u.character; const cid = typeof c === "string" ? c : c?.id;
+    if (cid && ids.has(cid)) return true;
+  }
+  return false;
+}
+// Any non-GM user (logged in or not) with OWNER on the token actor or the base actor.
+export function hasAnyPlayerOwner(actor, base, users = []) {
+  for (const u of users ?? []) {
+    if (!u || u.isGM) continue;
+    try { if (actor?.testUserPermission?.(u, "OWNER") || base?.testUserPermission?.(u, "OWNER")) return true; } catch {}
+  }
+  return false;
+}
 export function combatantIsNpc(combatant, users = []) {
   if (!combatant) return true;
-  if (typeof combatant.isNPC === "boolean") return combatant.isNPC;
+  if (combatant.isNPC === false) return false;
   const actor = combatantActor(combatant);
   const token = combatant.token;
-  if (actor?.hasPlayerOwner || token?.hasPlayerOwner || combatant.hasPlayerOwner) return false;
-  if ((combatant.players ?? []).length) return false;
+  const base = baseActorOf(combatant);
+  if (actor?.hasPlayerOwner || token?.hasPlayerOwner || combatant.hasPlayerOwner || base?.hasPlayerOwner) return false;
+  if ((combatant.players ?? []).some(p => p && !p.isGM)) return false;
+  if (isAssignedCharacter(actor, users, base?.id ?? combatant.actorId ?? null)) return false;
+  if (combatantOwners(combatant, users).length || hasAnyPlayerOwner(actor, base, users)) return false;
+  if (combatant.isNPC === true) return true;
   if (actor?.type === "character") return false;
-  if (combatantOwners(combatant, users).length) return false;
   return true;
 }
 export function shouldWakeOnTurn(combat, turnWake, users = []) {

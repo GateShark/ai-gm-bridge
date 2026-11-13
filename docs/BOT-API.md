@@ -122,7 +122,7 @@ Every command returns `{"ok":true,"result":{...}}` or `{"ok":false,"code":<http-
 
 Usage tip: upload a file once, then refer to its returned `path` (for example in `playAudio` or `postVoice`). Pass a `spawnKey` so a retried command never places a second token.
 
-`replyTo` stops duplicate replies: a second `post` / `postVoice` / `whisper` with the same `replyTo` returns the first message. If you omit `replyTo`, the module uses the most recent player wake id (about 3 minutes). `requestRoll` uses a separate `roll:` lock so you can still request a roll and later post damage for the same event. Always pass `replyTo` when you have it, and do not run a second handler for the same event.
+`replyTo` stops duplicate replies: a second `post` / `postVoice` / `whisper` with the same explicit `replyTo` returns the first message. Since 0.8.20 an omitted `replyTo` no longer takes the reply lock (it only catches the exact same text within 20 s), and out-of-character lines (`ooc: true`) never take it. `requestRoll` uses a separate `roll:` lock so you can still request a roll and later post damage for the same event. Always pass `replyTo` when you have it, and do not run a second handler for the same event.
 
 ## Example
 `examples/echo-gm.mjs` is a working bot of about 50 lines: `AIGM_WEBHOOK_AUTH=change-me node examples/echo-gm.mjs`.
@@ -338,7 +338,7 @@ Session recap (`saveSession` / `loadSession` / panel) lists only player characte
 ## v0.8.17: faster roll wakes, one reply per event, player-visible GM status
 Module-side latency: ability-test rolls (d20 / `@abilities.*`, including Pirate Borg sheet outcomes) wake immediately (`urgent: true`) even when "Ignore plain rolls" is on. Damage dice stay filtered. `rollResult` was already urgent and is auto-acked in relay mode, so the ~57s delay seen in play is not the module debounce (1.2s), max wait (3.5s), or first outbox retry (2s). **GM side:** treat `rollResult` as an immediate wake (do not wait for a 20s unanswered/AWAKE fallback), and do not start a second handler for the same event.
 
-Single-responder: pass `replyTo` on `post` / `postVoice` / `whisper` / `requestRoll`. If you omit it, the module locks to the latest wake id for about three minutes. Two open `requestRoll` cards for the same user+actor+formula/stat+label are collapsed to one. `cancelRoll` finds a card by `requestId`, `messageId`, or actor/label/user, and also cancels matching sibling cards.
+Single-responder: pass `replyTo` on `post` / `postVoice` / `whisper` / `requestRoll`. If you omit it, nothing is locked (0.8.20; previously the latest wake id for about three minutes). Two open `requestRoll` cards for the same user+actor+formula/stat+label are collapsed to one. `cancelRoll` finds a card by `requestId`, `messageId`, or actor/label/user, and also cancels matching sibling cards.
 
 Player-visible status (all clients, small pill, optional elapsed seconds): see `setGmStatus` above. Call `{ "name": "setGmStatus", "args": { "state": "thinking" } }` when you start writing a reply, and `{ "state": "voicing" }` when you start TTS. The module handles waking/reading/rolling/speaking/offline itself.
 
@@ -382,3 +382,33 @@ This is a wake only — call `moraleCheck` yourself if you want rolls. Setting `
 ```
 
 `rollLoot` looks up a RollTable by name or id in the world, then in compendium packs (including the official `pirateborg.rolls-gamemaster` and `pirateborg.rolls-ships` packs). If you omit `table`, it picks a table named Treasure, Loot, Plunder, or Cargo. The official system pack ships GM tables such as Mystical Mishaps, Reaction, and Broken; a dedicated treasure table may live in the world or another module. Drawn item documents go on the sheet; text matching `N silver` / `NdX silver` is added to `system.silver`.
+
+## v0.8.20: reply dedupe, morale timing, turn clips, scene lock, roll bonuses
+**Reply dedupe.** `post` / `postVoice` / `whisper` accept `ooc?` and `allowMultiple?`. Rules:
+- Explicit `replyTo` (not OOC): one reply per event; a later line with the same `replyTo` returns the first `messageId` with `duplicate: true`.
+- Any `replyTo` (explicit or guessed from the last wake): the same text within 20 s is a repeat (`duplicate: true`).
+- A guessed `replyTo` never takes the reply slot, so combat start, enemy turns, loot and short OOC lines always post.
+- OOC (`ooc: true`, or text starting with `((`, `[ooc]`, `ooc:`, `(ooc)`) never takes or uses the reply slot and never answers a pending roll.
+- `allowMultiple: true` skips the checks.
+
+The audio queue id of a voiced line is its chat message id (`voice:<messageId>:<src>`), never `replyTo`. Chat commands (`post`, `postVoice`, `whisper`, `requestRoll`) run one at a time in the order received, so narration sent first stays above the roll card. Voice messages carry a hidden `<audio class="aigm-voice-src">` (no seek bar); ▶ replay plays the listener's chosen voice.
+
+**Morale.**
+```json
+{ "name": "moraleCheck", "args": { "all": true, "trigger": "moraleprompt:<combatId>:firstEnemyDown" } }
+{ "name": "setSide", "args": { "tokenName": "Harrow", "side": "ally" } }
+```
+- `trigger?` and `force?` are new. A repeat with the same `trigger`, or the same living target tokens in the same combat, returns the first `{results}` with `duplicate: true` and posts nothing. `force: true` rolls again.
+- `all: true` uses the combatant list: living enemies of the PCs, one entry per token (`tokenId`), excluding PCs, pets and allies. Side order: `flags.ai-gm-bridge.side` (`setSide`), player character, pet, character-type NPC, friendly disposition, else enemy.
+- `moraleAuto` (world, default on): the module runs `moraleCheck {all: true, trigger: <eventId>}` itself, then emits `moralePrompt` with `resolved: true` and `results`. Do not call `moraleCheck` again for a resolved prompt (if you do, it returns `duplicate: true`). With `moraleAuto` off the prompt is a wake only, as in 0.8.19.
+- `nextTurn` waits up to 8 s for a running morale check in that combat.
+
+**Ally/enemy turn clips.** On a turn with no player owner, every player (not the bot user) gets a local `upPing` and hears `up-<name>-<voice>.mp3` in their chosen voice, else `up-enemy-*` / `up-ally-*` / `up-generic-*`, else Ryan, else the bundled `modules/ai-gm-bridge/assets/turn-up/up-{enemy,ally,generic}-{ryan,thomas,sonia,aria}.mp3`. Register named clips with `registerTurnClips` (file names starting `up-`; a name-only `up-harrow.mp3` is Ryan). Client toggle `voiceOtherTurns` (default on).
+
+**Scene/token lock.** Scene and token writes run one at a time per world. `createScene {name, buildKey?, width?, height?, grid?, src?, padding?, activate?}` returns the existing scene for the same `buildKey` (`duplicate: true`). `spawnAndVision` accepts `unique: true` (reuse an existing token of that actor) and `spawnKey`. Page scripts: `game.modules.get("ai-gm-bridge").api.withSceneLock(async () => { ... })`.
+
+**Rolls.** `requestRoll` accepts `bonus?`, `bonusLabel?`, `rollKey?`, `allowDuplicate?`. `setRollBonus {actorId|actorName|user, bonus, label?}` stores a standing bonus (`bonus: 0` clears it). The card judges `finalTotal = total + bonus` against DR; `rollResult.total` stays the raw roll, plus `bonus` and `finalTotal`. A natural 1 fails and a natural 20 succeeds. A near-identical request reuses the open card (`duplicate: true`): same user and actor and test, and the same `rollKey` (decisive when given), or the same label, or the same DR in the same combat round/turn (outside combat: within 90 s). Pass a distinct `rollKey` per attack, or `allowDuplicate: true` for a genuinely second roll.
+
+**Status.** After a missed heartbeat the pill shows **AI GM reconnecting** (a player who posts sees "your message is saved"), then after `offlineNotifyAfterMs` (default 180000) **AI GM offline, host notified**. This only reads the existing heartbeat; the actual notice to the host comes from your own watchdog.
+
+**Other.** `turnStatus` counts player-owned (including inactive players) or assigned characters as PCs even on unlinked tokens with `isNPC = true`. Speech-to-text corrects "Crock-Pot" to "Grok Bot". New settings: `captionFont`, `voiceOtherTurns` (client), `moraleAuto`, `offlineNotifyAfterMs` (Advanced), `rollBonuses`, `moodState` (hidden). After combat, mood returns to the saved mood, else the last calm mood, else `calm`.

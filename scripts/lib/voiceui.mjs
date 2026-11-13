@@ -26,14 +26,36 @@ export function replayId(src, now = Date.now()) {
   return `replay:${src}:${now}`;
 }
 
-export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, collapseAt = VOICE_COLLAPSE_CHARS, esc = defaultEsc } = {}) {
+// 0.8.20 #6: which file the ▶ button plays, decided at click time so a voice change applies at once:
+// the message's per-voice map in the player's voice, then the shared voice cache for this text in that voice,
+// then the map's Ryan entry, then the file in the message.
+export function replaySrc(msg, { slug = localVoiceSlug(), fallback = null, cacheLookup = null } = {}) {
+  const map = msg?.flags?.["ai-gm-bridge"]?.audio;
+  const own = map && typeof map === "object" ? map[slug] : null;
+  if (typeof own === "string" && own) return own;
+  if (typeof cacheLookup === "function") { try { const hit = cacheLookup(plainVoiceText(msg?.content), slug); if (hit) return hit; } catch {} }
+  return pickAudioSrc(map, slug, fallback) || fallback || null;
+}
+// Hide the browser's own player (its seek bar played the GM-side file, usually Ryan). Works on old messages too.
+export function hideNativeAudio(audio) {
+  if (!audio) return false;
+  try { audio.removeAttribute?.("controls"); } catch {}
+  try { audio.controls = false; } catch {}
+  try { audio.hidden = true; } catch {}
+  try { audio.setAttribute?.("hidden", ""); } catch {}
+  try { audio.pause?.(); } catch {}
+  return true;
+}
+export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, collapseAt = VOICE_COLLAPSE_CHARS, esc = defaultEsc, cacheLookup = null, slug = null } = {}) {
   const root = html?.[0] ?? html;
   if (!root?.querySelector) return false;
   const audio = root.querySelector("audio[src]");
   if (!audio) return false;
+  hideNativeAudio(audio);
   if (root.querySelector("[data-aigm-replay]")) return false;
   const fallback = audio.getAttribute("src") || extractVoiceSrc(msg?.content);
-  const src = pickAudioSrc(msg?.flags?.["ai-gm-bridge"]?.audio, localVoiceSlug(), fallback) || fallback;
+  const pick = () => replaySrc(msg, { slug: slug ?? localVoiceSlug(), fallback, cacheLookup });
+  const src = pick();
   if (!src) return false;
   const doc = root.ownerDocument ?? globalThis.document;
   const btn = doc.createElement("button");
@@ -41,7 +63,7 @@ export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, c
   btn.title = t("AIGM.voice.replay", "Replay"); btn.textContent = "▶";
   btn.setAttribute("aria-label", t("AIGM.voice.replay", "Replay"));
   const spoken = plainVoiceText(msg?.content ?? root.textContent);
-  btn.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); replay?.(src, { text: spoken }); });
+  btn.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); replay?.(pick() || src, { text: spoken }); });
   audio.parentNode?.insertBefore(btn, audio);
   const text = plainVoiceText(msg?.content ?? root.textContent);
   const parts = collapseParts(text, collapseAt);

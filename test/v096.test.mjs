@@ -155,8 +155,8 @@ test("0.8.16 giveLoot and applyDamage accept the same target argument shapes", (
 
 test("0.8.16 version, changelog and docs", () => {
   const ver = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version;
-  assert.match(ver, /^0\.8\.1[6789]$/);
-  assert.match(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, /^0\.8\.1[6789]$/);
+  assert.match(ver, /^0\.8\.(1[6-9]|2\d)$/);
+  assert.match(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, /^0\.8\.(1[6-9]|2\d)$/);
   assert.match(readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8"), /## 0\.8\.16/);
   assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /v0\.8\.16/);
   const api = readFileSync(new URL("../docs/BOT-API.md", import.meta.url), "utf8");

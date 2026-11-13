@@ -40,6 +40,8 @@ details.aigm-advanced{margin:12px 0;padding:8px;border:1px solid rgba(255,255,25
 .aigm-config [data-aigm-voice-preview]{margin-left:8px}
 #aigm-voice-caption{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);z-index:9990;max-width:min(72vw,720px);padding:12px 22px;border-radius:10px;background:rgba(10,10,14,.78);color:#f4f1e8;font-size:28px;line-height:1.35;font-weight:650;text-align:center;pointer-events:none;text-shadow:0 1px 2px #000;box-shadow:0 4px 18px rgba(0,0,0,.35)}
 #aigm-voice-caption[hidden]{display:none}
+.aigm-font-preview{margin-top:6px;padding:8px 12px;border-radius:8px;background:rgba(10,10,14,.78);color:#f4f1e8;font-size:20px;line-height:1.3;font-weight:650;text-align:center;flex:1 1 100%}
+.message-content audio.aigm-voice-src,.message-content .aigm-voice-replay ~ audio{display:none}
 details.aigm-advanced>summary{cursor:pointer;font-weight:600}
 [data-aigm-test-status][data-ok="1"]{color:#3c3}
 [data-aigm-test-status][data-ok="0"]{color:#e66}

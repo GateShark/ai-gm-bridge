@@ -2,7 +2,7 @@
   <img src="assets/logo-256.webp" alt="AI GM Pirate Borg" width="160" height="160" />
 </p>
 
-# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.8.19
+# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.8.20
 
 > ⚠️ **Alpha:** this is still in testing. Expect bugs and breaking changes.
 
@@ -23,7 +23,7 @@ Created by Gate (GateShark).
      Any logged-in user's scripts can still read it, so use the relay for shared worlds.
 
 ## At the table
-- A small status light (bottom right) shows what the GM is doing in plain words: **GM listening**, **GM waking up**, **GM reading**, **GM thinking…**, **GM requesting a roll**, **GM is sending a voice message…**, **GM speaking**, **GM asleep**, **AI GM offline** (with time since last seen), or **GM paused**. Active states can show how many seconds they have lasted. Click the pill to see when the GM last replied.
+- A small status light (bottom right) shows what the GM is doing in plain words: **GM listening**, **GM waking up**, **GM reading**, **GM thinking…**, **GM requesting a roll**, **GM is sending a voice message…**, **GM speaking**, **GM asleep**, **AI GM reconnecting**, **AI GM offline** (with time since last seen; after a few minutes it says the host was notified), or **GM paused**. Active states can show how many seconds they have lasted. Click the pill to see when the GM last replied.
 - If your browser blocks sound, an **Enable sound** button appears; any click or key also unlocks voice.
 - Push-to-talk: a hold-to-talk logo button (bottom left, drag to move; the spot is remembered in this browser) with a live light. Turn on **Push-to-talk (this browser)** to also use the key (default `` ` ``).
 - Roll requests use one large **Roll** button; after you roll, cancel, or the request expires, the card greys out.
@@ -31,8 +31,18 @@ Created by Gate (GateShark).
 - The GM has an in-game **AI GM Pirate Borg** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM Pirate Borg** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
-## What's new since 0.8.0 (0.8.1–0.8.19)
-These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.19**.
+## What's new since 0.8.0 (0.8.1–0.8.20)
+These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.20**.
+
+**Fixes from table testing (0.8.20)**
+- GM lines are no longer blocked as duplicates, each voiced line plays, and narration lands above the roll card it leads into. Voice messages show only the ▶ replay button (your chosen voice), not a seek bar.
+- Morale resolves on its own when the first enemy dies or half are down, before the next enemy acts. One card per creature per trigger, living enemies only, each token separately. `setSide` fixes a token whose disposition is wrong.
+- Ally and enemy turns say "<name> is up" in each player's chosen recorded voice (toggle: **Voice other turns**).
+- Each player can pick a caption font, with a preview.
+- After combat the music returns to the saved mood, else Calm.
+- Scene and token writes are queued one at a time per world; map builds can be made safe to repeat (`createScene` with `buildKey`).
+- The status pill says **AI GM reconnecting** (your message is saved) before **AI GM offline, host notified**.
+- Player characters on unlinked tokens are always treated as PCs. Roll cards count a test bonus. One roll card per attack. Speech-to-text hears "Grok Bot".
 
 **Replay, volume, captions, mood, morale, and loot (0.8.19)**
 - Every voiced GM line has a ▶ replay button. It plays that player's chosen recorded voice on their computer only and does not wake the bot.
@@ -117,7 +127,7 @@ Players can only change actors they own. `!music`, `!scene`, `!setup`, session s
 - **Push-to-talk (v0.8.5, per player, off by default):** each player enables **Push-to-talk (this browser)** (`pushToTalk`, client setting) and holds the key (`pushToTalkKey`, default `Backquote`, the ` key) or the logo button (bottom left; drag to move). The browser's Web Speech API transcribes (language from Foundry's language setting) with a "Listening…" indicator showing live text; on release the transcript is posted as that player's normal chat message. The key is ignored while typing in a text field. Chrome/Edge only (no Firefox: one-time notice, no button); needs mic permission, which browsers allow only on HTTPS or localhost. Speech goes to the browser's own speech service (Chrome/Edge send audio to Google/Microsoft), nothing to this module's servers.
 
 ## API (bot GM user, on the leader client)
-`api.run({name, args, commandId?})`, `api.ack(eventIds)`, `api.status()`, `api.metrics()`, `api.clearDead()`, `api.clearStuck()`, `api.setupCheck()`, `api.turnStatus()`, `api.ping()`, `api.recap()`.
+`api.run({name, args, commandId?})`, `api.ack(eventIds)`, `api.status()`, `api.metrics()`, `api.clearDead()`, `api.clearStuck()`, `api.setupCheck()`, `api.turnStatus()`, `api.ping()`, `api.recap()`, `api.withSceneLock(fn)`.
 See `docs/BOT-API.md`.
 
 ## Release

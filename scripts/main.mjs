@@ -8,9 +8,12 @@ import { parseLocal } from "./lib/local.mjs";
 import { isOwn as isOwnShipCard } from "./lib/ship.mjs";
 import { buildPayload } from "./lib/compact.mjs";
 import { VoiceCache } from "./lib/voicecache.mjs";
-import { TurnClipStore, resolveTurnClip, turnClipAudioMap } from "./lib/turnclips.mjs";
-import { ttsVoiceSlug, playVoicePreview } from "./lib/voices.mjs";
-import { applyMood, parseMoodPlaylists, moodState, rememberMood, restoreMoodKey } from "./lib/mood.mjs";
+import { TurnClipStore, resolveTurnClip, turnClipAudioMap, upClipAudioMap } from "./lib/turnclips.mjs";
+import { ttsVoiceSlug, playVoicePreview, resolveTtsVoice } from "./lib/voices.mjs";
+import { availableCaptionFonts, captionFontChoices, attachCaptionFontPreview } from "./lib/captions.mjs";
+import { offlinePhase, OfflineWatch, offlineNotice, resolveNotifyAfterMs } from "./lib/offline.mjs";
+import { withWorldLock } from "./lib/worldlock.mjs";
+import { applyMood, parseMoodPlaylists, moodState, rememberMood, restoreMoodKey, noteMood, moodSnapshot, loadMoodState } from "./lib/mood.mjs";
 import { Metrics } from "./lib/metrics.mjs";
 import { deliverDirect } from "./lib/direct.mjs";
 import { makeConfigApp } from "./config-app.mjs";
@@ -45,6 +48,13 @@ import { enhanceVoiceMessage } from "./lib/voiceui.mjs";
 import { injectStyles } from "./lib/styles.mjs";
 
 const ID = "ai-gm-bridge"; const SOCKET = `module.${ID}`;
+const CAPTION_FONT_CHOICES = { "": "Default" };
+function fillCaptionFontChoices() {
+  const next = captionFontChoices(availableCaptionFonts(), loc("AIGM.settings.captionFont.default", "Default"));
+  for (const k of Object.keys(CAPTION_FONT_CHOICES)) delete CAPTION_FONT_CHOICES[k];
+  Object.assign(CAPTION_FONT_CHOICES, next);
+  return CAPTION_FONT_CHOICES;
+}
 const S = { leader: null, dedupe: null, outbox: null, timers: [], lastBatch: null, batcher: null, voice: null, metrics: new Metrics(), ackedCtx: null, sent: new Map() };
 const list = (k) => String(get(k) ?? "").split(",").map(s => s.trim()).filter(Boolean);
 const get = (k) => game.settings.get(ID, k);
@@ -93,12 +103,32 @@ function pillState(link) {
     offlineAfterMs: link.display.offlineAfterMs, selfIsBot: link.display.selfIsBot
   });
 }
+// 0.8.20 #11: offline phases from data already on the page (no extra network calls).
+const offlineWatch = new OfflineWatch();
+function currentOfflinePhase(link = linkState(), now = Date.now()) {
+  if (!enabled()) return "online";
+  offlineWatch.update(link.fresh, now);
+  let notifyAfterMs; try { notifyAfterMs = resolveNotifyAfterMs(get("offlineNotifyAfterMs")); } catch {}
+  return offlinePhase({ fresh: link.fresh, lastSeen: link.lastSeen || 0, staleSince: offlineWatch.staleSince, now, notifyAfterMs });
+}
 function refreshStatus() {
   if (!statusPill) return;
   try {
     const now = Date.now();
     const link = linkState(now);
-    statusPill.set(pillState(link), { lastReplyAt: S.lastReplyAt, lastSeen: link.lastSeen, now, since: thinking.visible ? thinking.since : null, note: thinking.visible ? thinking.note : null });
+    let state = pillState(link);
+    const phase = currentOfflinePhase(link, now);
+    if (state === "offline" && enabled() && phase === "reconnecting") state = "reconnecting";
+    statusPill.set(state, { lastReplyAt: S.lastReplyAt, lastSeen: link.lastSeen, now, since: thinking.visible ? thinking.since : null, note: thinking.visible ? thinking.note : null, notified: phase === "offline" });
+  } catch {}
+}
+function noticeIfOffline(msg) {
+  try {
+    if (!enabled() || isBot() || (msg.author ?? msg.user)?.id !== game.user?.id) return;
+    const phase = currentOfflinePhase();
+    const shown = offlineWatch.noticeOnSend(phase);
+    if (shown) ui.notifications?.warn?.(offlineNotice(shown, loc));
+    refreshStatus();
   } catch {}
 }
 let presenceResumeTimer = null;
@@ -352,6 +382,16 @@ Hooks.once("init", () => {
   reg("moodPlaylists", String, "");
   reg("moodFollowsCombat", Boolean, true);
   reg("moralePrompts", Boolean, true);
+  reg("moraleAuto", Boolean, true); // 0.8.20 #2: roll morale at once when the prompt fires
+  reg("offlineNotifyAfterMs", Number, 180000); // 0.8.20 #11
+  game.settings.register(ID, "rollBonuses", { scope: "world", config: false, type: Object, default: {} }); // 0.8.20 #13
+  game.settings.register(ID, "moodState", { scope: "world", config: false, type: Object, default: { current: null, saved: null, playlistId: null, lastCalm: null } }); // 0.8.20 #8
+  // 0.8.20 #7: per-player caption font. Choices are filled at ready from fonts Foundry/the system already ship.
+  game.settings.register(ID, "captionFont", { scope: "client", config: true, type: String, default: "",
+    name: "AIGM.settings.captionFont.name", hint: "AIGM.settings.captionFont.hint", choices: (typeof CAPTION_FONT_CHOICES !== "undefined" ? CAPTION_FONT_CHOICES : { "": "Default" }) });
+  // 0.8.20 #5: hear "<name> is up" on ally/enemy turns (client, default on)
+  game.settings.register(ID, "voiceOtherTurns", { scope: "client", config: true, type: Boolean, default: true,
+    name: "AIGM.settings.voiceOtherTurns.name", hint: "AIGM.settings.voiceOtherTurns.hint" });
   reg("thinkingIndicator", Boolean, true); reg("thinkingTimeoutMs", Number, 90000);
   reg("aiPaused", Boolean, false, { config: false, onChange: (v) => { try { onAiPausedChange(v); } catch {} } });
   // v0.7 (GM-only: world setting, config menu is GM-only)
@@ -370,6 +410,8 @@ Hooks.once("ready", () => {
   try { setupPtt(); } catch (e) { console.warn(`${ID} | push-to-talk`, e); }
   try { syncGmVoiceFlag(); } catch {} 
   try { injectStyles(); } catch {}
+  try { fillCaptionFontChoices(); } catch {}
+  try { loadMoodState(get("moodState")); } catch {}
   try { statusPill = new GmStatusPill({ t: loc, onClick: (tip) => ui.notifications?.info?.(tip) }); statusPill.mount(); } catch {}
   const mod = game.modules.get(ID);
   const whenReady = mod.api?.whenReady ?? (() => Promise.resolve(mod.api));
@@ -442,6 +484,8 @@ Hooks.once("ready", () => {
     saveSession: (o = {}) => runCommand({ name: "saveSession", args: o }, ctxFor()),
     loadSession: (o = {}) => runCommand({ name: "loadSession", args: o }, ctxFor()),
     takeBatch: () => S.lastBatch, // relay stub can poll this on the headless client
+    // 0.8.20 #10: page scripts that build maps directly can join the same per-world write queue.
+    withSceneLock: (fn) => withWorldLock(fn),
     paused: () => !!get("aiPaused"),
     gmStatus: () => {
       const link = linkState();
@@ -451,7 +495,10 @@ Hooks.once("ready", () => {
   try { globalThis.__aigmReady?.(mod.api); } catch {}
   game.socket.on(SOCKET, onSocket);
   if (game.user.isGM && game.users.activeGM?.id === game.user.id) cleanupContextJournals(game).then(r => r.cleared && log("v0.7.2: the context journal list is no longer stored in the world (players could read it). Set AIGM_CONTEXT_JOURNALS on the relay or pass journals per getContext call. Old value:", r.old)).catch(e => log("migrate", e?.message));
-  F.initFeatures({ get, amLeader, log, voice: (t, voice) => S.voice?.get(t, voice) ?? null, turnClip: (name, voice) => resolveTurnClip(name, voice, S.turnClips), turnAudio: (name) => turnClipAudioMap(name, S.turnClips), emit: emitEvent, dedupe: S.dedupe });
+  F.initFeatures({ get, amLeader, log, voice: (t, voice) => S.voice?.get(t, voice) ?? null, turnClip: (name, voice) => resolveTurnClip(name, voice, S.turnClips), turnAudio: (name) => turnClipAudioMap(name, S.turnClips), emit: emitEvent, dedupe: S.dedupe, dedupeOf: () => S.dedupe,
+    upAudio: (name, side) => upClipAudioMap(name, S.turnClips ?? clientTurnClips(), { side }), isBot: (u) => isBot(u),
+    queueClip: (id, clip) => audioQueue.enqueue(id, clip),
+    runMorale: (p) => runCommand({ name: "moraleCheck", args: { all: true, trigger: p.eventId, reason: p.reason } }, ctxFor()) });
   try {
     audioQueue.onStart = () => thinkingOn({ kind: "speaking", broadcast: false });
     audioQueue.onIdle = () => { if (thinking.visible && thinking.kind === "speaking") thinkingOff({ broadcast: false }); };
@@ -506,6 +553,8 @@ Hooks.once("ready", () => {
     if (key === `${ID}.presenceSuspendUntil` || key === "presenceSuspendUntil" || key.endsWith(".presenceSuspendUntil")) {
       onPresenceSuspendSetting();
     }
+    if (key.endsWith(".voiceCache") || key === "voiceCache") clientVoiceCache = null;
+    if (key.endsWith(".turnClips") || key === "turnClips") clientClips = null;
     if (key === `${ID}.outboxState` || key === "outboxState" || key.endsWith(".outboxState")) {
       if (!amLeader()) {
         try {
@@ -609,6 +658,7 @@ function onSocket(data) {
   if (!enabled() || !data?.type) return;
   if (data.type === "heartbeat") { S.leader = applyHeartbeat(S.leader, data, Date.now()); refreshStatus(); return; }
   if (data.type === "turnPing") return F.onTurnPing(data);
+  if (data.type === "upPing") return F.onUpPing(data);
   if (data.type === "bubble") return F.showBubble(data);
   if (data.type === "voice") { S.lastReplyAt = Date.now(); }
   if (data.type === "voice") { thinking.hide(); return void onVoiceSocket(data); } // #12: players play bot voice locally
@@ -629,6 +679,7 @@ function onSocket(data) {
 }
 
 Hooks.on("createChatMessage", async (msg) => {
+  noticeIfOffline(msg); // 0.8.20 #11 (runs on the sender's page only)
   if (enabled() && isBot(msg.author ?? msg.user ?? {})) thinking.hide(); // #14: bot spoke (runs on every client)
   if (enabled() && msg.flags?.[ID]?.rollRequest) thinkingOn({ kind: "rolling" });
   if (enabled() && isBot(msg.author ?? msg.user ?? {})) { S.lastReplyAt = Date.now(); refreshStatus(); }
@@ -640,7 +691,19 @@ Hooks.on("createChatMessage", async (msg) => {
   handleChat(msg);
 });
 Hooks.on("updateChatMessage", (msg) => { if (enabled() && msg.flags?.[ID]?.rollRequest) refreshPanel(); });
-Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCard(msg, html); enhanceVoiceMessage(msg, html, { t: loc, replay: (src, meta) => audioQueue.enqueue(`replay:${src}:${Date.now()}`, { src, text: meta?.text }) }); } });
+Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCard(msg, html); enhanceVoiceMessage(msg, html, { t: loc, cacheLookup: voiceCacheLookup, replay: (src, meta) => audioQueue.enqueue(`replay:${src}:${Date.now()}`, { src, text: meta?.text }) }); } });
+// 0.8.20 #7: live font preview under the caption font dropdown in Foundry's settings window.
+Hooks.on("renderSettingsConfig", (_app, html) => { try { fillCaptionFontChoices(); attachCaptionFontPreview(html?.[0] ?? html); } catch {} });
+// 0.8.20 #6: replay looks up the player's own voice in the shared voice cache when the message has no clip for it.
+let clientVoiceCache = null, clientClips = null;
+function voiceCacheLookup(text, slug) {
+  if (!clientVoiceCache) { try { clientVoiceCache = S.voice ?? new VoiceCache({ entries: get("voiceCache")?.entries ?? [] }); } catch { return null; } }
+  return clientVoiceCache.get(text, resolveTtsVoice(slug));
+}
+function clientTurnClips() {
+  if (!clientClips) { try { clientClips = new TurnClipStore({ entries: get("turnClips")?.entries ?? [] }); } catch { return null; } }
+  return clientClips;
+}
 Hooks.on("updateActor", (a, change) => { if (enabled() && amLeader()) F.onActorUpdate(a, change); if (enabled()) refreshPanel(); });
 Hooks.on("createActor", (a) => { if (enabled() && amLeader()) F.onActorUpdate(a, {}); if (enabled()) refreshPanel(); });
 Hooks.on("deleteActor", () => { if (enabled()) refreshPanel(); });
@@ -658,12 +721,28 @@ async function applyStoredMood(mood) {
     playAll: async (pl) => pl.playAll?.(),
     stopAll: async (pl) => pl.stopAll?.()
   });
-  if (r.ok) { moodState().current = r.mood; moodState().playlistId = r.playlistId ?? null; }
+  if (r.ok) noteMood(r.mood, r.playlistId ?? null);
   else log("setMood", r.error);
+  return r;
+}
+function persistMood() { try { if (game.user?.isGM) game.settings.set(ID, "moodState", moodSnapshot()); } catch {} }
+// 0.8.20 #8: after a fight go back to the saved mood, else the last calm mood, else Calm. If that playlist is
+// missing, stop the combat music rather than leave it playing.
+async function restoreAfterCombat() {
+  const key = restoreMoodKey();
+  let r = await applyStoredMood(key);
+  if (!r?.ok && key !== "none") r = await applyStoredMood("none");
+  persistMood();
+  return r;
 }
 function syncCombatMood(state) {
   if (!enabled() || !amLeader() || get("moodFollowsCombat") === false) return;
-  const run = state === "start" ? (rememberMood(), applyStoredMood("combat")) : applyStoredMood(restoreMoodKey());
+  let run;
+  if (state === "start") {
+    const playlists = game.playlists?.contents ?? game.playlists ?? [];
+    rememberMood({ playing: playlists.find?.(p => p.playing) ?? null, mapping: parseMoodPlaylists(get("moodPlaylists")) });
+    run = applyStoredMood("combat").then((r) => { persistMood(); return r; });
+  } else run = restoreAfterCombat();
   Promise.resolve(run).catch(e => log("setMood", e?.message));
 }
 function combatState(c, state) {

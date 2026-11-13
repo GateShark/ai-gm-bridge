@@ -27,6 +27,8 @@ export function buildMoralePrompt(combat, hostiles, st) {
   };
 }
 
+// 0.8.20 #4: unlinked tokens of one actor share actor.id, so track HP per token.
+export const trackId = (actor) => actor?.token?.id ? `tok:${actor.token.id}` : (actor?.id ?? actor?.name ?? null);
 export function createMoralePromptTracker() {
   const last = new Map();
   const flags = new Map();
@@ -37,22 +39,25 @@ export function createMoralePromptTracker() {
       last.clear();
     },
     seed(actor) {
-      const id = actor?.id ?? actor?.name;
+      const id = trackId(actor);
       if (!id) return;
       const hp = readActorHp(actor);
       if (!last.has(id)) last.set(id, hp?.value);
     },
     observe(actor, { combat, users = [], enabled = true } = {}) {
       if (!enabled || !combat?.id || !combat.started || !actor) return null;
-      const id = actor.id ?? actor.name;
+      const id = trackId(actor);
       if (!id) return null;
       const hp = readActorHp(actor);
       const first = !last.has(id);
-      const prev = first ? hp?.value : last.get(id);
+      // A token never seen before (spawned after the last seed) that is now at 0 was alive a moment ago.
+      const unseenKill = first && Number(hp?.value) <= 0 && Number(hp?.max) > 0;
+      const prev = unseenKill ? hp.max : (first ? hp?.value : last.get(id));
       last.set(id, hp?.value);
-      if (first) return null;
+      if (first && !unseenKill) return null;
       const hostiles = hostileCombatants(combat, users);
-      if (!hostiles.some(h => h.actor?.id === actor.id || h.actorId === actor.id || h.name === actor.name)) return null;
+      const tokId = actor.token?.id ?? null;
+      if (!hostiles.some(h => tokId ? h.tokenId === tokId : (h.actor === actor || h.actorId === actor.id))) return null;
       if (!hpDroppedToZero(prev, hp?.value)) return null;
       let st = flags.get(combat.id);
       if (!st) { st = { first: false, half: false }; flags.set(combat.id, st); }

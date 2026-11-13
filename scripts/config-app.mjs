@@ -3,6 +3,7 @@ import { BASIC_FIELDS, ADVANCED_FIELDS, testConnection } from "./lib/settingsui.
 import { liveSetupCheck, formatConnectionWithSetup } from "./lib/setupcheck.mjs";
 import { runLinkProbe, formatLinkCheckLine, presenceSnapshot } from "./lib/presence.mjs";
 import { TTS_VOICES, resolveTtsVoice, playVoicePreview } from "./lib/voices.mjs";
+import { availableCaptionFonts, captionFontChoices, attachCaptionFontPreview } from "./lib/captions.mjs";
 const ID = "ai-gm-bridge";
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const ALL_FIELDS = [...BASIC_FIELDS, ...ADVANCED_FIELDS];
@@ -25,6 +26,10 @@ export function makeConfigApp() {
             const cur = resolveTtsVoice(v);
             const optsHtml = TTS_VOICES.map(voice => `<option value="${esc(voice.id)}" ${voice.id === cur ? "selected" : ""}>${esc(voice.label)}</option>`).join("");
             return `<select name="${k}">${optsHtml}</select><button type="button" data-aigm-voice-preview>${esc(t("AIGM.config.playVoiceSample", "Play sample"))}</button>`;
+          })()
+          : type === "font" ? (() => {
+            const choices = captionFontChoices(availableCaptionFonts(), t("AIGM.settings.captionFont.default", "Default"));
+            return `<select name="${k}">${Object.entries(choices).map(([val, lab]) => `<option value="${esc(val)}" ${val === (v ?? "") ? "selected" : ""}>${esc(lab)}</option>`).join("")}</select>`;
           })()
           : type === "textarea" ? `<textarea name="${k}" rows="6">${esc(v)}</textarea>`
           : type === "number" && k === "voiceVolume" ? `<input type="number" name="${k}" min="0" max="100" step="1" value="${esc(v)}">`
@@ -55,6 +60,7 @@ export function makeConfigApp() {
     }
     _replaceHTML(html, content) {
       content.innerHTML = html;
+      try { attachCaptionFontPreview(content, { selector: "select[name=captionFont]" }); } catch {}
       content.querySelector("[data-aigm-voice-preview]")?.addEventListener("click", (ev) => {
         ev.preventDefault();
         playVoicePreview(content.querySelector("[name=ttsVoice]")?.value);

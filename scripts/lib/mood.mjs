@@ -2,12 +2,49 @@
 export const MOODS = ["combat", "storm", "tavern", "explore", "tense", "calm", "none"];
 export const DEFAULT_FADE_MS = 1500;
 
-const state = { current: null, saved: null, playlistId: null };
+// 0.8.20 #8: lastCalm = the last non-combat mood that played (kept across fights). The state is persisted in the
+// world setting moodState so a reload during a fight still knows what to go back to.
+export const FALLBACK_MOOD = "calm";
+const state = { current: null, saved: null, playlistId: null, lastCalm: null };
 export function moodState() { return state; }
-export function rememberMood() {
-  if (state.current && state.current !== "combat") state.saved = state.current;
+export function loadMoodState(raw) {
+  const o = raw && typeof raw === "object" ? raw : {};
+  for (const k of ["current", "saved", "lastCalm"]) state[k] = normalizeMood(o[k]) ?? null;
+  state.playlistId = typeof o.playlistId === "string" && o.playlistId ? o.playlistId : null;
+  return state;
 }
-export function restoreMoodKey() { const v = state.saved; state.saved = null; return v || "none"; }
+export function moodSnapshot() { return { current: state.current, saved: state.saved, playlistId: state.playlistId, lastCalm: state.lastCalm }; }
+export function noteMood(mood, playlistId = null) {
+  const m = normalizeMood(mood);
+  state.current = m; state.playlistId = playlistId ?? null;
+  if (m && m !== "combat" && m !== "none") state.lastCalm = m;
+  return state;
+}
+// Which mood a playing playlist stands for (reverse of the map, then by name). Lets a hand-started Calm count.
+export function moodOfPlaylist(playlist, mapping = {}) {
+  if (!playlist) return null;
+  const name = String(playlist.name ?? "").toLowerCase(), id = playlist.id;
+  for (const [mood, want] of Object.entries(mapping ?? {})) {
+    const w = String(want ?? "").toLowerCase();
+    if (w && (w === name || want === id)) return normalizeMood(mood);
+  }
+  return MOODS.find(m => m !== "none" && name === m) ?? MOODS.find(m => m !== "none" && name.includes(m)) ?? null;
+}
+// Combat start: save what is playing now. Uses the recorded mood, else the playing playlist, else lastCalm.
+export function rememberMood({ playing = null, mapping = {} } = {}) {
+  let cur = state.current && state.current !== "combat" && state.current !== "none" ? state.current : null;
+  if (!cur && playing) { const m = moodOfPlaylist(playing, mapping); if (m && m !== "combat") cur = m; }
+  if (!cur && state.current === "none" && !playing) { state.saved = "none"; return state.saved; } // music was turned off on purpose
+  state.saved = cur || state.lastCalm || state.saved || null;
+  if (cur) state.lastCalm = cur;
+  return state.saved;
+}
+// Combat end: the saved mood, else the last non-combat mood, else calm. Silence only if music was off on purpose.
+export function restoreMoodKey() {
+  const v = state.saved || state.lastCalm || FALLBACK_MOOD;
+  state.saved = null;
+  return v;
+}
 
 export function normalizeMood(raw) {
   const s = String(raw ?? "").trim().toLowerCase();

@@ -52,7 +52,7 @@ export async function voiceOrText({ audioPath, checkAudio, playVoice, postText, 
     try {
       if (!(await checkAudio(audioPath))) throw new Error("audio not reachable");
       const msg = await postVoice(audioPath);
-      playVoice(audioPath).catch(() => {}); // don't block the reply on playback
+      Promise.resolve(playVoice(audioPath, msg)).catch(() => {}); // don't block the reply on playback; id = message id
       return { mode: "voice", messageId: msg };
     } catch (e) { return { mode: "text", fallback: String(e?.message ?? e), messageId: await postText() }; }
   }

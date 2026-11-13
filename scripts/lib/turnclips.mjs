@@ -13,7 +13,9 @@ export function turnClipFile(name, voice) {
 }
 
 export function turnClipKey(name, voice) {
-  return `${turnClipSlug(name)}|${resolveTtsVoice(voice)}`;
+  const raw = String(name ?? "");
+  const up = raw.startsWith("up:");
+  return `${up ? "up:" : ""}${turnClipSlug(up ? raw.slice(3) : raw)}|${resolveTtsVoice(voice)}`;
 }
 
 export function parseTurnClipName(file) {
@@ -35,8 +37,9 @@ export class TurnClipStore {
   }
   list() {
     return [...this.map.entries()].map(([k, path]) => {
-      const [slug, voice] = k.split("|");
-      return { slug, voice, voiceSlug: ttsVoiceSlug(voice), path, file: turnClipFile(slug, voice) };
+      const [raw, voice] = k.split("|");
+      const up = raw.startsWith(UP_PREFIX); const slug = up ? raw.slice(UP_PREFIX.length) : raw;
+      return { kind: up ? "up" : "turn", slug, voice, voiceSlug: ttsVoiceSlug(voice), path, file: up ? upClipFile(slug, voice) : turnClipFile(slug, voice) };
     });
   }
   toJSON() { return [...this.map.entries()]; }
@@ -63,3 +66,45 @@ export function turnClipAudioMap(name, store) {
   }
   return out;
 }
+
+// 0.8.20 #5: "<name> is up" clips for ally and enemy turns, recorded the same way as the Your-turn clips:
+// up-<name|enemy|ally|generic>-<ryan|thomas|sonia|aria>.mp3, uploaded by the bot and sent to registerTurnClips.
+// Lookup per voice: the full name ("lieutenantharrow"), then each word of it ("harrow"), then the side
+// (enemy/ally), then generic; each in the chosen voice first, then Ryan. The module ships recorded
+// up-enemy / up-ally / up-generic clips for all four voices as the last fallback (no generation in the browser).
+export const UP_PREFIX = "up:";
+export const BUNDLED_UP_BASE = "modules/ai-gm-bridge/assets/turn-up";
+export const BUNDLED_UP_KINDS = ["enemy", "ally", "generic"];
+export function parseClipName(file) {
+  const base = String(file ?? "").split(/[\\/]/).pop() || "";
+  const m = base.match(/(?:^|[-_])(turn|up)-([a-z0-9]+)(?:-([a-z0-9]+))?\.mp3$/i) || base.match(/^(turn|up)-([a-z0-9]+)(?:-([a-z0-9]+))?\.mp3$/i);
+  if (!m) return null;
+  const kind = m[1].toLowerCase();
+  const slug = m[2].toLowerCase();
+  const voice = resolveTtsVoice(m[3] || "ryan");
+  return { kind, slug, voice, voiceSlug: ttsVoiceSlug(voice), file: base };
+}
+export const upClipFile = (name, voice) => `up-${turnClipSlug(name)}-${ttsVoiceSlug(voice)}.mp3`;
+export function nameSlugs(name) {
+  const full = turnClipSlug(name);
+  const words = String(name ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 3).map(turnClipSlug);
+  return [...new Set([full, ...words].filter(s => s && s !== "generic"))];
+}
+export function bundledUpClip(kind, voice) {
+  const k = BUNDLED_UP_KINDS.includes(kind) ? kind : "generic";
+  return `${BUNDLED_UP_BASE}/up-${k}-${ttsVoiceSlug(voice)}.mp3`;
+}
+export function resolveUpClip(name, voice, store, { side = "enemy", bundled = true } = {}) {
+  const chosen = resolveTtsVoice(voice);
+  const voices = chosen === DEFAULT_TTS_VOICE ? [chosen] : [chosen, DEFAULT_TTS_VOICE];
+  const kind = side === "ally" ? "ally" : side === "enemy" ? "enemy" : "generic";
+  const slugs = [...nameSlugs(name), kind, "generic"];
+  if (store) for (const slug of slugs) for (const v of voices) { const hit = store.get(UP_PREFIX + slug, v); if (hit) return hit; }
+  return bundled ? bundledUpClip(kind, chosen) : null;
+}
+export function upClipAudioMap(name, store, opts = {}) {
+  const out = {};
+  for (const v of TTS_VOICES) { const src = resolveUpClip(name, v.id, store, opts); if (src) out[ttsVoiceSlug(v.id)] = src; }
+  return out;
+}
+export const upSpoken = (name) => `${String(name ?? "").trim() || "Next"} is up.`;

@@ -17,8 +17,11 @@ export function joinResults(results) {
   return { final: final.trim(), interim: interim.trim() };
 }
 
-export const DEFAULT_SPEECH_HINTS = ["kick", "dropkick", "drop kick", "slash", "parry", "dodge", "block", "strike", "thrust", "shoot", "steal", "sneak", "hide", "attack", "defend", "broken", "agility", "strength", "presence", "toughness", "spirit"];
-export const DEFAULT_SPEECH_FIXES = [["drop cake", "dropkick"], ["drop cakes", "dropkick"], ["kik", "kick"], ["perry", "parry"], ["pulled up behind", "ducked behind"]];
+export const DEFAULT_SPEECH_HINTS = ["Grok Bot", "kick", "dropkick", "drop kick", "slash", "parry", "dodge", "block", "strike", "thrust", "shoot", "steal", "sneak", "hide", "attack", "defend", "broken", "agility", "strength", "presence", "toughness", "spirit"];
+// 0.8.20 #14: "Grok Bot" is heard as "Crock-Pot" and friends. Built in, so worlds with a saved speechFixes list get it too.
+export const GROK_BOT_FIXES = ["crock-pots", "crock pots", "crockpots", "crock-pot", "crock pot", "crockpot", "crack pot", "crackpot", "grok pot", "grokpot",
+  "grog bot", "grogbot", "grock bot", "grockbot", "grok bought", "groc bot", "crock bot", "crockbot", "croc bot", "grokbot", "grok-bot", "grok bot"].map(w => [w, "Grok Bot"]);
+export const DEFAULT_SPEECH_FIXES = [["drop cake", "dropkick"], ["drop cakes", "dropkick"], ["kik", "kick"], ["perry", "parry"], ["pulled up behind", "ducked behind"], ...GROK_BOT_FIXES];
 export const DEFAULT_SPEECH_HINTS_TEXT = DEFAULT_SPEECH_HINTS.join(", ");
 export const DEFAULT_SPEECH_FIXES_TEXT = "drop cake=dropkick, drop cakes=dropkick, kik=kick, perry=parry, pulled up behind=ducked behind";
 export function parseSpeechHints(raw) {
@@ -52,10 +55,11 @@ export function correctSpeech(text, { hints, fixes } = {}) {
   let s = String(text ?? ""); if (!s) return s;
   const fixList = Array.isArray(fixes) ? fixes : parseSpeechFixes(fixes);
   const hintList = Array.isArray(hints) ? hints : parseSpeechHints(hints);
-  for (const [from, to] of fixList) {
+  for (const [from, to] of [...fixList].sort((x, y) => String(y[0]).length - String(x[0]).length)) {
     if (!from) continue;
     const re = new RegExp(`\\b${from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
     s = s.replace(re, (match) => {
+      if (/[A-Z]/.test(to.slice(1))) return to; // a proper name like "Grok Bot" keeps its own spelling
       if (match === match.toUpperCase()) return to.toUpperCase();
       if (match[0] === match[0].toUpperCase()) return to.charAt(0).toUpperCase() + to.slice(1);
       return to;

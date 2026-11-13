@@ -211,9 +211,9 @@ test("0.8.19 rollLoot finds Treasure-style tables and awards items or silver", a
 
 test("0.8.19 version, docs, settings and no browser speech", () => {
   const mj = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8"));
-  assert.equal(mj.version, "0.8.19");
+  assert.equal(mj.version, "0.8.20");
   assert.equal(mj.title, "AI GM Pirate Borg");
-  assert.match(readFileSync(new URL("../package.json", import.meta.url), "utf8"), /"version": "0\.8\.19"/);
+  assert.match(readFileSync(new URL("../package.json", import.meta.url), "utf8"), /"version": "0\.8\.20"/);
   const log = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
   assert.match(log, /## 0\.8\.19/);
   assert.match(log, /setMood/);
@@ -234,7 +234,7 @@ test("0.8.19 version, docs, settings and no browser speech", () => {
   assert.match(main, /reg\("moodFollowsCombat", Boolean, true\)/);
   assert.match(main, /reg\("moralePrompts", Boolean, true\)/);
   assert.doesNotMatch(main, /speechSynthesis/);
-  assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /v0\.8\.19/);
+  assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /v0\.8\.20/);
   assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /Alpha/);
   const scripts = ["scripts/commands.mjs", "scripts/features.mjs", "scripts/main.mjs", "scripts/lib/voices.mjs"];
   for (const f of scripts) assert.doesNotMatch(readFileSync(new URL("../" + f, import.meta.url), "utf8"), /speechSynthesis/, f);
