@@ -2,9 +2,9 @@
   <img src="assets/logo-256.webp" alt="AI GM Pirate Borg" width="160" height="160" />
 </p>
 
-# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.8.20
+# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.8.21
 
-> ⚠️ **Alpha:** this is still in testing. Expect bugs and breaking changes.
+> ⚠️ **Beta:** this is a public beta. Please report bugs; some changes may still land.
 
 Previously called AI GM Bridge. The module id is still `ai-gm-bridge`.
 
@@ -31,8 +31,13 @@ Created by Gate (GateShark).
 - The GM has an in-game **AI GM Pirate Borg** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM Pirate Borg** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
-## What's new since 0.8.0 (0.8.1–0.8.20)
-These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.20**.
+## What's new since 0.8.0 (0.8.1–0.8.21)
+These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.21** (beta).
+
+**Bug-fix beta (0.8.21)**
+- Morale finishes every card before the next enemy acts (no 8 s cutoff). An empty enemy list is a resolved result, not an error. `nextTurn` without `expect` fails immediately.
+- The status pill says **AI GM reconnecting** as soon as the bot user goes inactive, instead of staying on **GM listening** for about a minute.
+- The ▶ replay button cannot be stacked; it stays greyed out until that line finishes.
 
 **Fixes from table testing (0.8.20)**
 - GM lines are no longer blocked as duplicates, each voiced line plays, and narration lands above the roll card it leads into. Voice messages show only the ▶ replay button (your chosen voice), not a seek bar.
@@ -137,7 +142,7 @@ See `docs/BOT-API.md`.
 Tests: `npm test`.
 
 ## Known limits
-- This is an **alpha** build. Expect bugs and breaking changes.
+- This is a **beta** build. Please report bugs; some changes may still land.
 - Voice may not be heard when the GM plays a character as a player. This needs more testing. Browsers may also need one click (or the **Enable sound** button) before audio will play.
 - Push-to-talk (optional, off by default) uses the Web Speech API: Chrome/Edge only, and the page must be HTTPS or localhost.
 - Foundry sends GM-only journals (even ownership None) and all world settings to every player's browser. A tech-savvy player can read them from the console. The module therefore stores nothing secret in the world: the bot names the journals it wants per `getContext` call, or the relay adds `AIGM_CONTEXT_JOURNALS` from its own environment. The context text is returned only to the bot, and its cache is in memory on the GM client. Session notes live in one overwritten world setting (`sessionSnapshot`) with the same limit — the spoiler-free recap text omits them, but the stored notes are still world data.

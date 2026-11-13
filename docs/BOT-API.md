@@ -412,3 +412,9 @@ The audio queue id of a voiced line is its chat message id (`voice:<messageId>:<
 **Status.** After a missed heartbeat the pill shows **AI GM reconnecting** (a player who posts sees "your message is saved"), then after `offlineNotifyAfterMs` (default 180000) **AI GM offline, host notified**. This only reads the existing heartbeat; the actual notice to the host comes from your own watchdog.
 
 **Other.** `turnStatus` counts player-owned (including inactive players) or assigned characters as PCs even on unlinked tokens with `isNPC = true`. Speech-to-text corrects "Crock-Pot" to "Grok Bot". New settings: `captionFont`, `voiceOtherTurns` (client), `moraleAuto`, `offlineNotifyAfterMs` (Advanced), `rollBonuses`, `moodState` (hidden). After combat, mood returns to the saved mood, else the last calm mood, else `calm`.
+
+## v0.8.21: morale wait, empty morale, faster reconnect, replay guard
+- `nextTurn` waits for every pending morale job in that combat (30 s safety cap), not a fixed 8 s. Callers still must pass `expect` from `turnStatus`; a missing `expect` is rejected immediately (400) without waiting.
+- `moraleCheck {all: true}` with no living enemies left returns `{ok: true, results: [], checked: 0}`. A resolved `moralePrompt` for that case carries `resolved: true` and empty `results`, not an error.
+- On a player page, an inactive bot user is treated as a missed heartbeat at once: the pill shows **AI GM reconnecting** (then **AI GM offline, host notified** after `offlineNotifyAfterMs`). It no longer stays on **GM listening** until `offlineAfterMs` expires.
+- ▶ replay ignores further clicks on that message while its clip is queued or playing.

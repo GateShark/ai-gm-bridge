@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.21
+Beta release. Credit: Gate (GateShark).
+
+- `nextTurn` waits until every pending morale card has posted (the real morale promise, with a 30 s safety cap) instead of giving up after 8 s, so a later card cannot land after the next enemy's turn has started.
+- When no living enemies are left, `moraleCheck` (and a resolved `moralePrompt`) returns `{results: [], checked: 0}` instead of an error.
+- `nextTurn` without `expect` rejects immediately with 400, rather than after waiting for morale.
+- The status pill switches to "AI GM reconnecting" as soon as the bot user goes inactive (the first missed heartbeat), instead of staying on "GM listening" for the rest of the ~60 s offline window.
+- The ▶ replay button on a voiced line stays greyed out while that clip is queued or playing, and comes back when the clip ends or fails, so extra clicks cannot stack replays.
+
 ## 0.8.20
 - GM lines no longer get blocked as duplicates. A missing `replyTo` is no longer filled from the last wake for the reply lock. An explicit `replyTo` still allows one reply per event, and the same text with the same `replyTo` within 20 s counts as a repeat (`duplicate: true`). Out-of-character lines (`ooc: true`, or text starting with `((`, `[ooc]`, `ooc:`, `(ooc)`) never take or use the reply slot. `allowMultiple: true` skips the check.
 - Each voiced line has its own audio id (taken from its chat message id, not `replyTo`), so a second line in the same wake is voiced instead of going silent. `post` / `postVoice` / `whisper` / `requestRoll` run in order, so narration sent before a roll request lands above the roll card. Voice messages no longer show the browser's native audio seek bar; the ▶ replay button plays the player's chosen recorded voice (Ryan if that clip is missing).

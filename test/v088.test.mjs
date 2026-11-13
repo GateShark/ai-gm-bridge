@@ -49,7 +49,7 @@ test("0.8.8 deriveGmStatus and last-reply tooltip", () => {
   assert.equal(deriveGmStatus({ enabled: true, paused: true, botActive: true }), "paused");
   assert.equal(deriveGmStatus({ enabled: true, botActive: true }), "listening");
   assert.equal(deriveGmStatus({ enabled: true, leaderIsBot: true, lastBeat: 1000, now: 2000, timeoutMs: 45000 }), "offline");
-  assert.equal(deriveGmStatus({ enabled: true, lastConfirmed: 1000, now: 2000, offlineAfterMs: 60000 }), "listening");
+  assert.equal(deriveGmStatus({ enabled: true, lastConfirmed: 1000, now: 2000, offlineAfterMs: 60000 }), "offline");
   assert.equal(deriveGmStatus({ enabled: true, leaderIsBot: true, lastBeat: 1000, now: 100000, timeoutMs: 45000 }), "offline");
   assert.equal(deriveGmStatus({}), "offline");
   assert.equal(formatLastReply(0), "");
@@ -209,6 +209,6 @@ test("0.8.8 main wiring, cancelRoll command, localization, public credits", () =
   assert.equal(ver, JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
   assert.match(ver, /^\d+\.\d+\.\d+/);
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
-  assert.match(readme, /Alpha/); assert.match(readme, /Gate \(GateShark\)/); assert.doesNotMatch(readme, /Kevin|Allen/);
+  assert.match(readme, /Beta/); assert.match(readme, /Gate \(GateShark\)/); assert.doesNotMatch(readme, /Kevin|Allen/);
   assert.match(readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8"), /## 0\.8\.8/);
 });

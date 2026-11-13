@@ -21,7 +21,7 @@ export const CSS = `
 #aigm-audio-unlock{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:10000;padding:10px 18px;font-size:15px;font-weight:600;cursor:pointer;border-radius:8px;border:0;background:#1b5e20;color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.35)}
 .aigm-roll-btn{display:block;width:100%;margin-top:8px;padding:10px 16px;font-size:16px;font-weight:700;cursor:pointer;border-radius:8px}
 .aigm-rollreq[data-status="done"],.aigm-rollreq[data-status="cancelled"],.aigm-rollreq[data-status="expired"]{opacity:.7}
-.aigm-voice-replay{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;margin:0 6px 0 0;padding:0;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;vertical-align:middle}
+.aigm-voice-replay{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;margin:0 6px 0 0;padding:0;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;vertical-align:middle}.aigm-voice-replay:disabled{opacity:.45;cursor:default;pointer-events:none}
 .aigm-voice-more{margin-left:6px;cursor:pointer;background:none;border:0;text-decoration:underline;color:inherit;font:inherit}
 .aigm-panel{padding:8px;display:flex;flex-direction:column;gap:10px}
 .aigm-panel-brand{display:flex;align-items:center;gap:10px;margin:0 0 2px}

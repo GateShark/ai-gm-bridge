@@ -432,10 +432,10 @@ test("0.8.20 #14 speech-to-text maps Crock-Pot and friends to Grok Bot, next to 
 // ---------- release ----------
 test("0.8.20 release metadata", () => {
   const mod = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8"));
-  assert.equal(mod.version, "0.8.20"); assert.equal(mod.id, "ai-gm-bridge"); assert.equal(mod.title, "AI GM Pirate Borg");
+  assert.equal(mod.version, "0.8.21"); assert.equal(mod.id, "ai-gm-bridge"); assert.equal(mod.title, "AI GM Pirate Borg");
   assert.deepEqual(mod.authors.map(a => a.name), ["Gate (GateShark)"]);
   assert.match(mod.manifest, /releases\/latest\/download\/module\.json$/);
-  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.8.20");
+  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.8.21");
   for (const k of ["moraleAuto", "offlineNotifyAfterMs"]) assert.equal(groupFor(k), "advanced");
   for (const k of ["rollBonuses", "moodState"]) assert.equal(groupFor(k), "hidden");
 });

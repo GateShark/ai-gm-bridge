@@ -80,8 +80,10 @@ export function isLinkFresh({
   const threshold = resolveOfflineAfterMs(offlineAfterMs);
   const recent = Number(lastConfirmed) > 0 && (now - Number(lastConfirmed)) <= threshold;
   if (selfIsBot) return recent;
+  // 0.8.21: on a player page, an inactive bot user is a missed heartbeat — do not
+  // keep "GM listening" for the rest of offlineAfterMs based on a leftover nonce.
   if (botActive === true) return true;
-  return recent;
+  return false;
 }
 
 export function nextProbeValue({ nonce, at, by = "", isBotWriter = false, prev = null } = {}) {

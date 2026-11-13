@@ -145,9 +145,20 @@ const combatLock = new KeyedMutex();
 // so a morale result always lands before the next enemy acts.
 const moraleLock = new KeyedMutex();
 export const moraleRuns = new Map();
-export async function awaitMorale(combatId, ms = 8000) {
-  const p = moraleRuns.get(combatId); if (!p) return false;
-  await Promise.race([p, new Promise(r => setTimeout(r, ms))]); return true;
+// 0.8.21: wait for every pending morale job in this combat, not a fixed 8 s cap.
+export const MORALE_WAIT_MS = 30000;
+export async function awaitMorale(combatId, ms = MORALE_WAIT_MS) {
+  const t0 = Date.now();
+  let seen = false;
+  for (;;) {
+    const p = moraleRuns.get(combatId);
+    if (!p) return seen;
+    seen = true;
+    const left = Math.max(0, ms - (Date.now() - t0));
+    if (left <= 0) return true;
+    await Promise.race([Promise.resolve(p), new Promise(r => setTimeout(r, left))]);
+    if (moraleRuns.get(combatId) === p) return true;
+  }
 }
 const liveCombat = (c) => c ? { combatId: c.id, round: c.round, turn: c.turn } : null;
 const findActor = (a) => game.actors.get(a.actorId) ?? game.actors.getName?.(a.actorName) ?? null;
@@ -383,6 +394,11 @@ export const COMMANDS = {
     return ok({ tokenId: t.id, x: r.x, y: r.y, ...(r.via === "displace" ? { via: "displace" } : {}) });
   }},
   nextTurn: { schema: { expect: "object?" }, async run(a) {
+    // 0.8.21: reject a missing expect immediately; do not wait for morale first.
+    const preCombat = (a.expect?.combatId ? game.combats.get(a.expect.combatId) : null) ?? game.combat;
+    const preLive = preCombat?.started ? { ...liveCombat(preCombat), combatant: preCombat.combatant?.name ?? null } : null;
+    const pre = checkExpect(preLive, a.expect);
+    if (pre && pre.code === 400) return pre;
     const key = a.expect?.combatId ?? game.combat?.id ?? "none";
     await awaitMorale(key);
     return combatLock.run(key, async () => {
@@ -614,7 +630,17 @@ export const COMMANDS = {
       if (!targets.list.length && !(a.actorId || a.actorName) && a.morale != null && String(a.morale).trim() !== "") {
         return SHIP.moraleCheck(null, a);
       }
-      if (!targets.list.length) return fail(400, "no morale targets: pass tokenIds, actorIds, actorName, or all:true while combat is active");
+      // 0.8.21: no living enemies left is a resolved empty set, not an error (so the bot is not told to roll morale itself).
+      if (!targets.list.length) {
+        const key = moraleKey({ trigger: a.trigger, combat, targets: [] });
+        const store = ctx?.dedupe;
+        const prior = a.force === true ? null : (moraleKeys({ trigger: a.trigger, combat, targets: [] }).map(k => store?.get?.(k)).find(e => e?.payload) ?? null);
+        if (prior?.payload) return ok({ ...prior.payload, duplicate: true });
+        const payload = { results: [], reason: a.reason ?? null, checked: 0, ...(key ? { key } : {}) };
+        const keys = moraleKeys({ trigger: a.trigger, combat, targets: [] });
+        if (keys.length && store?.mark) { for (const k of keys) store.mark(k, "acked", Date.now(), { payload }); try { await ctx.persistNow?.(); } catch {} }
+        return ok(payload);
+      }
       const key = moraleKey({ trigger: a.trigger, combat, targets: targets.list });
       const store = ctx?.dedupe;
       const prior = a.force === true ? null : (moraleKeys({ trigger: a.trigger, combat, targets: targets.list }).map(k => store?.get?.(k)).find(e => e?.payload) ?? null);

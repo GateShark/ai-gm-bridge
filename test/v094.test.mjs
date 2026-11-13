@@ -46,7 +46,7 @@ test("0.8.14 isLinkFresh: bot page ignores stale user.active; others trust serve
   assert.equal(isLinkFresh({ selfIsBot: true, botActive: true, lastConfirmed: 1_000, now: 80_000, offlineAfterMs: 60000 }), false);
   assert.equal(isLinkFresh({ selfIsBot: false, botActive: true, lastConfirmed: 0, now: 10_000, offlineAfterMs: 60000 }), true);
   assert.equal(isLinkFresh({ selfIsBot: false, botActive: false, lastConfirmed: 1_000, now: 80_000, offlineAfterMs: 60000 }), false);
-  assert.equal(isLinkFresh({ selfIsBot: false, botActive: false, lastConfirmed: 70_000, now: 80_000, offlineAfterMs: 60000 }), true);
+  assert.equal(isLinkFresh({ selfIsBot: false, botActive: false, lastConfirmed: 70_000, now: 80_000, offlineAfterMs: 60000 }), false);
 });
 
 test("0.8.14 deriveGmStatus uses lastConfirmed, not local lastBeat", () => {

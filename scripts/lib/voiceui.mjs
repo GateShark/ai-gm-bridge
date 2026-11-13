@@ -63,7 +63,17 @@ export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, c
   btn.title = t("AIGM.voice.replay", "Replay"); btn.textContent = "▶";
   btn.setAttribute("aria-label", t("AIGM.voice.replay", "Replay"));
   const spoken = plainVoiceText(msg?.content ?? root.textContent);
-  btn.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); replay?.(pick() || src, { text: spoken }); });
+  // 0.8.21: grey the ▶ button out while this line is queued or playing, so extra clicks cannot stack.
+  btn.addEventListener("click", (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const done = () => { try { btn.disabled = false; } catch {} };
+    try {
+      const r = replay?.(pick() || src, { text: spoken, messageId: msg?.id });
+      Promise.resolve(r).then(done, done);
+    } catch { done(); }
+  });
   audio.parentNode?.insertBefore(btn, audio);
   const text = plainVoiceText(msg?.content ?? root.textContent);
   const parts = collapseParts(text, collapseAt);
