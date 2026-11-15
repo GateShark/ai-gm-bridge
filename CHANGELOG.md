@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0
+Beta release (0.9.x is the beta series; 1.0 will be the full release). Credit: Gate (GateShark).
+
+- Loot onto the sheet: non-silver loot (e.g. "a gold tooth") from loot tables, and table results with no linked item, are added as items to the character's inventory (linked actor, else the token's actor). New `giveItem {name, qty?, type?, actor/token}` command. Silver still goes to the silver field.
+- Devil's Luck tracker on character sheets with a Spend button (owners only). New `spendLuck {actor/token, amount?}` command and `!spendluck <name>`; it uses the `setResource` write path and posts one chat line (no bot wake).
+- "GM, wait" button on voiced lines: stops the line that is playing on every page, drops queued lines (they cannot replay later), and sends the bot one `hold` event. No extra polling; ▶ replay guard unchanged.
+- GM-only `testFight {count?, enemy?, mood?}` / `!testfight [count] [enemy]`: sets Calm via `setMood`, places a few hostile enemies beside the party (creates a "Test Bilge Rat" if the world has no creature), and starts combat.
+- Auto-unpause: during play the game unpauses after `createScene`, `scene` (activate) and `setBackground`, and on combat start and every turn change, so a fight never runs paused. Never on world load. World setting `autoUnpause` (default on); off keeps the game paused.
+
 ## 0.8.21
 Beta release. Credit: Gate (GateShark).
 

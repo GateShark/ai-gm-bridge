@@ -4,8 +4,8 @@
 // unlock() resumes and replays it.
 export const isAutoplayBlocked = (e) => e?.name === "NotAllowedError" || e?.blocked === true || /autoplay|user (gesture|interaction)|not allowed/i.test(String(e?.message ?? e));
 export class AudioQueue {
-  constructor({ play, gapMs = 250, maxSeen = 500, retries = 2, retryDelayMs = 600, isBlocked = isAutoplayBlocked, onBlocked = () => {}, sleep = (ms) => new Promise(r => setTimeout(r, ms)), onStart = null, onIdle = null }) {
-    Object.assign(this, { play, gapMs, maxSeen, retries, retryDelayMs, isBlocked, onBlocked, sleep, onStart, onIdle });
+  constructor({ play, gapMs = 250, maxSeen = 500, retries = 2, retryDelayMs = 600, isBlocked = isAutoplayBlocked, onBlocked = () => {}, sleep = (ms) => new Promise(r => setTimeout(r, ms)), onStart = null, onIdle = null, stop = null }) {
+    Object.assign(this, { play, gapMs, maxSeen, retries, retryDelayMs, isBlocked, onBlocked, sleep, onStart, onIdle, stop });
     this.q = []; this.seen = new Set(); this.running = false; this.blocked = false;
   }
   // Returns a promise resolving to {id, played:true} when the clip finished, or {duplicate:true} immediately.
@@ -21,14 +21,25 @@ export class AudioQueue {
   replay(clip, now = Date.now()) {
     return new Promise((resolve) => { this.q.push({ id: `replay:${now}`, clip, resolve, tries: 0 }); this._drain(); });
   }
+  // 0.9.0 #3 "GM, wait": stop the clip that is playing now and drop the clips still waiting. Every dropped id stays in
+  // seen, so a late socket copy of the same line cannot play it again; replays waiting on it resolve (▶ comes back).
+  hold() {
+    const playing = this.running && !this.blocked && this.q.length ? this.q[0] : null;
+    const dropped = playing ? this.q.splice(1) : this.q.splice(0);
+    for (const it of dropped) { try { it.resolve({ id: it.id, played: false, held: true }); } catch {} }
+    let stopped = false;
+    if (playing) { playing.held = true; try { stopped = this.stop?.() !== false; } catch { stopped = false; } }
+    return { stopped: !!playing && stopped, dropped: dropped.length, id: playing?.id ?? null };
+  }
   async _drain() {
     if (this.running || this.blocked) return; this.running = true;
     try {
       if (this.q.length) try { this.onStart?.(); } catch {}
       while (this.q.length && !this.blocked) {
         const item = this.q[0];
-        try { await this.play(item.clip); this.q.shift(); item.resolve({ id: item.id, played: true }); }
+        try { await this.play(item.clip); this.q.shift(); item.resolve(item.held ? { id: item.id, played: true, held: true } : { id: item.id, played: true }); }
         catch (e) {
+          if (item.held) { this.q.shift(); item.resolve({ id: item.id, played: false, held: true }); continue; }
           if (this.isBlocked(e)) { this.blocked = true; try { this.onBlocked(item); } catch {} break; }
           if (item.tries++ < this.retries) { await this.sleep(this.retryDelayMs * item.tries); continue; }
           this.q.shift(); this.seen.delete(item.id); item.resolve({ id: item.id, played: false, error: String(e?.message ?? e) });

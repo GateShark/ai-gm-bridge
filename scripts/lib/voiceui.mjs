@@ -46,7 +46,25 @@ export function hideNativeAudio(audio) {
   try { audio.pause?.(); } catch {}
   return true;
 }
-export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, collapseAt = VOICE_COLLAPSE_CHARS, esc = defaultEsc, cacheLookup = null, slug = null } = {}) {
+// 0.9.0 #3: "GM, wait" button next to ▶. One click = one hold event; greyed out for a short cooldown so a
+// double click cannot send two. It never queues audio, so it cannot cause a replay.
+export const HOLD_COOLDOWN_MS = 3000;
+export function addHoldButton(doc, after, { msg, hold, t = (k, f) => f || k, cooldownMs = HOLD_COOLDOWN_MS, setTimer = (f, ms) => setTimeout(f, ms) } = {}) {
+  const b = doc.createElement("button");
+  b.type = "button"; b.className = "aigm-voice-hold"; b.dataset.aigmHold = msg?.id ?? "";
+  b.textContent = t("AIGM.voice.hold", "GM, wait"); b.title = t("AIGM.voice.holdHint", "Stop the GM's voice and ask the GM to wait");
+  b.setAttribute("aria-label", b.title);
+  b.addEventListener("click", (ev) => {
+    ev.preventDefault?.(); ev.stopPropagation?.();
+    if (b.disabled) return;
+    b.disabled = true;
+    try { hold({ messageId: msg?.id ?? null }); } catch {}
+    setTimer(() => { try { b.disabled = false; } catch {} }, cooldownMs);
+  });
+  if (after?.parentNode) after.parentNode.insertBefore(b, after.nextSibling ?? null);
+  return b;
+}
+export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, hold = null, holdCooldownMs = HOLD_COOLDOWN_MS, collapseAt = VOICE_COLLAPSE_CHARS, esc = defaultEsc, cacheLookup = null, slug = null } = {}) {
   const root = html?.[0] ?? html;
   if (!root?.querySelector) return false;
   const audio = root.querySelector("audio[src]");
@@ -75,12 +93,14 @@ export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, c
     } catch { done(); }
   });
   audio.parentNode?.insertBefore(btn, audio);
+  let holdBtn = null;
+  if (typeof hold === "function") holdBtn = addHoldButton(doc, btn, { msg, hold, t, cooldownMs: holdCooldownMs });
   const text = plainVoiceText(msg?.content ?? root.textContent);
   const parts = collapseParts(text, collapseAt);
   if (parts.collapsed) {
     const walker = [];
     for (const node of Array.from(audio.parentNode?.childNodes ?? [])) {
-      if (node === audio || node === btn) continue;
+      if (node === audio || node === btn || node === holdBtn) continue;
       if (node.nodeType === 3 || node.nodeName === "#text") walker.push(node);
     }
     const target = walker[0];

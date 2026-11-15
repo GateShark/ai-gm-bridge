@@ -3,7 +3,7 @@
 // state is never shown in the form.
 export const HIDDEN_KEYS = ["dedupeState", "outboxState", "voiceCache", "turnClips", "contextJournals", "pushToTalkNoticeShown", "pttPosition", "linkProbe", "sessionSnapshot", "presenceSuspendUntil", "rollBonuses", "moodState"];
 // Shown on the Basic page (plus the bot-user dropdown and webhook secret).
-export const BASIC_KEYS = ["enabled", "botUserId", "delivery", "webhookUrl", "webhookSecret", "alwaysVoiceUsers", "ttsVoice", "voiceVolume", "voiceCaptions", "captionFont", "voiceOtherTurns", "pushToTalkKey", "combatEvents"];
+export const BASIC_KEYS = ["enabled", "botUserId", "delivery", "webhookUrl", "webhookSecret", "alwaysVoiceUsers", "ttsVoice", "voiceVolume", "voiceCaptions", "captionFont", "voiceOtherTurns", "pushToTalkKey", "combatEvents", "autoUnpause"];
 export const BASIC_FIELDS = [
   ["enabled", "checkbox"],
   ["delivery", "select", ["relay", "direct"]],
@@ -16,6 +16,7 @@ export const BASIC_FIELDS = [
   ["voiceOtherTurns", "checkbox"],
   ["pushToTalkKey", "text"],
   ["combatEvents", "checkbox"],
+  ["autoUnpause", "checkbox"], // 0.9.0 #5
 ];
 export const ADVANCED_FIELDS = [
   ["botUserName", "text"],

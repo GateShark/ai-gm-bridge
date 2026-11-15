@@ -2,7 +2,7 @@
   <img src="assets/logo-256.webp" alt="AI GM Pirate Borg" width="160" height="160" />
 </p>
 
-# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.8.21
+# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.0
 
 > ⚠️ **Beta:** this is a public beta. Please report bugs; some changes may still land.
 
@@ -31,8 +31,16 @@ Created by Gate (GateShark).
 - The GM has an in-game **AI GM Pirate Borg** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM Pirate Borg** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
+## What's new in 0.9.0 (beta)
+0.9.x is the beta series; 1.0 will be the full release. The current release is **0.9.0** (beta).
+- **Loot onto the sheet.** Loot that is not silver (for example "a gold tooth") is added as an item to the character's inventory: the linked actor, or the token's own actor for an unlinked token. Table loot does this automatically; `giveItem` gives a named item directly.
+- **Devil's Luck tracker.** Character sheets show **Devil's Luck** with a **Spend** button (owners only). Spending writes through the same path as `!luck`/`setResource` and posts one chat line. Also `!spendluck <name>`.
+- **"GM, wait".** Voiced lines have a **GM, wait** button next to ▶. It stops the line that is playing (on every page), drops the lines still waiting, and sends the GM one `hold` event. It never replays anything and works with the ▶ replay guard.
+- **Test fight (GM only).** `testFight` or `!testfight [count] [enemy]` sets Calm music, drops a few enemies beside the party, and starts combat in the tracker.
+- **Auto-unpause.** During play the game unpauses after the AI GM builds or changes a map, and when a fight starts or a turn changes, so a fight never runs paused. It never unpauses when the world loads. Setting **Auto-unpause during play** (default on); turn it off to stay paused.
+
 ## What's new since 0.8.0 (0.8.1–0.8.21)
-These versions add table tools, more reliable combat, and fewer wasted bot calls. The current release is **0.8.21** (beta).
+These versions add table tools, more reliable combat, and fewer wasted bot calls.
 
 **Bug-fix beta (0.8.21)**
 - Morale finishes every card before the next enemy acts (no 8 s cutoff). An empty enemy list is a resolved result, not an error. `nextTurn` without `expect` fails immediately.

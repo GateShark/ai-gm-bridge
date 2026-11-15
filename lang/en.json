@@ -233,6 +233,10 @@
       "offlineNotifyAfterMs": {
         "name": "Offline notice after (ms)",
         "hint": "How long the AI GM can be unreachable before players see \"AI GM offline, host notified\" instead of \"reconnecting\". Default 180000 (3 minutes)."
+      },
+      "autoUnpause": {
+        "name": "Auto-unpause during play",
+        "hint": "When on, the game unpauses after the AI GM builds or changes a map during play, and whenever a fight starts or a turn changes. It never unpauses when the world loads. Turn off to keep the game paused until you unpause it."
       }
     },
     "audio": {
@@ -268,7 +272,9 @@
     "voice": {
       "replay": "Replay",
       "more": "Show more",
-      "less": "Show less"
+      "less": "Show less",
+      "hold": "GM, wait",
+      "holdHint": "Stop the GM's voice and ask the GM to wait"
     },
     "config": {
       "basic": "Basic",
@@ -325,6 +331,10 @@
       "startGame": "Start game",
       "pauseGame": "Pause game",
       "petTurn": "Pet: one simple action."
+    },
+    "luck": {
+      "label": "Devil's Luck",
+      "spend": "Spend"
     }
   }
 }

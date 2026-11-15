@@ -43,7 +43,7 @@ test("0.8.12 turnStatus does not label an unlinked player-owned Tempus as an NPC
 
 test("0.8.12 version and wiring share combatantIsNpc", () => {
   const ver = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version;
-  assert.match(ver, /^0\.8\.\d+$/);
+  assert.match(ver, /^0\.(8|9)\.\d+$/);
   assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, ver);
   const main = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
   assert.match(main, /shouldWakeOnTurn\(c, get\("turnWake"\), game\.users\?\.contents/);

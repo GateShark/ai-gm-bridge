@@ -1,7 +1,7 @@
 import { normAction, splitDr } from "./ship.mjs";
 // Local chat commands handled in Foundry with no bot wake. Prefix default "!".
 // !roll 2d6 | !r 1d20+2 | !music <playlist>[ stop] | !scene <name> | !hp <actor> <+n|-n|n> | !luck <actor> <+n|-n|n>
-// !turn | !rest <actor> [short|long] [starve|donteat] [infected]
+// !turn | !rest <actor> [short|long] [starve|donteat] [infected] | !testfight [n] [enemy] | !spendluck <actor>
 // Also !<resource> <actor> <delta> for rituals/prayers/hull/crew. Returns {name,args} for runCommand, or null.
 const RES = ["luck", "devilsluck", "rituals", "prayers", "prayer", "hull", "crew", "cargo", "shanties"];
 const SHIP_CMDS = ["broadsides", "broadside", "smallarms", "ram", "repair", "fullsail", "comeabout", "shanty", "sink"];
@@ -29,6 +29,10 @@ export function parseLocal(text, prefix = "!") {
   if ((c === "load" || c === "loadsession" || c === "leftoff") && !arg) return { name: "loadSession", args: {} };
   if ((c === "start" || c === "startgame") && !arg) return { name: "start", args: {} };
   if ((c === "pause" || c === "pausegame") && !arg) return { name: "pause", args: {} };
+  // 0.9.0 #4: !testfight [count] [enemy name] (GM-only)
+  if (c === "testfight" || c === "testcombat") { const m = /^(\d+)\s*(.*)$/.exec(arg); return { name: "testFight", args: { ...(m ? { count: Number(m[1]) } : {}), ...((m ? m[2] : arg) ? { enemy: (m ? m[2] : arg) } : {}) } }; }
+  // 0.9.0 #2: !spendluck <actor>
+  if ((c === "spendluck" || c === "spend") && arg) return { name: "spendLuck", args: { actorName: arg } };
   const num = rest.at(-1); const who = rest.slice(0, -1).join(" ");
   if (!who || !/^[+-]?\d+$/.test(num ?? "")) return null;
   const v = /^[+-]/.test(num) ? { delta: Number(num) } : { value: Number(num) };

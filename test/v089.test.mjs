@@ -81,7 +81,7 @@ test("0.8.9 main wiring: relay acks chat after emit without thinkingOff; direct 
 
 test("0.8.9 version, changelog and public credits", () => {
   const ver = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version;
-  assert.match(ver, /^0\.8\.\d+$/);
+  assert.match(ver, /^0\.(8|9)\.\d+$/);
   assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, ver);
   assert.match(readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8"), /## 0\.8\.9/);
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");

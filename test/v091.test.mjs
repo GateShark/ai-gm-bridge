@@ -118,7 +118,7 @@ test("0.8.11 ending a combat emits combat/end and cancels pending rolls tied to 
 
 test("0.8.11 version, wiring and i18n", () => {
   const ver = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8")).version;
-  assert.match(ver, /^0\.8\.\d+$/);
+  assert.match(ver, /^0\.(8|9)\.\d+$/);
   assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, ver);
   const main = readFileSync(new URL("../scripts/main.mjs", import.meta.url), "utf8");
   assert.match(main, /reg\("turnWake", Boolean, true\)/);

@@ -24,6 +24,8 @@ import {
   shouldProbeLink, presenceFreshOpts, isPresenceSuspended, shouldForceResumeProbe, PING_TIMEOUT_MS
 } from "./lib/presence.mjs";
 import { runCommand, COMMANDS, onVoiceSocket, audioQueue } from "./commands.mjs";
+import { autoUnpause } from "./lib/autounpause.mjs";
+import { injectLuckTracker } from "./lib/devilsluck.mjs";
 import { missedMessages } from "./lib/replies.mjs";
 import { lockBlocks } from "./lib/spawn.mjs";
 import { burstTest } from "./lib/bursttest.mjs";
@@ -228,6 +230,20 @@ async function doPause() {
   if (enabled()) { emitControl("pause", { foundryPaused: !!game.paused }); flush(); }
   return { ok: true, result: { paused: true, aiPaused: true, control: "pause" } };
 }
+// 0.9.0 #3 "GM, wait": stop the voice on every page (no extra polling) and send the bot one hold event.
+function sendHold({ messageId = null } = {}) {
+  const data = { type: "hold", userId: game.user?.id ?? null, name: game.user?.name ?? null, messageId, at: Date.now() };
+  try { game.socket.emit(SOCKET, data); } catch {}
+  onHold(data);
+}
+function onHold(data) {
+  if (!enabled()) return;
+  const r = audioQueue.hold();
+  if (thinking.visible && thinking.kind === "speaking") thinkingOff({ broadcast: false });
+  if (!amLeader()) return;
+  emitEvent({ eventId: `hold:${data.userId ?? "u"}:${data.at ?? Date.now()}`, type: "hold", author: data.name ?? null, messageId: data.messageId ?? null,
+    stopped: !!r.stopped, text: `${data.name ?? "A player"} says: GM, wait.` }, { urgent: true });
+}
 function emitControl(action, extra = {}) { return emitEvent(makeControlEvent(action, extra), { urgent: true, evenIfPaused: true }); }
 function wakeTargetIds(data) {
   return resolveWakeEventIds(S.lastWake, data?.targetEventIds, () => newestChatEventIds(game.messages?.contents ?? [], {
@@ -392,6 +408,9 @@ Hooks.once("init", () => {
   // 0.8.20 #5: hear "<name> is up" on ally/enemy turns (client, default on)
   game.settings.register(ID, "voiceOtherTurns", { scope: "client", config: true, type: Boolean, default: true,
     name: "AIGM.settings.voiceOtherTurns.name", hint: "AIGM.settings.voiceOtherTurns.hint" });
+  // 0.9.0 #5: unpause after a map build / combat start / turn during play (never on world load). Default on.
+  game.settings.register(ID, "autoUnpause", { scope: "world", config: true, restricted: true, type: Boolean, default: true,
+    name: "AIGM.settings.autoUnpause.name", hint: "AIGM.settings.autoUnpause.hint" });
   reg("thinkingIndicator", Boolean, true); reg("thinkingTimeoutMs", Number, 90000);
   reg("aiPaused", Boolean, false, { config: false, onChange: (v) => { try { onAiPausedChange(v); } catch {} } });
   // v0.7 (GM-only: world setting, config menu is GM-only)
@@ -657,6 +676,7 @@ function persistSoon() {
 function onSocket(data) {
   if (!enabled() || !data?.type) return;
   if (data.type === "heartbeat") { S.leader = applyHeartbeat(S.leader, data, Date.now()); refreshStatus(); return; }
+  if (data.type === "hold") return void onHold(data); // 0.9.0 #3
   if (data.type === "turnPing") return F.onTurnPing(data);
   if (data.type === "upPing") return F.onUpPing(data);
   if (data.type === "bubble") return F.showBubble(data);
@@ -691,7 +711,20 @@ Hooks.on("createChatMessage", async (msg) => {
   handleChat(msg);
 });
 Hooks.on("updateChatMessage", (msg) => { if (enabled() && msg.flags?.[ID]?.rollRequest) refreshPanel(); });
-Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCard(msg, html); enhanceVoiceMessage(msg, html, { t: loc, cacheLookup: voiceCacheLookup, replay: (src, meta) => audioQueue.enqueue(`replay:${src}:${Date.now()}`, { src, text: meta?.text }) }); } });
+Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCard(msg, html); enhanceVoiceMessage(msg, html, { t: loc, cacheLookup: voiceCacheLookup, replay: (src, meta) => audioQueue.enqueue(`replay:${src}:${Date.now()}`, { src, text: meta?.text }), hold: isBot() ? null : sendHold }); } });
+// 0.9.0 #2: Devil's Luck tracker on character sheets (v1 and v2 sheets). Spend = one setResource write + one chat line, no bot wake.
+function luckSheet(app, html) {
+  if (!enabled()) return;
+  const actor = app?.actor ?? app?.document ?? app?.object; if (actor?.type !== "character") return;
+  const root = html?.[0] ?? html ?? app?.element?.[0] ?? app?.element;
+  const args = actor.isToken && actor.token ? { tokenId: actor.token.id, sceneId: actor.token.parent?.id } : { actorId: actor.id };
+  injectLuckTracker(root, { actor, canSpend: !!actor.isOwner, t: loc, onSpend: async () => {
+    const r = await runCommand({ name: "spendLuck", args }, ctxFor());
+    if (!r.ok) ui.notifications?.warn?.(r.error);
+  } });
+}
+Hooks.on("renderActorSheet", (app, html) => { try { luckSheet(app, html); } catch (e) { log("luckSheet", e?.message); } });
+Hooks.on("renderActorSheetV2", (app, html) => { try { luckSheet(app, html); } catch (e) { log("luckSheet", e?.message); } });
 // 0.8.20 #7: live font preview under the caption font dropdown in Foundry's settings window.
 Hooks.on("renderSettingsConfig", (_app, html) => { try { fillCaptionFontChoices(); attachCaptionFontPreview(html?.[0] ?? html); } catch {} });
 // 0.8.20 #6: replay looks up the player's own voice in the shared voice cache when the message has no clip for it.
@@ -754,6 +787,7 @@ function combatState(c, state) {
   const ev = combatEvent(c, state, { users: game.users?.contents ?? [] }); if (ev) emitEvent(ev, { urgent: true });
 }
 Hooks.on("combatStart", (c) => combatState(c, "start"));
+Hooks.on("combatStart", () => { if (enabled() && amLeader()) autoUnpause("combatStart"); }); // 0.9.0 #5
 function filterOpts(botId) {
   return { botUserId: botId, gmNames: list("botNames").map(n => n.toLowerCase()), keywords: list("keywords"), wakeOn: list("wakeOn"), ignoreOOC: get("ignoreOOC"),
     ignorePlainRolls: get("ignorePlainRolls"), ignoreUsers: list("ignoreUsers"), minChars: get("minChars") };
@@ -785,7 +819,7 @@ function handleChat(msg) {
 function tryLocal(msg, plain, author) {
   const cmd = parseLocal(plain, get("localPrefix") || "!"); if (!cmd) return false;
   const eventId = `local:${msg.id}`; if (!S.dedupe.claim(eventId, Date.now())) return true;
-  const gmOnly = cmd.name === "music" || cmd.name === "scene" || ["saveSession", "loadSession", "setPet", "listPets", "placePets", "start", "pause", "rollTable", "giveLoot", "rollLoot", "applyDamage", "startShipCombat", "shipStatus", "setMood"].includes(cmd.name);
+  const gmOnly = cmd.name === "music" || cmd.name === "scene" || ["saveSession", "loadSession", "setPet", "listPets", "placePets", "start", "pause", "rollTable", "giveLoot", "rollLoot", "applyDamage", "startShipCombat", "shipStatus", "setMood", "testFight", "giveItem"].includes(cmd.name);
   if (cmd.name === "turnStatus") { ChatMessage.create({ content: turnText(F.turnStatus()), whisper: [author.id], speaker: { alias: "AI GM" }, flags: { [ID]: { local: true } } }); S.dedupe.mark(eventId, "acked", Date.now()); return true; }
   const actor = cmd.args.actorName ? game.actors.getName(cmd.args.actorName) : null;
   const allowed = author?.isGM || (!gmOnly && (cmd.name === "roll" || actor?.testUserPermission?.(author, "OWNER")));
@@ -796,6 +830,8 @@ function tryLocal(msg, plain, author) {
     S.dedupe.mark(eventId, r.ok ? "acked" : "failed", Date.now()); persistSoon(); S.metrics.inc("local");
     if (cmd.name === "setResource") await reply(r.ok ? `${actor?.name ?? cmd.args.actorName}: ${r.result.resource} ${r.result.before} → ${r.result.after}` : `!${cmd.args.resource}: ${r.error}`);
     else if (cmd.name === "rest") { if (!r.ok) await reply(`!rest: ${r.error}`); } // success posts its own card
+    else if (cmd.name === "testFight") await reply(r.ok ? `Test fight: ${r.result.tokens.length} × ${r.result.enemy}, mood ${r.result.mood ?? "unchanged"}${r.result.unpaused ? ", unpaused" : ""}` : `!testfight: ${r.error}`);
+    else if (cmd.name === "spendLuck") { if (!r.ok) await reply(`!spendluck: ${r.error}`); } // success posts its own line
     else if (cmd.name === "setupCheck" && r.ok) await reply(r.result.warning || r.result.text);
     else if (cmd.name === "getShip" && r.ok) { const x = r.result; await reply(`${x.name}: HP ${x.hp.value}/${x.hp.max}, hull ${x.armorDie}, crew ${x.crew.value}/${x.crew.max}, shanties ${x.shanties.value}/${x.shanties.max}${x.sinking ? ", sinking" : ""}`); }
     else if ((cmd.name === "saveSession" || cmd.name === "loadSession") && r.ok) await reply(r.result.recap || formatSessionRecap(r.result));
@@ -820,6 +856,7 @@ Hooks.on("deleteChatMessage", (msg) => {
 Hooks.on("updateCombat", (c, change) => {
   try { crewTracker.sync(c); } catch {}
   if (!enabled() || !amLeader() || !("turn" in change || "round" in change)) return;
+  autoUnpause(startedNow(c, change) ? "combatStart" : "combatTurn"); // 0.9.0 #5: a fight never runs paused
   if (startedNow(c, change)) combatState(c, "start"); // combatStart only fires on the starting client
   F.onCombatUpdate(c, change);
   if (get("turnPrompts")) F.turnPrompt(c).catch(e => log("turnPrompt", e?.message));

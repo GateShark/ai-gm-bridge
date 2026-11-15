@@ -418,3 +418,10 @@ The audio queue id of a voiced line is its chat message id (`voice:<messageId>:<
 - `moraleCheck {all: true}` with no living enemies left returns `{ok: true, results: [], checked: 0}`. A resolved `moralePrompt` for that case carries `resolved: true` and empty `results`, not an error.
 - On a player page, an inactive bot user is treated as a missed heartbeat at once: the pill shows **AI GM reconnecting** (then **AI GM offline, host notified** after `offlineNotifyAfterMs`). It no longer stays on **GM listening** until `offlineAfterMs` expires.
 - ▶ replay ignores further clicks on that message while its clip is queued or playing.
+
+## v0.9.0: loot items, Devil's Luck, hold, test fight, auto-unpause (beta)
+- `giveItem {name, qty?, type?, img?, toChat?, actorId|actorName|tokenId|tokenName|...}` adds a named item (type `misc` when the system has it) to each target's inventory. `rollLoot`/`giveLoot` now also add non-silver text results ("a gold tooth") and results with no linked item as items; `added` lists them.
+- `spendLuck {actorId|actorName|tokenId|tokenName, amount?, toChat?}` lowers Devil's Luck through `setResource` and posts "<name> spends a Devil's Luck (2 → 1)." Fails with 400 when there is not enough. Character sheets show the same tracker with a Spend button.
+- New event `{type: "hold", author, messageId, stopped, text}` when a player presses **GM, wait** on a voiced line. Every page has already stopped the voice; reply briefly (or wait) instead of continuing the narration. Auto-acked in relay mode.
+- `testFight {count?: 1-6 (3), enemy?, mood?: "Calm", sceneId?}` (GM only) returns `{combatId, tokens, enemy, createdEnemy, mood, unpaused, expect}`.
+- `createScene`, `scene` (activate), `setBackground`, `nextTurn`, `startShipCombat` and `testFight` unpause a paused game during play (`unpaused: true` in the result) unless the world setting `autoUnpause` is off or the AI GM is paused. Combat start and turn changes from the tracker do the same. Never on world load.

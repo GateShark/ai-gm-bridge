@@ -23,6 +23,10 @@ import * as SHIP from "./ship.mjs";
 import { targetActor, targetInfo, sceneTokenForActor } from "./lib/target.mjs";
 import { combatExpect } from "./lib/turns.mjs";
 import { liveSetupCheck } from "./lib/setupcheck.mjs";
+import { splitLootText, addLootItems } from "./lib/lootitems.mjs";
+import { luckOf, spendLuckLine } from "./lib/devilsluck.mjs";
+import { autoUnpause } from "./lib/autounpause.mjs";
+import { planTestFight, testFightTokenData, pickTestEnemy, TEST_ENEMY, TEST_FIGHT_FLAG } from "./lib/testfight.mjs";
 import { normalizeGmStatus } from "./lib/gmstatus.mjs";
 import { runLinkProbe, findBotUser, callerConnectionError, PING_TIMEOUT_ERROR, publicPresence, resolvePresenceSuspendSeconds } from "./lib/presence.mjs";
 const MODULE_ID = "ai-gm-bridge";
@@ -92,6 +96,14 @@ function extraLabel(actor) {
   for (const i of actor.items?.filter?.(i => i.type === "class") ?? []) { const v = i.system?.extraResourceNamePlural || i.system?.extraResourceNameSingular; if (v) return v; }
   return "";
 }
+// 0.9.0 #3: the clip playing now, so "GM, wait" can stop it partway.
+let currentClip = null;
+export function stopCurrentClip() {
+  const c = currentClip; if (!c) return false;
+  try { c.sound?.stop?.(); } catch {}
+  try { c.fin(); } catch {}
+  return true;
+}
 function playClip({ src, volume, text }) {
   return new Promise(async (resolve, reject) => {
     try {
@@ -101,14 +113,15 @@ function playClip({ src, volume, text }) {
       if (spoken) showVoiceCaption(spoken);
       const sound = await foundry.audio.AudioHelper.play({ src, volume: vol, autoplay: true, loop: false }, false); // local only: each client plays via its own queue (#12)
       if (!sound) throw new Error("clip did not start");
-      let done = false; const fin = () => { if (!done) { done = true; if (spoken) hideVoiceCaption(); resolve(); } };
+      let done = false; const fin = () => { if (!done) { done = true; if (currentClip?.sound === sound) currentClip = null; if (spoken) hideVoiceCaption(); resolve(); } };
+      currentClip = { sound, fin };
       sound?.addEventListener?.("end", fin);
       const ms = (sound?.duration && isFinite(sound.duration) ? sound.duration * 1000 : 30000) + 500;
       setTimeout(fin, Math.min(ms, 180000));
     } catch (e) { if (text) hideVoiceCaption(); reject(e); }
   });
 }
-export const audioQueue = new AudioQueue({ play: playClip, onBlocked: () => showAudioUnlockPrompt({
+export const audioQueue = new AudioQueue({ play: playClip, stop: () => stopCurrentClip(), onBlocked: () => showAudioUnlockPrompt({
   queue: audioQueue, label: game.i18n?.localize?.("AIGM.audio.enableSound") || game.i18n?.localize?.("AIGM.audio.unlock") || "Enable sound",
   beforeUnlock: async () => { await game.audio?.unlock; try { await game.audio?.context?.resume?.(); } catch {} } }) });
 // #12: the core AudioHelper broadcast (play(data, true)) did not reach player clients in v14 and bypassed their
@@ -292,7 +305,7 @@ async function resolveLootTable(a) {
 }
 
 async function awardLootFromTable(actor, table, { displayChat = true, count = 1 } = {}) {
-  const added = [], texts = [];
+  const added = [], texts = [], loose = [];
   let silver = 0;
   for (let i = 0; i < count; i++) {
     const draw = await table.draw({ displayChat });
@@ -302,16 +315,19 @@ async function awardLootFromTable(actor, table, { displayChat = true, count = 1 
       try { if (it.uuid && globalThis.fromUuid) item = await fromUuid(it.uuid); } catch {}
       if (!item && it.id) item = game.items?.get?.(it.id) ?? null;
       if (item?.toObject) { await actor.createEmbeddedDocuments("Item", [item.toObject()]); added.push(item.name); }
-      else if (it.name) added.push(it.name);
+      else if (it.name) loose.push(it.name); // 0.9.0 #1: no linked document -> still lands on the sheet as a plain item
     }
     for (const text of planned.texts) {
       texts.push(text);
-      const parsed = parseSilverText(text);
+      const split = splitLootText(text);
+      if (split.itemName) loose.push(split.itemName); // 0.9.0 #1: "a gold tooth" -> inventory item
+      const parsed = split.silver;
       if (parsed.formula) {
         try { silver += (await new Roll(parsed.formula).evaluate()).total || 0; } catch {}
       } else if (parsed.amount) silver += parsed.amount;
     }
   }
+  if (loose.length) { try { added.push(...(await addLootItems(actor, loose))); } catch (e) { texts.push(`item not added: ${e?.message ?? e}`); } }
   if (silver) {
     const before = Number(actor.system?.silver) || 0;
     const after = before + silver;
@@ -406,7 +422,8 @@ export const COMMANDS = {
       const live = c?.started ? { ...liveCombat(c), combatant: c.combatant?.name ?? null } : null;
       const stale = checkExpect(live, a.expect); if (stale) return stale;
       await c.nextTurn();
-      return ok({ ...liveCombat(c), combatant: c.combatant?.name ?? null, expect: combatExpect(c) });
+      const up = autoUnpause("combatTurn"); // 0.9.0 #5
+      return ok({ ...liveCombat(c), combatant: c.combatant?.name ?? null, expect: combatExpect(c), ...(up.unpaused ? { unpaused: true } : {}) });
     });
   }},
   endCombat: { schema: { expect: "object?" }, async run(a) {
@@ -421,12 +438,15 @@ export const COMMANDS = {
   scene: { schema: { sceneId: "string?", sceneName: "string?", activate: "boolean?" }, async run(a) {
     const s = game.scenes.get(a.sceneId) ?? game.scenes.getName?.(a.sceneName); if (!s) return fail(404, "scene not found");
     await withWorldLock(async () => { if (a.activate === false) await s.view(); else await s.activate(); });
-    return ok({ sceneId: s.id, active: s.active });
+    const up = a.activate === false ? { unpaused: false } : autoUnpause("mapBuild"); // 0.9.0 #5
+    return ok({ sceneId: s.id, active: s.active, ...(up.unpaused ? { unpaused: true } : {}) });
   }},
   setBackground: { schema: { sceneId: "string?", sceneName: "string?", src: "string" }, async run(a) {
     const s = (a.sceneId || a.sceneName) ? (game.scenes.get(a.sceneId) ?? game.scenes.getName?.(a.sceneName)) : (canvas?.scene ?? game.scenes.active);
     if (!s) return fail(404, "scene not found");
-    return ok({ sceneId: s.id, ...(await withWorldLock(() => setSceneBackground(s, a.src))) });
+    const bg = await withWorldLock(() => setSceneBackground(s, a.src));
+    const up = autoUnpause("mapBuild"); // 0.9.0 #5
+    return ok({ sceneId: s.id, ...bg, ...(up.unpaused ? { unpaused: true } : {}) });
   }},
   // 0.8.20 #10: idempotent scene build. Same buildKey => the existing scene comes back unchanged (duplicate:true).
   createScene: { schema: { name: "string", width: "number?", height: "number?", grid: "number?", src: "string?", buildKey: "string?", activate: "boolean?", padding: "number?" }, async run(a) {
@@ -439,7 +459,8 @@ export const COMMANDS = {
       if (!scene) return fail(500, "scene was not created");
       let bg = null; if (a.src) bg = await setSceneBackground(scene, a.src);
       if (a.activate) await scene.activate();
-      return ok({ sceneId: scene.id, name: scene.name, width: scene.width ?? null, height: scene.height ?? null, grid: scene.grid?.size ?? null, ...(bg ? { background: bg } : {}), activated: !!a.activate });
+      const up = autoUnpause("mapBuild"); // 0.9.0 #5
+      return ok({ sceneId: scene.id, name: scene.name, width: scene.width ?? null, height: scene.height ?? null, grid: scene.grid?.size ?? null, ...(bg ? { background: bg } : {}), activated: !!a.activate, ...(up.unpaused ? { unpaused: true } : {}) });
     });
   }},
   format: { schema: { result: "any" }, async run(a) { return ok({ text: formatResult(a.result) }); } },
@@ -482,6 +503,64 @@ export const COMMANDS = {
     const cur = foundry.utils.getProperty(actor, r.base); const after = nextValue(cur, a);
     await actor.update({ [r.base + ".value"]: after });
     return ok({ actorId: actor.id, ...targetInfo(tg), resource: r.label ?? r.key, path: r.base + ".value", before: cur?.value, after: foundry.utils.getProperty(actor, r.base + ".value") });
+  }},
+  // 0.9.0 #2: spend one Devil's Luck (same write path as setResource) and post one chat line.
+  spendLuck: { schema: { actorId: "string?", actorName: "string?", ...TOK, amount: "number?", toChat: "boolean?" }, async run(a) {
+    const tg = findTarget(a); if (tg.error) return tg.error; const actor = tg.actor;
+    const before = luckOf(actor); if (before == null) return fail(400, "Devil's Luck is only on character sheets");
+    const n = Math.max(1, Math.min(10, Math.floor(Number(a.amount) || 1)));
+    if (before < n) return fail(400, `not enough Devil's Luck (${before} left)`);
+    const r = await COMMANDS.setResource.run({ ...a, resource: "luck", delta: -n });
+    if (!r.ok) return r;
+    let messageId = null;
+    if (a.toChat !== false) messageId = (await ChatMessage.create({ content: spendLuckLine(actor.name, before, r.result.after ?? before - n),
+      speaker: ChatMessage.getSpeaker?.({ actor }) ?? { alias: actor.name }, flags: { [MODULE_ID]: { local: true, luckSpent: n } } }))?.id ?? null;
+    return ok({ ...r.result, before, spent: n, messageId });
+  }},
+  // 0.9.0 #1: put a named loot item (e.g. "Gold tooth") straight into a character's inventory.
+  giveItem: { schema: { name: "string", qty: "number?", type: "string?", img: "string?", toChat: "boolean?", ...TARGET }, async run(a) {
+    const actors = resolveLootActors(a); if (actors.error) return actors.error;
+    if (!actors.list.length) return fail(400, "select a token or pass actor/token targets");
+    const out = [];
+    for (const actor of actors.list) {
+      const added = await addLootItems(actor, [a.name], { qty: a.qty, type: a.type, img: a.img });
+      if (!added.length) return fail(400, "item name is empty");
+      out.push({ actorId: actor.id, name: actor.name, added });
+    }
+    if (a.toChat !== false) await ChatMessage.create({ content: out.map(o => `<b>${o.name}</b> gets ${o.added.join(", ")}${(Number(a.qty) || 1) > 1 ? ` ×${Math.floor(Number(a.qty))}` : ""}`).join("<br>"),
+      speaker: { alias: "AI GM" }, flags: { [MODULE_ID]: { local: true } } });
+    return ok({ targets: out });
+  }},
+  // 0.9.0 #4: GM-only test fight: Calm music, a few enemies by the party, combat started in the tracker.
+  testFight: { schema: { count: "number?", enemy: "string?", actorName: "string?", mood: "string?", sceneId: "string?" }, async run(a) {
+    if (!game.user?.isGM) return fail(403, "testFight is GM-only");
+    const scene = (a.sceneId ? game.scenes.get(a.sceneId) : null) ?? globalThis.canvas?.scene ?? game.scenes?.active;
+    if (!scene) return fail(404, "no active scene");
+    const mood = await COMMANDS.setMood.run({ mood: a.mood || "Calm" });
+    let actor = pickTestEnemy(game.actors, a.enemy || a.actorName);
+    if (!actor && (a.enemy || a.actorName)) return fail(404, "enemy actor not found");
+    let created = false;
+    if (!actor) { actor = await Actor.create({ ...TEST_ENEMY, flags: { [MODULE_ID]: { [TEST_FIGHT_FLAG]: true } } }); created = true; }
+    if (!actor) return fail(500, "could not create a test enemy");
+    const sceneToks = [...(scene.tokens?.contents ?? scene.tokens ?? [])];
+    const pcTokens = sceneToks.filter(t => t.actor?.type === "character" && t.actor?.hasPlayerOwner !== false);
+    const plan = planTestFight({ count: a.count, scene, pcTokens });
+    const tag = `tf${Date.now()}`;
+    return withWorldLock(async () => {
+      const base = (await actor.getTokenDocument?.({}))?.toObject?.() ?? { name: actor.name, actorId: actor.id };
+      const data = plan.spots.map((spot, i) => testFightTokenData({ ...base, actorId: actor.id }, i, spot, tag));
+      const made = await scene.createEmbeddedDocuments("Token", data);
+      let combat = [...(game.combats?.contents ?? game.combats ?? [])].find(c => (c.scene?.id ?? c.sceneId ?? c.scene) === scene.id && !c.started)
+        ?? (game.combat?.scene?.id === scene.id ? game.combat : null);
+      if (!combat) combat = await Combat.create({ scene: scene.id, active: true });
+      const have = new Set([...(combat.combatants?.contents ?? combat.combatants ?? [])].map(c => c.tokenId));
+      const add = [...pcTokens, ...made].filter(t => t?.id && !have.has(t.id)).map(t => ({ tokenId: t.id, sceneId: scene.id, actorId: t.actorId ?? t.actor?.id }));
+      if (add.length) await combat.createEmbeddedDocuments("Combatant", add);
+      if (!combat.started) await combat.startCombat();
+      const up = autoUnpause("testFight");
+      return ok({ combatId: combat.id, sceneId: scene.id, enemy: actor.name, createdEnemy: created, tokens: made.map(t => ({ tokenId: t.id, name: t.name })),
+        mood: mood.ok ? mood.result.mood : null, moodError: mood.ok ? undefined : mood.error, unpaused: up.unpaused, expect: combatExpect(combat) });
+    });
   }},
   whisper: { schema: { content: "string", to: "array", speakerAlias: "string?", replyTo: "string?", ackEventIds: "array?", ooc: "boolean?", allowMultiple: "boolean?" }, async run(a, ctx) { a = withReplyTo(a, ctx); if ("content" in a) a.content = unwrapText(a.content);
     if (!Array.isArray(a.to) || !a.to.length) return fail(400, "to must be a non-empty array of user ids or names");
@@ -866,6 +945,7 @@ export const COMMANDS = {
       if (add.length) await combat.createEmbeddedDocuments?.("Combatant", add);
       if (!combat.started && combat.startCombat) await combat.startCombat();
       crewTracker.sync(combat);
+      autoUnpause("combatStart"); // 0.9.0 #5
     }
     const ships = planned.ships.map(s => ({ name: s.name, hp: s.hp, crew: s.crew, hull: s.hull, tokenId: s.tokenId, actorId: s.actorId, crewActionsThisRound: crewTracker.count(s.actorId) }));
     try { Hooks.callAll(`${MODULE_ID}.shipCombat`, { ships, combatId: combat?.id ?? null }); } catch {}
