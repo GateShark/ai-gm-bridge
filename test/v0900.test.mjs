@@ -113,7 +113,8 @@ test("0.9.0 #2 sheet tracker shows the value; Spend is one click per spend and o
 test("0.9.0 #2 spendLuck uses the setResource path and posts one chat line", async () => {
   const c = src("scripts/commands.mjs");
   assert.match(c, /spendLuck: \{ schema/);
-  assert.match(c, /COMMANDS\.setResource\.run\(\{ \.\.\.a, resource: "luck", delta: -n \}\)/);
+  assert.match(c, /writeResource\(tg, \{ resource: "luck", delta: -n \}\)/); // 0.9.1: same write as setResource, on the resolved actor
+  assert.match(c, /setResource: \{[^]*?return writeResource\(tg, a\);/);
   assert.match(c, /spendLuckLine\(actor\.name/);
   const m = src("scripts/main.mjs");
   assert.match(m, /renderActorSheetV2/);
@@ -247,8 +248,8 @@ test("0.9.0 #5 wired into map builds, combat start and turns; setting registered
 
 test("0.9.0 version, beta label, credit, voices", () => {
   const mod = JSON.parse(src("module.json"));
-  assert.equal(mod.version, "0.9.0");
-  assert.equal(JSON.parse(src("package.json")).version, "0.9.0");
+  assert.equal(mod.version, "0.9.1");
+  assert.equal(JSON.parse(src("package.json")).version, "0.9.1");
   assert.match(src("CHANGELOG.md"), /## 0\.9\.0/);
   assert.match(src("README.md"), /0\.9\.0/);
   const all = ["module.json", "README.md", "CHANGELOG.md", "scripts/commands.mjs", "scripts/main.mjs"].map(src).join("\n");

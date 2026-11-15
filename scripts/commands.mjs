@@ -8,7 +8,7 @@ import { moveWithFallback, setSceneBackground, formatResult } from "./lib/v081.m
 import { VoiceCache, shouldSkipTts } from "./lib/voicecache.mjs";
 import { listTtsVoices, resolveTtsVoice, DEFAULT_TTS_VOICE, ttsVoiceSlug, localVoiceSlug, readUserVoiceSlug, normalizeAudioMap, pickAudioSrc, readVoiceVolume } from "./lib/voices.mjs";
 import { showVoiceCaption, hideVoiceCaption, captionText } from "./lib/captions.mjs";
-import { applyMood, parseMoodPlaylists, moodState, clampFadeMs, noteMood, moodSnapshot } from "./lib/mood.mjs";
+import { applyMood, parseMoodPlaylists, moodState, clampFadeMs, noteMood, moodSnapshot, moodOfPlaylist } from "./lib/mood.mjs";
 import { livingEnemies } from "./lib/morale.mjs";
 import { moraleKey, moraleKeys } from "./lib/moralelock.mjs";
 import { parseTurnClipName, parseClipName, turnClipSlug, turnClipFile, upClipFile, UP_PREFIX, TurnClipStore } from "./lib/turnclips.mjs";
@@ -178,14 +178,42 @@ const findActor = (a) => game.actors.get(a.actorId) ?? game.actors.getName?.(a.a
 // #13: tokenId/tokenName target that token; unlinked tokens are written through token.actor, not the base actor.
 const TOK = { tokenId: "string?", tokenName: "string?", sceneId: "string?" };
 const TARGET = { ...TOK, tokenIds: "array?", tokenNames: "array?", actorId: "string?", actorName: "string?", actorIds: "array?", actorNames: "array?" };
-function findTarget(a) {
+// 0.9.1 #1: opts.world = sheet writes (giveItem, spendLuck, loot). actorId/actorName then resolve to the world actor
+// (the character sheet) first; a scene token is only used when the name matches no world actor. tokenId/tokenName
+// still target that token (an unlinked token writes its own copy).
+function findTarget(a, opts = {}) {
   if (a.tokenId || a.tokenName) { const t = findToken(a); if (!t) return { error: fail(404, "token not found") };
     const base = (a.actorId || a.actorName) ? findActor(a) : null; const r = targetActor({ token: t, baseActor: base }); return r ?? { error: fail(404, "actor not found") }; }
   const base = (a.actorId || a.actorName) ? findActor(a) : null;
+  if (opts.world && base) return targetActor({ baseActor: base });
   const scene = a.sceneId ? game.scenes.get(a.sceneId) : globalThis.canvas?.scene ?? game.scenes?.viewed ?? game.scenes?.active;
   const tok = sceneTokenForActor(scene?.tokens, { actor: base, actorId: a.actorId, actorName: a.actorName });
   if (tok) { const r = targetActor({ token: tok, baseActor: base }); if (r) return r; }
   const r = targetActor({ baseActor: base }); return r ?? { error: fail(404, "actor not found") };
+}
+// 0.9.1 #3: wait (briefly) for a hook-driven change; resolves true as soon as check() holds, false after ms.
+async function settle(check, ms = 1000, step = 50) {
+  const t0 = Date.now();
+  for (;;) { try { if (check()) return true; } catch {} if (Date.now() - t0 >= ms) return false; await new Promise(r => setTimeout(r, step)); }
+}
+// What music is actually playing: playlist names, and the mood they stand for (mood map first, then name).
+function playingMood() {
+  const list = [...(game.playlists?.contents ?? game.playlists ?? [])].filter(p => p?.playing);
+  const mapping = parseMoodPlaylists((() => { try { return game.settings.get(MODULE_ID, "moodPlaylists"); } catch { return ""; } })());
+  const cur = moodState();
+  const moodOf = (p) => moodOfPlaylist(p, mapping) ?? (p.id && p.id === cur.playlistId ? cur.current : null);
+  const moods = list.map(moodOf);
+  const pick = list.find(p => p.id && p.id === cur.playlistId) ?? list[0] ?? null;
+  // During a crossfade both can be playing; the Combat one is the one that was just started.
+  return { mood: moods.includes("combat") ? "combat" : (pick ? moodOf(pick) : null), playing: list.map(p => p.name) };
+}
+// setResource's write, on an already-resolved target (0.9.1: spendLuck reuses it so it cannot re-resolve to a token).
+async function writeResource(tg, a) {
+  const actor = tg.actor;
+  const r = resolveResource(actor.type, a.resource, extraLabel(actor)); if (r.error) return fail(400, r.error);
+  const cur = foundry.utils.getProperty(actor, r.base); const after = nextValue(cur, a);
+  await actor.update({ [r.base + ".value"]: after });
+  return ok({ actorId: actor.id, ...targetInfo(tg), resource: r.label ?? r.key, path: r.base + ".value", before: cur?.value, after: foundry.utils.getProperty(actor, r.base + ".value") });
 }
 function findToken(a) {
   const scene = a.sceneId ? game.scenes.get(a.sceneId) : canvas?.scene ?? game.scenes.active;
@@ -260,7 +288,7 @@ function resolveLootActors(a) {
       const tg = findTarget({
         tokenId: refs.tokenIds[i], tokenName: refs.tokenNames[i],
         actorId: refs.actorIds[i], actorName: refs.actorNames[i], sceneId: refs.sceneId
-      });
+      }, { world: true }); // 0.9.1 #1: loot by actor name lands on the character sheet
       if (tg.error && pairs === 1) return { error: tg.error };
       if (!tg.error) add(tg.actor);
     }
@@ -421,9 +449,12 @@ export const COMMANDS = {
       const c = (a.expect?.combatId ? game.combats.get(a.expect.combatId) : null) ?? game.combat;
       const live = c?.started ? { ...liveCombat(c), combatant: c.combatant?.name ?? null } : null;
       const stale = checkExpect(live, a.expect); if (stale) return stale;
+      const wasPaused = !!game.paused;
       await c.nextTurn();
       const up = autoUnpause("combatTurn"); // 0.9.0 #5
-      return ok({ ...liveCombat(c), combatant: c.combatant?.name ?? null, expect: combatExpect(c), ...(up.unpaused ? { unpaused: true } : {}) });
+      // 0.9.1 #3: the updateCombat hook may unpause first; report what actually happened.
+      const unpaused = up.unpaused || (wasPaused && await settle(() => !game.paused));
+      return ok({ ...liveCombat(c), combatant: c.combatant?.name ?? null, expect: combatExpect(c), ...(unpaused ? { unpaused: true } : {}) });
     });
   }},
   endCombat: { schema: { expect: "object?" }, async run(a) {
@@ -498,19 +529,17 @@ export const COMMANDS = {
   }},
   setResource: { schema: { actorId: "string?", actorName: "string?", ...TOK, resource: "string", value: "any?", delta: "any?" }, async run(a) {
     const amt = parseAmount(a); if (amt.error) return fail(400, amt.error); a = { ...a, ...amt }; delete a[amt.value === undefined ? "value" : "delta"];
-    const tg = findTarget(a); if (tg.error) return tg.error; const actor = tg.actor;
-    const r = resolveResource(actor.type, a.resource, extraLabel(actor)); if (r.error) return fail(400, r.error);
-    const cur = foundry.utils.getProperty(actor, r.base); const after = nextValue(cur, a);
-    await actor.update({ [r.base + ".value"]: after });
-    return ok({ actorId: actor.id, ...targetInfo(tg), resource: r.label ?? r.key, path: r.base + ".value", before: cur?.value, after: foundry.utils.getProperty(actor, r.base + ".value") });
+    const tg = findTarget(a); if (tg.error) return tg.error;
+    return writeResource(tg, a);
   }},
   // 0.9.0 #2: spend one Devil's Luck (same write path as setResource) and post one chat line.
+  // 0.9.1 #1: actorId/actorName (and Spend on a world sheet) write the world actor; only tokenId/tokenName write a token.
   spendLuck: { schema: { actorId: "string?", actorName: "string?", ...TOK, amount: "number?", toChat: "boolean?" }, async run(a) {
-    const tg = findTarget(a); if (tg.error) return tg.error; const actor = tg.actor;
+    const tg = findTarget(a, { world: true }); if (tg.error) return tg.error; const actor = tg.actor;
     const before = luckOf(actor); if (before == null) return fail(400, "Devil's Luck is only on character sheets");
     const n = Math.max(1, Math.min(10, Math.floor(Number(a.amount) || 1)));
     if (before < n) return fail(400, `not enough Devil's Luck (${before} left)`);
-    const r = await COMMANDS.setResource.run({ ...a, resource: "luck", delta: -n });
+    const r = await writeResource(tg, { resource: "luck", delta: -n }); // same write as setResource, on the resolved actor
     if (!r.ok) return r;
     let messageId = null;
     if (a.toChat !== false) messageId = (await ChatMessage.create({ content: spendLuckLine(actor.name, before, r.result.after ?? before - n),
@@ -556,10 +585,18 @@ export const COMMANDS = {
       const have = new Set([...(combat.combatants?.contents ?? combat.combatants ?? [])].map(c => c.tokenId));
       const add = [...pcTokens, ...made].filter(t => t?.id && !have.has(t.id)).map(t => ({ tokenId: t.id, sceneId: scene.id, actorId: t.actorId ?? t.actor?.id }));
       if (add.length) await combat.createEmbeddedDocuments("Combatant", add);
+      const wasPaused = !!game.paused;
       if (!combat.started) await combat.startCombat();
       const up = autoUnpause("testFight");
+      // 0.9.1 #3: read the end state after the combatStart hooks settle (they can unpause and switch to Combat music first).
+      const unpaused = up.unpaused || (wasPaused && await settle(() => !game.paused));
+      const requested = mood.ok ? mood.result.mood : null;
+      const follows = (() => { try { return game.settings.get(MODULE_ID, "moodFollowsCombat") !== false; } catch { return true; } })();
+      if (follows && requested !== "combat") await settle(() => playingMood().mood === "combat");
+      const now = playingMood();
       return ok({ combatId: combat.id, sceneId: scene.id, enemy: actor.name, createdEnemy: created, tokens: made.map(t => ({ tokenId: t.id, name: t.name })),
-        mood: mood.ok ? mood.result.mood : null, moodError: mood.ok ? undefined : mood.error, unpaused: up.unpaused, expect: combatExpect(combat) });
+        mood: now.mood ?? requested, moodRequested: requested, music: now.playing, moodError: mood.ok ? undefined : mood.error,
+        unpaused, paused: !!game.paused, expect: combatExpect(combat) });
     });
   }},
   whisper: { schema: { content: "string", to: "array", speakerAlias: "string?", replyTo: "string?", ackEventIds: "array?", ooc: "boolean?", allowMultiple: "boolean?" }, async run(a, ctx) { a = withReplyTo(a, ctx); if ("content" in a) a.content = unwrapText(a.content);

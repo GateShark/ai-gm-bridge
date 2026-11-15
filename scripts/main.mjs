@@ -830,7 +830,7 @@ function tryLocal(msg, plain, author) {
     S.dedupe.mark(eventId, r.ok ? "acked" : "failed", Date.now()); persistSoon(); S.metrics.inc("local");
     if (cmd.name === "setResource") await reply(r.ok ? `${actor?.name ?? cmd.args.actorName}: ${r.result.resource} ${r.result.before} → ${r.result.after}` : `!${cmd.args.resource}: ${r.error}`);
     else if (cmd.name === "rest") { if (!r.ok) await reply(`!rest: ${r.error}`); } // success posts its own card
-    else if (cmd.name === "testFight") await reply(r.ok ? `Test fight: ${r.result.tokens.length} × ${r.result.enemy}, mood ${r.result.mood ?? "unchanged"}${r.result.unpaused ? ", unpaused" : ""}` : `!testfight: ${r.error}`);
+    else if (cmd.name === "testFight") await reply(r.ok ? `Test fight: ${r.result.tokens.length} × ${r.result.enemy}, mood ${r.result.mood ?? "unchanged"}${r.result.moodRequested && r.result.mood && r.result.moodRequested !== r.result.mood ? ` (asked ${r.result.moodRequested})` : ""}${r.result.unpaused ? ", unpaused" : ""}` : `!testfight: ${r.error}`);
     else if (cmd.name === "spendLuck") { if (!r.ok) await reply(`!spendluck: ${r.error}`); } // success posts its own line
     else if (cmd.name === "setupCheck" && r.ok) await reply(r.result.warning || r.result.text);
     else if (cmd.name === "getShip" && r.ok) { const x = r.result; await reply(`${x.name}: HP ${x.hp.value}/${x.hp.max}, hull ${x.armorDie}, crew ${x.crew.value}/${x.crew.max}, shanties ${x.shanties.value}/${x.shanties.max}${x.sinking ? ", sinking" : ""}`); }

@@ -52,6 +52,9 @@ details.aigm-advanced>summary{cursor:pointer;font-weight:600}
 .aigm-quick-dmg{display:flex;align-items:center;gap:6px;font-size:12px}
 .aigm-panel textarea[data-aigm-notes]{width:100%;min-height:64px;box-sizing:border-box}
 .aigm-session-recap{margin:0;font-size:13px}
+div.aigm-luck[data-aigm-luck]{flex:0 0 auto!important;flex-grow:0!important;height:auto!important;min-height:0!important;max-height:26px;overflow:hidden}
+div.aigm-luck[data-aigm-luck]>.aigm-luck-spend{flex:0 0 auto;width:auto;height:18px;line-height:16px;padding:0 6px;margin:0}
+div.aigm-luck[data-aigm-luck]>.aigm-luck-spend:disabled{opacity:.45;cursor:default}
 `;
 export function injectStyles(doc = globalThis.document) {
   if (!doc || doc.getElementById("aigm-styles")) return false;

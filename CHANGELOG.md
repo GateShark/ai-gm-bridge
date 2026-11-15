@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.1
+Beta fix release. Credit: Gate (GateShark).
+
+- Loot and Devil's Luck write the character sheet: `giveItem`, `spendLuck`, `!spendluck`, `rollLoot`/`giveLoot` and the sheet's Spend button resolve a character name or id to the world actor first, so an unlinked token of that character on the viewed scene no longer takes the item or the luck. Only an explicit token target (`tokenId`/`tokenName`, or Spend on a token's sheet) writes the token's copy. Names with no world actor still fall back to a scene token (unlinked NPC loot).
+- The Devil's Luck tracker is a compact single row placed under the sheet header (above the tabs) with `flex: 0 0 auto`, so it no longer grows and squeezes the character sheet. Its CSS only targets the tracker itself.
+- `testFight` reports `unpaused: true` when the game ended up unpaused (Foundry's combat-start hook can unpause first), and `mood` is the music actually playing after combat starts (Combat when `moodFollowsCombat` is on), plus `moodRequested` and `music`. `nextTurn` reports `unpaused` the same way.
+- Voice default unchanged: Ryan (en-GB-RyanNeural). Recorded voices only.
+
 ## 0.9.0
 Beta release (0.9.x is the beta series; 1.0 will be the full release). Credit: Gate (GateShark).
 
