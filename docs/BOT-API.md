@@ -474,3 +474,6 @@ The audio queue id of a voiced line is its chat message id (`voice:<messageId>:<
 - **`moraleCheck` answers fast:** the creatures roll at the same time. A call from the bot answers within about 10 s; if the rolls are still running it returns `{pending: true, started, checked: 0, results: []}` and the cards post when they finish (see the `moraleCheck` row for `waitMs` and the repeat-call behaviour). The automatic run (`moraleAuto`, trigger `moraleprompt:...`) still waits for the full result before it sends `moralePrompt`.
 - **Setup guide link:** the settings link opens the `docs/SETUP.md` bundled in the module (it always matches the installed version), shown as plain text in a new tab.
 - **Audio clean-up:** a stopped voice line is removed from Foundry's list of playing sounds (a paused one used to stay there and pile up).
+
+## v0.9.7: beta fixes
+- Voice buttons only: **Resume** after **GM, wait** now really continues the stopped line from where it stopped (0.9.6 played nothing), including after Pause then **GM, wait**. No bot-visible change; the `hold` event is unchanged.

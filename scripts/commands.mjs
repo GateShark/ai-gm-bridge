@@ -110,6 +110,7 @@ export function pauseCurrentClip() {
   c.paused = true; // before pausing: an "end" event caused by the pause must not finish the clip
   clearTimeout(c.timer);
   const pos = Number(c.sound?.currentTime); c.leftMs = Math.max(0, clipMs(c.sound) - (Number.isFinite(pos) ? pos * 1000 : 0));
+  c.pos = Number.isFinite(pos) && pos > 0 ? pos : 0; // 0.9.7: a paused Sound reports currentTime 0, so keep the played seconds here
   try { c.sound.pause(); } catch { c.paused = false; c.arm(clipMs(c.sound) + 500); return false; }
   return true;
 }
@@ -131,6 +132,7 @@ export function purgePlaying(sound, audio = globalThis.game?.audio) {
 // 0.9.6: where the clip is now, in seconds (a paused sound keeps its position); used so Resume after "GM, wait" continues the line.
 export function currentClipPosition() {
   const c = currentClip; if (!c) return null;
+  if (c.paused) return c.pos ?? 0; // 0.9.7: paused: the position saved at Pause
   const pos = Number(c.sound?.currentTime); return Number.isFinite(pos) && pos > 0 ? pos : 0;
 }
 export function stopCurrentClip() {
@@ -150,15 +152,20 @@ function playClip({ src, volume, text, offset }) {
       if (spoken) showVoiceCaption(spoken);
       // 0.9.6: offset (seconds) = continue a line that "GM, wait" stopped, from where it stopped.
       const from = Number.isFinite(Number(offset)) && Number(offset) > 0 ? Number(offset) : 0;
-      const sound = await foundry.audio.AudioHelper.play({ src, volume: vol, autoplay: !from, loop: false }, false); // local only: each client plays via its own queue (#12)
+      // 0.9.7: Foundry v14's AudioHelper.play returns undefined when autoplay is false, so a continued line starts through
+      // game.audio.play(src, { offset }) (a Sound that plays from the offset and is registered in game.audio.playing). If that is
+      // missing or gives nothing, the line plays from the start rather than being dropped.
+      let sound = null;
+      if (from && typeof game.audio?.play === "function") { try { sound = await game.audio.play(src, { volume: vol, loop: false, offset: from }); } catch { sound = null; } }
+      const started = sound ? from : 0;
+      if (!sound) sound = await foundry.audio.AudioHelper.play({ src, volume: vol, autoplay: true, loop: false }, false); // local only: each client plays via its own queue (#12)
       if (!sound) throw new Error("clip did not start");
-      if (from) await sound.play({ offset: from, volume: vol, loop: false });
       let done = false; const fin = () => { if (!done) { done = true; clearTimeout(currentClip?.sound === sound ? currentClip.timer : undefined); if (currentClip?.sound === sound) currentClip = null; if (spoken) hideVoiceCaption(); resolve(); } };
-      const c = { sound, fin, paused: false, timer: null, leftMs: 0 };
+      const c = { sound, fin, paused: false, timer: null, leftMs: 0, pos: 0 };
       c.arm = (ms) => { clearTimeout(c.timer); c.timer = setTimeout(fin, Math.min(ms, 180000)); };
       currentClip = c;
       sound?.addEventListener?.("end", () => { if (!c.paused) fin(); });
-      c.arm(Math.max(1000, clipMs(sound) - from * 1000) + 500);
+      c.arm(Math.max(1000, clipMs(sound) - started * 1000) + 500);
     } catch (e) { if (text) hideVoiceCaption(); reject(e); }
   });
 }

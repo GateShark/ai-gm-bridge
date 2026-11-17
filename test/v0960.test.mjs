@@ -77,10 +77,10 @@ test("0.9.6 #1 GM, wait with nothing playing keeps no stale stop point; a second
   assert.equal(q.resume().resumed, true); await tick(); assert.equal(fs.log.at(-1), "start l1.mp3@700"); fs.finish();
 });
 
-test("0.9.6 #1 wiring: the queue gets the clip position, and the player skips to the offset (autoplay off, then play with offset)", () => {
+test("0.9.6 #1 wiring: the queue gets the clip position, and the player starts the continued line with game.audio.play and an offset", () => {
   const cmds = src("scripts/commands.mjs");
   assert.match(cmds, /position: \(\) => currentClipPosition\(\)/);
-  assert.match(cmds, /autoplay: !from/); assert.match(cmds, /sound\.play\(\{ offset: from/);
+  assert.match(cmds, /game\.audio\.play\(src, \{ volume: vol, loop: false, offset: from \}\)/); // 0.9.7: AudioHelper.play(autoplay:false) returns nothing in v14
 });
 
 // ---------- 2. setup guide link ----------

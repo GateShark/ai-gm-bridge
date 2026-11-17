@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.7
+Beta fix release. Credit: Gate (GateShark).
+
+- **Resume after "GM, wait" now plays.** In 0.9.6 the continued line was started with Foundry's `AudioHelper.play({ autoplay: false })`, which returns nothing in Foundry v14, so the line was reported as "did not start", retried three times and dropped (silence). It now starts through `game.audio.play(src, { volume, loop: false, offset })`, which returns a Sound that plays from the offset and is listed in `game.audio.playing`. If that call is missing or gives nothing, the line plays from the start instead of being dropped. The code never passes `autoplay: false`.
+- **Pause, then "GM, wait", then Resume continues from the paused spot.** A paused Foundry Sound reports a position of 0, so the line used to restart from the beginning. The position is now saved when you press Pause (and read from the playing sound when "GM, wait" is pressed on a playing line), and that is the offset Resume uses.
+- Tests now use fakes that match Foundry v14 (autoplay:false returns nothing, a paused Sound reports currentTime 0) and run the real clip player and queue.
+
 ## 0.9.6
 Beta fix release. Credit: Gate (GateShark).
 

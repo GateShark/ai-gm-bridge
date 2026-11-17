@@ -179,10 +179,10 @@ test("0.9.5 #3 the filter behaves as the docs say: a plain line with no mention,
 
 test("0.9.5 manifest, package, changelog, README, setup prompt", () => {
   const m = JSON.parse(src("module.json")), p = JSON.parse(src("package.json"));
-  assert.equal(m.version, "0.9.6"); assert.equal(p.version, "0.9.6"); assert.equal(m.id, "ai-gm-bridge"); assert.equal(m.title, "AI GM Pirate Borg");
+  assert.equal(m.version, "0.9.7"); assert.equal(p.version, "0.9.7"); assert.equal(m.id, "ai-gm-bridge"); assert.equal(m.title, "AI GM Pirate Borg");
   assert.match(m.manifest, /\/releases\/latest\/download\/module\.json$/); assert.match(m.download, /\/releases\/latest\/download\/module\.zip$/);
-  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.6/); assert.match(src("README.md"), /v0\.9\.6/);
-  assert.match(src("docs/bot-setup-prompt.md"), /ai-gm-bridge v0\.9\.6/); assert.doesNotMatch(src("docs/bot-setup-prompt.md"), /v0\.9\.4/);
+  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.7/); assert.match(src("README.md"), /v0\.9\.7/);
+  assert.match(src("docs/bot-setup-prompt.md"), /ai-gm-bridge v0\.9\.7/); assert.doesNotMatch(src("docs/bot-setup-prompt.md"), /v0\.9\.4/);
   assert.match(src("docs/SETUP.md"), /Pause, Resume/); assert.match(src("docs/BOT-API.md"), /## v0\.9\.5/);
   assert.doesNotMatch(src("docs/SETUP.md") + src("docs/BOT-API.md") + src("docs/bot-setup-prompt.md"), /Kevin|Allen|\bKev\b|@gmail\.com/);
 });

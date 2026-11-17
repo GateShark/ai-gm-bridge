@@ -568,7 +568,7 @@ test("0.9.3 #7 setup guide exists, is linked from the README, the settings and t
 
 test("0.9.3 #8 the bot setup prompt carries the version and documents the world fields and the not-receiving warning", () => {
   const p = src("docs/bot-setup-prompt.md");
-  assert.match(p, /0\.9\.6/); assert.doesNotMatch(p, /v0\.9\.1|0\.9\.2\)|v0\.9\.[34]/);
+  assert.match(p, /0\.9\.7/); assert.doesNotMatch(p, /v0\.9\.1|0\.9\.2\)|v0\.9\.[34]/);
   for (const w of ["worldId", "worldTitle", "systemId"]) assert.match(p, new RegExp(w));
   assert.match(p, /not receiving/i);
   const api = src("docs/BOT-API.md"); for (const w of ["worldId", "worldTitle", "systemId"]) assert.match(api, new RegExp(w));
@@ -576,12 +576,12 @@ test("0.9.3 #8 the bot setup prompt carries the version and documents the world 
 
 test("0.9.3 manifest, package, changelog, README", () => {
   const m = JSON.parse(src("module.json")), p = JSON.parse(src("package.json"));
-  assert.equal(m.version, "0.9.6"); assert.equal(p.version, "0.9.6");
+  assert.equal(m.version, "0.9.7"); assert.equal(p.version, "0.9.7");
   assert.equal(m.manifest, "https://github.com/GateShark/ai-gm-bridge/releases/latest/download/module.json");
   assert.equal(m.download, "https://github.com/GateShark/ai-gm-bridge/releases/latest/download/module.zip");
   assert.equal(m.authors[0].name, "Gate (GateShark)");
-  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.6/);
-  assert.match(src("README.md"), /v0\.9\.6/);
+  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.7/);
+  assert.match(src("README.md"), /v0\.9\.7/);
 });
 
 // ---------- 0.9.4 #2: the replyTo lock only holds while the card is open ----------
