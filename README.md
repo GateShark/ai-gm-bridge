@@ -2,7 +2,7 @@
   <img src="assets/logo-256.webp" alt="AI GM Pirate Borg" width="160" height="160" />
 </p>
 
-# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.3
+# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.4
 
 > ⚠️ **Beta:** this is a public beta. Please report bugs; some changes may still land.
 
@@ -33,8 +33,15 @@ Created by Gate (GateShark).
 - The GM has an in-game **AI GM Pirate Borg** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM Pirate Borg** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
+## What's new in 0.9.4 (beta fixes)
+0.9.x is the beta series; 1.0 will be the full release (with more game systems). The current release is **0.9.4** (beta).
+- **Local-network webhooks.** In direct mode, Chrome can block a page from reaching a localhost or private-address webhook, and nothing reaches your bot. Test connection now says so plainly and gives the fixes (a public https URL, the browser's local-network permission, or relay mode). Chrome is asked for that permission when it supports it.
+- **Roll requests ask again.** The same `replyTo` returns the existing card only while it is open. Once it is answered or cancelled, the same `replyTo` makes a new card.
+- **Test connection** reports "No answer within N s (timeout)" when the webhook never answers.
+- **No overlapping voices.** The recorded "Your turn" / "<name> is up" clips wait for a narration line to finish (and the other way round), with no extra pause. "GM, wait" still stops everything.
+- **Docs.** Mention lines go out at once as their own batch; the `setBackground` row is corrected; a known Pirate Borg system-side console error is noted.
+
 ## What's new in 0.9.3 (beta fixes)
-0.9.x is the beta series; 1.0 will be the full release (with more game systems). The current release is **0.9.3** (beta).
 - **Group damage.** `applyDamage` hits every targeted unlinked token, even when several tokens share one actor (a pack of the same monster). A PC still gets the sheet and token write.
 - **No morale cards after a sweep.** If one sweep ends the fight, no morale cards are posted either.
 - **`setResource` reports `mirrored: true`** when a PC's HP is written to the sheet and the token, like `setHP`.

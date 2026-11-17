@@ -566,9 +566,9 @@ test("0.9.3 #7 setup guide exists, is linked from the README, the settings and t
   assert.match(guide, /Test connection/);
 });
 
-test("0.9.3 #8 the bot setup prompt says 0.9.3 and documents the world fields and the not-receiving warning", () => {
+test("0.9.3 #8 the bot setup prompt carries the version and documents the world fields and the not-receiving warning", () => {
   const p = src("docs/bot-setup-prompt.md");
-  assert.match(p, /0\.9\.3/); assert.doesNotMatch(p, /v0\.9\.1|0\.9\.2\)/);
+  assert.match(p, /0\.9\.4/); assert.doesNotMatch(p, /v0\.9\.1|0\.9\.2\)|v0\.9\.3/);
   for (const w of ["worldId", "worldTitle", "systemId"]) assert.match(p, new RegExp(w));
   assert.match(p, /not receiving/i);
   const api = src("docs/BOT-API.md"); for (const w of ["worldId", "worldTitle", "systemId"]) assert.match(api, new RegExp(w));
@@ -576,10 +576,43 @@ test("0.9.3 #8 the bot setup prompt says 0.9.3 and documents the world fields an
 
 test("0.9.3 manifest, package, changelog, README", () => {
   const m = JSON.parse(src("module.json")), p = JSON.parse(src("package.json"));
-  assert.equal(m.version, "0.9.3"); assert.equal(p.version, "0.9.3");
+  assert.equal(m.version, "0.9.4"); assert.equal(p.version, "0.9.4");
   assert.equal(m.manifest, "https://github.com/GateShark/ai-gm-bridge/releases/latest/download/module.json");
   assert.equal(m.download, "https://github.com/GateShark/ai-gm-bridge/releases/latest/download/module.zip");
   assert.equal(m.authors[0].name, "Gate (GateShark)");
-  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.3/);
-  assert.match(src("README.md"), /v0\.9\.3/);
+  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.4/);
+  assert.match(src("README.md"), /v0\.9\.4/);
+});
+
+// ---------- 0.9.4 #2: the replyTo lock only holds while the card is open ----------
+test("0.9.4 #2 same replyTo while the card is open returns it; after it is answered the same replyTo makes a new card", async () => {
+  reset(); store.clear?.();
+  const a1 = await run("requestRoll", rollArgs("Pat", "Tempus", { replyTo: "chat:X" })); const b1 = await run("requestRoll", rollArgs("Sam", "Bart", { replyTo: "chat:X" }));
+  const open = await run("requestRoll", rollArgs("Pat", "Tempus", { replyTo: "chat:X", label: "Other", dr: 15 }));
+  assert.equal(open.result.duplicate, true); assert.equal(open.result.requestId, a1.result.requestId); assert.equal(open.result.status, "pending");
+  await F.onRollMessage(sheetRoll(pat, tempusW)); await F.onRollMessage(sheetRoll(sam, barkW));
+  assert.equal(F.pendingRequests().length, 0);
+  const a2 = await run("requestRoll", rollArgs("Pat", "Tempus", { replyTo: "chat:X", label: "Follow-up attack", stat: "strength" }));
+  const b2 = await run("requestRoll", rollArgs("Sam", "Bart", { replyTo: "chat:X", label: "Follow-up attack", stat: "strength" }));
+  assert.equal(a2.ok && b2.ok, true, a2.error ?? b2.error);
+  assert.ok(!a2.result.duplicate && !b2.result.duplicate, "new cards, not the old answers");
+  assert.notEqual(a2.result.requestId, a1.result.requestId); assert.notEqual(b2.result.requestId, b1.result.requestId); assert.notEqual(a2.result.requestId, b2.result.requestId);
+  assert.equal(a2.result.status, "pending");
+  assert.equal(msgs.filter(m => m.flags[ID]?.rollRequest).length, 4);
+  // the new card is now the locked one for that player (and the other player's lock is still separate)
+  const again = await run("requestRoll", rollArgs("Pat", "Tempus", { replyTo: "chat:X", label: "Follow-up attack", stat: "strength" }));
+  assert.equal(again.result.duplicate, true); assert.equal(again.result.requestId, a2.result.requestId);
+  await run("cancelRoll", { user: "Pat" }); await run("cancelRoll", { user: "Sam" }); // clear the card timers
+});
+
+test("0.9.4 #2 a cancelled card also lets the same replyTo ask again, and an explicit requestId still returns its card", async () => {
+  reset(); store.clear?.();
+  const a1 = await run("requestRoll", rollArgs("Pat", "Tempus", { replyTo: "chat:Y", requestId: "rr-keep" }));
+  await run("cancelRoll", { requestId: "rr-keep" });
+  const a2 = await run("requestRoll", rollArgs("Pat", "Tempus", { replyTo: "chat:Y", label: "Again" }));
+  assert.ok(a2.ok && !a2.result.duplicate); assert.notEqual(a2.result.requestId, "rr-keep"); assert.equal(a2.result.status, "pending");
+  const same = await run("requestRoll", rollArgs("Pat", "Tempus", { replyTo: "chat:Z", requestId: "rr-keep" }));
+  assert.equal(same.result.duplicate, true); assert.equal(same.result.requestId, "rr-keep"); assert.equal(same.result.status, "cancelled");
+  await run("cancelRoll", { user: "Pat" });
+  assert.match(src("docs/BOT-API.md"), /same `replyTo` \*\*while that card is still open/); assert.match(src("docs/bot-setup-prompt.md"), /only while it is open/);
 });

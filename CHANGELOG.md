@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.4
+Beta fix release. Credit: Gate (GateShark).
+
+- Direct mode with a localhost or private-address webhook (Chrome's Local Network Access): a webhook URL on `localhost`, the 127 loopback range, the private 10, 172.16 to 172.31 and 192.168 ranges, link-local 169.254, `.local` or a private IPv6 address is detected. When Test connection fails against one, it says that browsers can block a page from reaching a local-network address and lists the fixes (a public https webhook URL, allowing the browser's local-network permission, or relay mode). Other failures keep the generic CORS message. In Chrome the test and real direct deliveries send `targetAddressSpace` (`local` or `loopback`), only when the browser has it, so Chrome can ask the user for permission; nothing is faked, and if the browser still blocks it the test fails. A failed direct delivery to a local address adds the same hint to the "Bot not receiving" text.
+- `requestRoll`: the `replyTo` lock only holds while that card is still open (pending). After the card is done, cancelled, timed out or expired, the same `replyTo` makes a new card. The 0.9.3 per-player locking is unchanged.
+- Test connection timeout reads "No answer within N s (timeout)".
+- Docs: mention, whisper and ability-roll lines flush at once as their own batch (plain chat can share a batch); the `setBackground` row says it uses the scene's initial level; a note in `docs/SETUP.md`, `docs/BOT-API.md` and the bot setup prompt about local-network webhooks; the Pirate Borg system's class-item console errors when an owned actor is created with a non-owner player online are noted as a known system-side issue (no code change). `docs/SETUP.md` keeps the generic "more game systems are planned for 1.0" wording and no longer lists a second system's HP path.
+- Turn clips no longer overlap narration: "Your turn" (and "<name> is up") now go through the same per-client audio queue as the GM's voiced lines. They wait for a line that is playing or queued, and a new line waits for a playing turn clip. There is no pause before or after a turn clip (normal lines keep their short pause). "GM, wait" stops the playing clip and drops everything queued, turn clips included, and a late copy of a dropped clip does not play. Before, "Your turn" played directly and could talk over a narration line.
+- Voice default unchanged: Ryan (en-GB-RyanNeural). Recorded voices only.
+
 ## 0.9.3
 Beta fix release. Credit: Gate (GateShark).
 

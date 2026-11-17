@@ -1,6 +1,6 @@
 # AI GM Pirate Borg: setup guide
 
-**Add-on:** AI GM Pirate Borg (module id `ai-gm-bridge`), beta **0.9.3**
+**Add-on:** AI GM Pirate Borg (module id `ai-gm-bridge`), beta **0.9.4**
 **Repository:** https://github.com/GateShark/ai-gm-bridge
 **Created by:** Gate (GateShark). MIT licensed.
 
@@ -100,6 +100,8 @@ Run **exactly one relay per world**. In relay mode, leave **Webhook URL** blank 
 - **Webhook secret (direct mode):** type the secret once. The box is **write-only**: it shows "set, leave blank to keep" after saving. Tick **Clear stored secret** to remove it.
 - **Webhook auth header** (under **Advanced**): the name of the HTTP header that carries the secret. The default is `Authorization`.
 
+> **Direct mode and a webhook on your own network.** If the webhook URL is on your own network (`localhost`, `127.0.0.1`, or a private home-network address in the usual 10, 172.16 to 172.31 or 192.168 ranges), Chrome can block a web page from reaching it, because browsers protect local-network addresses ("Local Network Access"). The request then never leaves the browser and your bot's log shows nothing, not even a preflight. Test connection tells you when this is the likely cause. Use one of these fixes: a **public https webhook URL**, allow this site's **local-network access** in the browser's site settings (Chrome asks when you click Test connection, if your version supports it), or switch **Delivery** to **relay**. The permission has to be granted in the bot user's browser as well, because that is the browser that sends real events.
+
 > **Direct mode and secrets.** Foundry shares world settings with every logged-in user's browser, so a technical player could read the stored secret. Use the relay for any world with other people in it.
 
 **What your bot receives.** Every request carries these headers:
@@ -110,6 +112,8 @@ Run **exactly one relay per world**. In relay mode, leave **Webhook URL** blank 
 
 The body has `batchId`, `world`, `seq`, `ctx` and `events`. **Every batch and every event also carries `worldId`, `worldTitle` and `systemId`** (the world's id and title, and the game system's id). One bot or automation can serve several worlds: route and keep state by `worldId`, and use `systemId` to pick the right rules. Full details are in `docs/BOT-API.md`.
 
+A line that addresses the GM (a mention, a whisper, an ability roll) goes out at once as its own batch, so two players speaking in the same second can arrive as two batches. Plain chat can share a batch.
+
 Your bot must answer `2xx` as soon as it has the batch, before any slow work. Until it does, the add-on retries (after 2 s, 5 s, 15 s, then every 60 s) with the same batch, so your bot should handle each `batchId` once.
 
 ### 5c. Test connection
@@ -118,7 +122,7 @@ Click **Test connection** in the same window. It POSTs `{ "type": "testConnectio
 
 **What a pass tells you:**
 
-- **With a webhook URL:** the webhook received the test event and answered `2xx`. That is the same acknowledgement real events need, so it is a genuine round trip from your browser to the bot's endpoint and back. It does **not** prove the bot will wake up and reply. A failure explains itself: an HTTP status, no answer in time, or "unreachable or blocked by CORS" (direct mode needs the webhook to allow browser requests).
+- **With a webhook URL:** the webhook received the test event and answered `2xx`. That is the same acknowledgement real events need, so it is a genuine round trip from your browser to the bot's endpoint and back. It does **not** prove the bot will wake up and reply. A failure explains itself: an HTTP status, `No answer within N s (timeout)`, or "unreachable or blocked by CORS" (direct mode needs the webhook to allow browser requests). For a localhost or private-address URL it names the browser's local-network protection as the likely cause (see the note above).
 - **With no URL (relay mode):** it only checks that the bot user is logged in to Foundry. It does not test the relay's own webhook, which is set outside Foundry.
 - In direct mode with an empty URL it tells you the bot will not receive anything.
 - It also runs a short link check and adds any setup warnings, such as characters with no player owner or a **Bot not receiving** warning (below).
@@ -145,7 +149,6 @@ Limit: in relay mode the add-on marks chat events as received when it hands them
 | System | HP path |
 |---|---|
 | Pirate Borg (the default) | `system.attributes.hp.value` |
-| Castles & Crusades | `system.hitPoints.value` |
 
 For any other system, open a character's data (or ask your bot to read an actor) and find the field that holds current HP. Enter that path.
 
@@ -289,6 +292,9 @@ Make sure only one relay or one bot session handles the world, and that your bot
 
 **HP changes do nothing.**
 Set the **HP data path** for your system (step 5e).
+
+**Pirate Borg system errors in the console.**
+The Pirate Borg game system itself can log class-item errors when an owned actor is created while a player who is not that actor's owner is online. This is a known issue on the system's side. The add-on is not involved and it does not affect play.
 
 **A player's character is treated like a monster.**
 Give that character a Player owner (step 6). Characters owned only by Game Master users count as monsters.

@@ -44,7 +44,8 @@ export class AudioQueue {
           if (item.tries++ < this.retries) { await this.sleep(this.retryDelayMs * item.tries); continue; }
           this.q.shift(); this.seen.delete(item.id); item.resolve({ id: item.id, played: false, error: String(e?.message ?? e) });
         }
-        if (this.q.length) await this.sleep(this.gapMs);
+        // 0.9.4: no pause on either side of a turn prompt ("Your turn", "<name> is up"): it starts the moment the line before it ends.
+        if (this.q.length) { const gap = (item.clip?.prompt || this.q[0]?.clip?.prompt) ? 0 : this.gapMs; if (gap > 0) await this.sleep(gap); }
       }
     } finally { this.running = false; if (!this.q.length && !this.blocked) try { this.onIdle?.(); } catch {} }
   }

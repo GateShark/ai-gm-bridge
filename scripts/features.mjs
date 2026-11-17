@@ -66,7 +66,9 @@ async function requestRollNow(a) {
     const locked = priorRollReply(dedupeStore(), replyTo, scope);
     if (locked && (locked.s === "acked" || locked.s === "sent")) {
       const hit = reqMessages().find(m => m.flags[ID].rollRequest.id === locked.requestId) ?? reqMessages().find(m => m.id === locked.messageId);
-      if (hit) {
+      // 0.9.4: the replyTo lock only holds while that card is still open. Once it is done, cancelled, timed out or expired,
+      // the same replyTo makes a new card (a follow-up roll in the same wake no longer gets the old answer back).
+      if (hit && hit.flags[ID].rollRequest.status === "pending") {
         const r = hit.flags[ID].rollRequest;
         return ok({ requestId: r.id, messageId: hit.id, status: r.status, result: r.result ?? null, duplicate: true, ...(r.timeoutAt ? { timeoutAt: r.timeoutAt } : {}), ...(r.combatId ? { combatId: r.combatId } : {}) });
       }
@@ -251,7 +253,7 @@ export async function turnPrompt(combat, { holdMs = PROMPT_HOLD_MS, step = POLL_
   const spoken = t.name ? `Your turn: ${t.name}.` : "Your turn.";
   const audio = D.turnAudio(t.name) || {};
   const clip = audio.ryan || D.voice(spoken) || null;
-  const ping = { type: "turnPing", userIds: t.ownerIds, text: `Your turn: ${t.name}`, spoken, clip, audio,
+  const ping = { type: "turnPing", id: `turn:${t.combatId ?? combat.id}:${t.round}.${t.turn}`, userIds: t.ownerIds, text: `Your turn: ${t.name}`, spoken, clip, audio,
     voiceUserIds: turnVoiceUserIds(t.ownerIds, {
       voiceTurnPrompt: D.get("voiceTurnPrompt") !== false,
       turnVoiceUsers: D.get("turnVoiceUsers"),
@@ -282,7 +284,8 @@ export function onUpPing(p) {
   if (!shouldHearUp(p, { user: game.user, isBot: D.isBot?.(game.user) === true, enabled })) return false;
   const src = pickAudioSrc(p.audio, localVoiceSlug(), null);
   if (!src) return false;
-  if (typeof D.queueClip === "function") D.queueClip(p.id, { src, text: p.text });
+  // 0.9.4: through the same audio queue as the GM's narration, so the two never overlap (prompt: no gap before or after it)
+  if (typeof D.queueClip === "function") D.queueClip(p.id, { src, text: p.text, prompt: true });
   else playLocalVoice(src, { text: p.text });
   return true;
 }
@@ -291,7 +294,10 @@ export function onTurnPing(p) {
   ui.notifications?.info(p.text);
   if (!p.voiceUserIds?.includes(game.user.id)) return;
   const src = pickAudioSrc(p.audio, localVoiceSlug(), p.clip);
-  if (src) playLocalVoice(src, { text: p.spoken || p.text });
+  if (!src) return;
+  // 0.9.4: "Your turn" waits behind any narration playing or queued on this client, and narration waits behind it.
+  if (typeof D.queueClip === "function") D.queueClip(p.id ?? `turn:${src}:${Date.now()}`, { src, text: p.spoken || p.text, prompt: true });
+  else playLocalVoice(src, { text: p.spoken || p.text });
 }
 
 // ---------- session log ----------
