@@ -2,7 +2,7 @@
   <img src="assets/logo-256.webp" alt="AI GM Pirate Borg" width="160" height="160" />
 </p>
 
-# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.7
+# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.8
 
 > ⚠️ **Beta:** this is a public beta. Please report bugs; some changes may still land.
 
@@ -33,8 +33,12 @@ Created by Gate (GateShark).
 - The GM has an in-game **AI GM Pirate Borg** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM Pirate Borg** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
+## What's new in 0.9.8 (beta fixes)
+The current release is **0.9.8** (beta).
+- **Bot setup prompt teaches faster replies.** Speak the voiced line first and do sheet edits after, keep spoken lines short, and keep the work before the reply to a call or two (new Core rule 10). Documentation only; no code change.
+
 ## What's new in 0.9.7 (beta fixes)
-The current release is **0.9.7** (beta).
+The 0.9.7 release (beta):
 - **Resume after "GM, wait" now works.** The line continues from where it stopped (in 0.9.6 it was silent). Pause, then "GM, wait", then Resume also continues from the paused spot.
 
 ## What's new in 0.9.6 (beta fixes)

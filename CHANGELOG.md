@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.8
+Beta fix release. Credit: Gate (GateShark).
+
+- **Bot setup prompt (`docs/bot-setup-prompt.md`): faster replies.** Other people's bots now learn the lessons from live play: under **Speaking and status**, *speak first, then do the bookkeeping* (send the `postVoice` line before sheet, silver, HP or note edits, unless the edit changes what you are about to say), *short spoken lines* (one to three sentences; long descriptions in text; post when the default-voice clip is ready instead of waiting for every player's voice), and *keep the work before the reply short* (answer from the batch, at most one or two calls before the voiced line, the rest in one batch after it). New Core rule 10, *Reply fast, edit after*. No code change.
+- Docs/checklists: the **GM, wait** button has a 3 second cooldown after each press (`HOLD_COOLDOWN_MS`), so a second press within 3 s does nothing; test steps that press it twice now say to wait more than 3 s.
+
 ## 0.9.7
 Beta fix release. Credit: Gate (GateShark).
 

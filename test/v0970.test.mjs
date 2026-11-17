@@ -103,7 +103,7 @@ test("0.9.7 the code never passes autoplay:false to AudioHelper.play", () => {
 
 test("0.9.7 version, changelog", () => {
   const m = JSON.parse(src("module.json")), p = JSON.parse(src("package.json"));
-  assert.equal(m.version, "0.9.7"); assert.equal(p.version, "0.9.7"); assert.equal(m.title, "AI GM Pirate Borg"); assert.equal(m.id, "ai-gm-bridge");
-  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.7/); assert.match(src("README.md"), /v0\.9\.7/);
-  assert.match(src("docs/bot-setup-prompt.md"), /ai-gm-bridge v0\.9\.7/);
+  assert.equal(m.version, "0.9.8"); assert.equal(p.version, "0.9.8"); assert.equal(m.title, "AI GM Pirate Borg"); assert.equal(m.id, "ai-gm-bridge");
+  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.8/); assert.match(src("README.md"), /v0\.9\.8/);
+  assert.match(src("docs/bot-setup-prompt.md"), /ai-gm-bridge v0\.9\.8/);
 });
