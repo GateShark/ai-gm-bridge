@@ -480,3 +480,6 @@ The audio queue id of a voiced line is its chat message id (`voice:<messageId>:<
 
 ## v0.9.8: AI GM status badge
 - Foundry shows a small badge (dot, webhook time, last reply time, last seen) so GMs can see how the bot is doing. It is passive: it adds no command, event or webhook traffic. Webhook time is how long your endpoint took to accept a batch POST (direct mode only); reply time is the first player chat line in a batch to your next `post`, `postVoice` or `whisper` (use `replyTo` so the right batch is matched); seen is your last poll, `ack` or command. Keep the reply low and answer `2xx` as soon as the batch arrives.
+
+## v0.9.9: beta fixes
+- Voice buttons and the badge only: **Play** after **Resume** starts the line at 0, and the badge keeps its last reply times when the Game Master's session restarts. No bot-visible change; no new command, event or webhook traffic.

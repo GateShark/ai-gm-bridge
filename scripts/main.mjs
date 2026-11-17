@@ -43,8 +43,9 @@ import { worldInfo, deliveryHealth, setOutboxProvider, liveBotReceiving, createR
 import { rollBreakdown } from "./lib/rollreq.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
 import { PushToTalk, speechLang } from "./lib/ptt.mjs";
+import { rootOf } from "./lib/dom.mjs";
 import { GmStatusPill, deriveGmStatus, normalizeGmStatus } from "./lib/gmstatus.mjs";
-import { ReplyTimes, GmPingBadge, buildSnapshot, createPublisher, buildModel, shouldShow, REPLY_COMMANDS } from "./lib/gmping.mjs";
+import { ReplyTimes, GmPingBadge, storedReplies, buildSnapshot, createPublisher, buildModel, shouldShow, REPLY_COMMANDS } from "./lib/gmping.mjs";
 import { makeGmPanel, collectHp, sceneTokens, installSidebarButton, makeControlEvent, resolveWakeEventIds, newestChatEventIds, formatClearedStuck, PANEL_LOGO_SRC } from "./lib/gmpanel.mjs";
 import { DEFAULT_HP_PATH, LEGACY_HP_PATH } from "./lib/hp.mjs";
 import { listTables } from "./lib/quickgm.mjs";
@@ -121,6 +122,8 @@ function currentOfflinePhase(link = linkState(), now = Date.now()) {
 let pingBadge = null, pingPublisher = null, lastPingState = "listening";
 const pingSeen = () => { S.lastBotSeenAt = Date.now(); publishPing(); };
 function pingSnapshot(now = Date.now()) {
+  // 0.9.9: the leader starts from the reply times already in the world setting, so a restart of its session does not blank "reply N s"
+  if (!S.replyTimes.seeded) { try { S.replyTimes.seed(storedReplies(get("gmPing"))); } catch { S.replyTimes.seeded = true; } }
   const items = S.outbox?.items ?? [];
   const live = items.filter(i => !S.outbox.isDead(i));
   const oldest = live.length ? Math.min(...live.map(i => i.firstAt).filter(Number.isFinite)) : null;
@@ -158,7 +161,7 @@ function startPingBadge() {
     playersRect: () => { try { return document.getElementById("players")?.getBoundingClientRect?.() ?? null; } catch { return null; } } });
   pingBadge.mount();
   try { window.addEventListener("resize", () => pingBadge?.place()); } catch {}
-  try { Hooks.on("renderPlayers", () => pingBadge?.place()); } catch {}
+  try { Hooks.on("renderPlayers", () => { try { pingBadge?.place(); } catch {} }); } catch {} // 0.9.9: the Players list element may not exist yet (v14)
   refreshPing();
 }
 function refreshStatus() {
@@ -793,7 +796,7 @@ Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCa
 function luckSheet(app, html) {
   if (!enabled()) return;
   const actor = app?.actor ?? app?.document ?? app?.object; if (actor?.type !== "character") return;
-  const root = html?.[0] ?? html ?? app?.element?.[0] ?? app?.element;
+  const root = rootOf(html) ?? rootOf(app?.element); if (!root) return; // 0.9.9: no element yet: nothing to inject into
   const args = actor.isToken && actor.token ? { tokenId: actor.token.id, sceneId: actor.token.parent?.id } : { actorId: actor.id };
   injectLuckTracker(root, { actor, canSpend: !!actor.isOwner, t: loc, onSpend: async () => {
     const r = await runCommand({ name: "spendLuck", args }, ctxFor());
@@ -803,7 +806,7 @@ function luckSheet(app, html) {
 Hooks.on("renderActorSheet", (app, html) => { try { luckSheet(app, html); } catch (e) { log("luckSheet", e?.message); } });
 Hooks.on("renderActorSheetV2", (app, html) => { try { luckSheet(app, html); } catch (e) { log("luckSheet", e?.message); } });
 // 0.8.20 #7: live font preview under the caption font dropdown in Foundry's settings window.
-Hooks.on("renderSettingsConfig", (_app, html) => { try { fillCaptionFontChoices(); attachCaptionFontPreview(html?.[0] ?? html); } catch {} });
+Hooks.on("renderSettingsConfig", (_app, html) => { try { fillCaptionFontChoices(); const root = rootOf(html); if (root) attachCaptionFontPreview(root); } catch {} }); // 0.9.9: rootOf: a <form> answers html[0] with its first field
 // 0.8.20 #6: replay looks up the player's own voice in the shared voice cache when the message has no clip for it.
 let clientVoiceCache = null, clientClips = null;
 function voiceCacheLookup(text, slug) {

@@ -1,3 +1,4 @@
+import { rootOf } from "./dom.mjs";
 // 0.9.0 #2: Devil's Luck tracker on the character sheet. Spending goes through the same setResource path as !luck.
 export const LUCK_PATH = "system.attributes.luck";
 export function luckOf(actor) {
@@ -32,7 +33,8 @@ export function luckBarSpot(root) {
 // Compact single row: never grows, never shrinks the sheet (flex:0 0 auto even if it lands in a column flex).
 export const LUCK_BAR_STYLE = "display:flex;flex:0 0 auto;flex-grow:0;align-self:stretch;gap:6px;align-items:center;height:auto;min-height:0;max-height:26px;margin:2px 0;padding:1px 6px;font-size:12px;line-height:18px;overflow:hidden;box-sizing:border-box";
 // Adds (or refreshes) a small "Devil's Luck N [Spend]" row under the sheet header. onSpend returns a promise.
-export function injectLuckTracker(root, { actor, canSpend = false, onSpend = null, t = (k, f) => f || k, doc = root?.ownerDocument ?? globalThis.document } = {}) {
+export function injectLuckTracker(htmlRoot, { actor, canSpend = false, onSpend = null, t = (k, f) => f || k, doc = rootOf(htmlRoot)?.ownerDocument ?? globalThis.document } = {}) {
+  const root = rootOf(htmlRoot); // 0.9.9: jQuery, Element or nothing; never html[0] of a <form>
   const value = luckOf(actor);
   if (value == null || !root?.querySelector || !doc?.createElement) return null;
   let bar = root.querySelector("[data-aigm-luck]");
@@ -54,7 +56,7 @@ export function injectLuckTracker(root, { actor, canSpend = false, onSpend = nul
     const spot = luckBarSpot(root) ?? { parent: root, before: root.firstChild ?? null };
     if (spot.parent.insertBefore) spot.parent.insertBefore(bar, spot.before ?? null); else spot.parent.appendChild(bar);
   }
-  bar.querySelector(".aigm-luck-value").textContent = String(value);
-  bar.querySelector(".aigm-luck-spend").disabled = !canSpend || !(value > 0);
+  const vEl = bar.querySelector?.(".aigm-luck-value"); if (vEl) vEl.textContent = String(value);
+  const sEl = bar.querySelector?.(".aigm-luck-spend"); if (sEl) sEl.disabled = !canSpend || !(value > 0);
   return bar;
 }

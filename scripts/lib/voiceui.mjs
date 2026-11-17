@@ -1,5 +1,6 @@
 // 0.8.8 chat polish: replay button on GM voice lines, collapse long lines.
 import { pickAudioSrc, localVoiceSlug } from "./voices.mjs";
+import { rootOf } from "./dom.mjs";
 export const VOICE_COLLAPSE_CHARS = 280;
 const defaultEsc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -74,8 +75,8 @@ export function addVoiceButton(doc, after, { cls, label, hint, msg, action, t = 
   return b;
 }
 export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, playLine = null, pause = null, resume = null, hold = null, holdCooldownMs = HOLD_COOLDOWN_MS, collapseAt = VOICE_COLLAPSE_CHARS, esc = defaultEsc, cacheLookup = null, slug = null } = {}) {
-  const root = html?.[0] ?? html;
-  if (!root?.querySelector) return false;
+  const root = rootOf(html); // 0.9.9
+  if (!root) return false;
   const audio = root.querySelector("audio[src]");
   if (!audio) return false;
   hideNativeAudio(audio);
@@ -124,12 +125,13 @@ export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, p
       wrap.innerHTML = `<span class="aigm-voice-short">${esc(parts.short)} </span><span class="aigm-voice-full" hidden>${esc(parts.full)}</span> ` +
         `<button type="button" class="aigm-voice-more" data-aigm-more>${esc(t("AIGM.voice.more", "Show more"))}</button>`;
       const more = wrap.querySelector("[data-aigm-more]");
-      more.addEventListener("click", (ev) => {
+      more?.addEventListener("click", (ev) => {
         ev.preventDefault();
         const open = wrap.classList.toggle("is-open");
-        wrap.querySelector(".aigm-voice-short").hidden = open;
-        wrap.querySelector(".aigm-voice-full").hidden = !open;
-        more.textContent = open ? t("AIGM.voice.less", "Show less") : t("AIGM.voice.more", "Show more");
+        const shortEl = wrap.querySelector(".aigm-voice-short"), fullEl = wrap.querySelector(".aigm-voice-full");
+        if (shortEl) shortEl.hidden = open;
+        if (fullEl) fullEl.hidden = !open;
+        if (more) more.textContent = open ? t("AIGM.voice.less", "Show less") : t("AIGM.voice.more", "Show more");
       });
       target.parentNode?.replaceChild(wrap, target);
     }

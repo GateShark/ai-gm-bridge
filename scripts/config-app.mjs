@@ -62,6 +62,7 @@ export function makeConfigApp() {
         <footer class="form-footer"><button type="submit">${esc(t("AIGM.config.save", "Save"))}</button></footer></section>`;
     }
     _replaceHTML(html, content) {
+      if (!content || typeof content.querySelector !== "function") return; // 0.9.9: no element to fill
       content.innerHTML = html;
       bindSetupGuideLinks(content);
       try { attachCaptionFontPreview(content, { selector: "select[name=captionFont]" }); } catch {}

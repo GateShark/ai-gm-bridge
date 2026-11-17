@@ -248,8 +248,8 @@ test("0.9.0 #5 wired into map builds, combat start and turns; setting registered
 
 test("0.9.0 version, beta label, credit, voices", () => {
   const mod = JSON.parse(src("module.json"));
-  assert.equal(mod.version, "0.9.8");
-  assert.equal(JSON.parse(src("package.json")).version, "0.9.8");
+  assert.equal(mod.version, "0.9.9");
+  assert.equal(JSON.parse(src("package.json")).version, "0.9.9");
   assert.match(src("CHANGELOG.md"), /## 0\.9\.0/);
   assert.match(src("README.md"), /0\.9\.0/);
   const all = ["module.json", "README.md", "CHANGELOG.md", "scripts/commands.mjs", "scripts/main.mjs"].map(src).join("\n");

@@ -21,6 +21,7 @@ export function makeSetupPromptApp() {
         <div><button type="button" data-aigm-copy><i class="fas fa-copy"></i> ${esc(t("AIGM.setupPrompt.copy", "Copy to clipboard"))}</button> <span data-aigm-copy-status></span></div></section>`;
     }
     _replaceHTML(html, content) {
+      if (!content || typeof content.querySelector !== "function") return; // 0.9.9: no element to fill
       content.innerHTML = html;
       bindSetupGuideLinks(content);
       const ta = content.querySelector("[data-aigm-prompt]"); if (!ta || !this._prompt) return;

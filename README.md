@@ -2,7 +2,7 @@
   <img src="assets/logo-256.webp" alt="AI GM Pirate Borg" width="160" height="160" />
 </p>
 
-# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.8
+# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.9
 
 > ⚠️ **Beta:** this is a public beta. Please report bugs; some changes may still land.
 
@@ -33,8 +33,14 @@ Created by Gate (GateShark).
 - The GM has an in-game **AI GM Pirate Borg** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM Pirate Borg** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
+## What's new in 0.9.9 (beta fixes)
+The current release is **0.9.9** (beta).
+- **Play after Resume starts at the beginning.** It used to jump back to the old resume point; Play now always starts the line from 0, and Resume still continues from where **GM, wait** stopped.
+- **The AI GM status badge keeps `reply N s` when the bot's session restarts** (the last reply times are kept in the shared `gmPing` setting, still written at most every 5 seconds).
+- **Null guards** around every place the add-on reads the page, and the font preview in Configure Settings now attaches in Foundry v13 and v14.
+
 ## What's new in 0.9.8 (beta fixes)
-The current release is **0.9.8** (beta).
+The 0.9.8 release (beta):
 - **Bot setup prompt teaches faster replies.** Speak the voiced line first and do sheet edits after, keep spoken lines short, and keep the work before the reply to a call or two (new Core rule 10). Documentation only; no code change.
 - **AI GM status badge.** A small draggable badge near the Players list shows whether the AI GM is alive: a green/yellow/red dot, the webhook time, the last reply time and when the bot was last seen (for example `AI GM · 140 ms · reply 18 s · seen 2 s ago`). Handy when troubleshooting a bot. Everyone sees it; the Game Master gets the details and **Copy diagnostics**. It is passive (no extra calls) and can be hidden per user (**Show AI GM status in Players list**) or for everyone (**Allow AI GM status row**).
 

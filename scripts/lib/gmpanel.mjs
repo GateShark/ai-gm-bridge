@@ -158,8 +158,9 @@ export function makeGmPanel(deps = {}) {
       return panelHtml({ ...state, recapText: this.recapText, t });
     }
     _replaceHTML(html, content) {
+      if (!content || typeof content.querySelectorAll !== "function") return; // 0.9.9: no element to fill (nothing to bind)
       content.innerHTML = html;
-      content.querySelectorAll("[data-aigm-action]").forEach(btn => {
+      Array.from(content.querySelectorAll("[data-aigm-action]") ?? []).forEach(btn => {
         btn.addEventListener("click", async (ev) => {
           ev.preventDefault();
           const action = btn.dataset.aigmAction;
@@ -171,9 +172,9 @@ export function makeGmPanel(deps = {}) {
               if (!yes) return;
             }
           }
-          const tableId = content.querySelector("[data-aigm-table]")?.value || "";
-          const damage = content.querySelector("[data-aigm-damage]")?.value;
-          const notes = content.querySelector("[data-aigm-notes]")?.value ?? "";
+          const tableId = content?.querySelector?.("[data-aigm-table]")?.value || "";
+          const damage = content?.querySelector?.("[data-aigm-damage]")?.value;
+          const notes = content?.querySelector?.("[data-aigm-notes]")?.value ?? "";
           const result = await deps.onAction?.(action, { requestId: btn.dataset.requestId, tableId, damage, notes });
           if ((action === "recap" || action === "loadSession") && result) {
             this.recapText = typeof result === "string" ? result : [result.summary, result.recap, ...(result.lines ?? [])].filter(Boolean).join("\n");

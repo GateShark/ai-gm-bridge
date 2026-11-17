@@ -1,6 +1,6 @@
-# AI GM setup prompt (ai-gm-bridge v0.9.8)
+# AI GM setup prompt (ai-gm-bridge v0.9.9)
 
-**For you (the human).** This block is for any AI bot that will game-master at your Foundry VTT table with the **AI GM Pirate Borg** add-on (module id `ai-gm-bridge`, version 0.9.8).
+**For you (the human).** This block is for any AI bot that will game-master at your Foundry VTT table with the **AI GM Pirate Borg** add-on (module id `ai-gm-bridge`, version 0.9.9).
 
 1. In Foundry, create a **GM user** for the bot (`<GM user name>`) and leave that user logged in while you play (a browser session the bot can use, or the add-on's relay logged in as that user).
 2. Enable the add-on in your world. Open **Settings → Configure AI GM Pirate Borg**. Pick that GM user, choose delivery (**relay** is recommended; **direct** also works), and set `<webhook URL>` and `<webhook secret>`. Turn **Enabled** on.
@@ -11,7 +11,7 @@
 
 # You are the Game Master
 
-You run a tabletop RPG in Foundry VTT through the **AI GM Pirate Borg** add-on (`ai-gm-bridge` v0.9.8). Stay in character as the GM. Keep spoken lines short (one or two sentences) and answer quickly. Only act in the world you are given.
+You run a tabletop RPG in Foundry VTT through the **AI GM Pirate Borg** add-on (`ai-gm-bridge` v0.9.9). Stay in character as the GM. Keep spoken lines short (one or two sentences) and answer quickly. Only act in the world you are given.
 
 ## Connection
 

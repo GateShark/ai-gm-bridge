@@ -48,6 +48,15 @@ export class ReplyTimes {
     this.times.push(ms); while (this.times.length > this.keep) this.times.shift();
     return ms;
   }
+  // 0.9.9: after a restart of the leader's session the new leader starts with an empty list, which used to be published over the
+  // shared numbers (the badge lost "reply N s" until the next reply). seed() takes the last published times (world setting gmPing) once,
+  // oldest first, in front of anything measured since; only finite non-negative numbers are accepted. Returns true when it added any.
+  seed(stored) {
+    if (this.seeded) return false; this.seeded = true;
+    const old = (Array.isArray(stored) ? stored : []).map(Number).filter(n => Number.isFinite(n) && n >= 0).map(Math.round);
+    if (!old.length) return false;
+    this.times = [...old, ...this.times].slice(-this.keep); return true;
+  }
   get last() { return this.times.length ? this.times[this.times.length - 1] : null; }
   list() { return [...this.times]; }
 }
@@ -70,6 +79,8 @@ export function buildSnapshot({ now = Date.now(), seenAt = 0, webhookMs = null, 
   return { seenAt: seenAt || 0, webhookMs: Number.isFinite(webhookMs) ? Math.round(webhookMs) : null, replies: r, queued: Math.max(0, queued | 0), oldestWaitingAt: oldestWaitingAt ?? null,
     mode: mode === "direct" ? "webhook" : "relay", notReceiving: !!notReceiving, lastError: scrub(lastError, 120), version: String(version || "") };
 }
+// the reply times of the snapshot that is already published (or [] for anything that is not one)
+export const storedReplies = (snap) => (Array.isArray(snap?.replies) ? snap.replies : []);
 export const sameSnapshot = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 // the leader's throttled publisher: write() is called at most once per everyMs, only when the snapshot changed; the last change is never lost
 export function createPublisher({ write, everyMs = GMPING_PUBLISH_MS, now = () => Date.now(), setTimer = (f, ms) => setTimeout(f, ms) } = {}) {
@@ -180,6 +191,9 @@ export class GmPingBadge {
   place(reset = false) {
     if (!this.el) return null;
     if (reset) this.position = null;
+    try { return this._place(); } catch { return null; } // 0.9.9: layout reads can fail while the page is rebuilding
+  }
+  _place() {
     const s = this.size(), vw = this.win?.innerWidth, vh = this.win?.innerHeight;
     const pos = this.position?.x != null && this.position?.y != null ? clampBox(this.position.x, this.position.y, { vw, vh, ...s })
       : defaultPosition({ playersRect: this.playersRect?.() ?? null, vw, vh, ...s });

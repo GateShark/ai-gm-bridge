@@ -1,6 +1,7 @@
 // v0.6 runtime features: requestRoll, turn prompts, session log, Pirate Borg rest, speakBubble.
 // Deps are injected by main.mjs via initFeatures() so commands.mjs and tests can use them.
 import { ok, fail } from "./lib/result.mjs";
+import { qsa } from "./lib/dom.mjs";
 import { normStat, formulaFor, normalizeFormula, evaluate, evaluateFormula, reqFormula, canClick, reqIdFrom, cardHtml, matchRoll, naturalOf, d20Of, rollBreakdown, rollsOf, isOpen, judgeWithBonus, bonusText, standingBonus, normBonus, findNearDuplicate } from "./lib/rollreq.mjs";
 import { turnInfo, turnText, voiceUsersFrom, turnVoiceUserIds } from "./lib/turns.mjs";
 import { resolveReplyTo, priorRollReply, recordRollReply, rollScope } from "./lib/replies.mjs";
@@ -213,7 +214,7 @@ export async function cancelCombatRolls(combat) {
 }
 export function bindRollCard(msg, html) {
   const req = msg.flags?.[ID]?.rollRequest; if (!req || req.status === "done" || req.status === "cancelled" || req.status === "expired") return;
-  const root = html?.[0] ?? html; const btns = root?.querySelectorAll?.(`[data-aigm-roll]`); if (!btns?.length) return;
+  const btns = qsa(html, `[data-aigm-roll]`); if (!btns.length) return;
   for (const btn of btns) {
     if (!canClick(req, game.user) || (btn.dataset.gmOnly && !game.user.isGM)) { btn.disabled = true; continue; }
     btn.addEventListener("click", async (ev) => {

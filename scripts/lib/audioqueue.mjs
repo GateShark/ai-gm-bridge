@@ -3,6 +3,8 @@
 // autoplay (isBlocked(err)), the clip stays at the head, the queue pauses, onBlocked() fires once, and
 // unlock() resumes and replays it.
 export const isAutoplayBlocked = (e) => e?.name === "NotAllowedError" || e?.blocked === true || /autoplay|user (gesture|interaction)|not allowed/i.test(String(e?.message ?? e));
+// 0.9.9: a clip as it is played from the beginning: any saved resume offset is dropped (Resume sets one; Play must never inherit it).
+export const fromStart = (clip) => { if (!clip || typeof clip !== "object" || !("offset" in clip)) return clip; const { offset, ...rest } = clip; return rest; };
 export class AudioQueue {
   constructor({ play, gapMs = 250, maxSeen = 500, retries = 2, retryDelayMs = 600, isBlocked = isAutoplayBlocked, onBlocked = () => {}, sleep = (ms) => new Promise(r => setTimeout(r, ms)), onStart = null, onIdle = null, stop = null, pauseClip = null, resumeClip = null, position = null }) {
     Object.assign(this, { play, gapMs, maxSeen, retries, retryDelayMs, isBlocked, onBlocked, sleep, onStart, onIdle, stop, pauseClip, resumeClip, position });
@@ -19,7 +21,7 @@ export class AudioQueue {
   unlock() { if (!this.blocked) return false; this.blocked = false; this._drain(); return true; }
   // 0.8.8: replay a clip even if it was already played (new id, not stored in seen).
   replay(clip, now = Date.now()) {
-    return new Promise((resolve) => { this.q.push({ id: `replay:${now}`, clip, resolve, tries: 0 }); this._drain(); });
+    return new Promise((resolve) => { this.heldClip = null; this.q.push({ id: `replay:${now}`, clip: fromStart(clip), resolve, tries: 0 }); this._drain(); });
   }
   // 0.9.0 #3 "GM, wait": stop the clip that is playing now and drop the clips still waiting. Every dropped id stays in
   // seen, so a late socket copy of the same line cannot play it again; replays waiting on it resolve (▶ comes back).
@@ -39,7 +41,7 @@ export class AudioQueue {
     const cur0 = this.current;
     if (!this.paused && !cur0 && this.heldClip) {
       const h = this.heldClip; this.heldClip = null;
-      this.q.push({ id: `resume:${now}`, clip: { ...h.clip, ...(h.pos > 0 ? { offset: h.pos } : {}) }, resolve: () => {}, tries: 0, noGap: true });
+      this.q.push({ id: `resume:${now}`, clip: { ...fromStart(h.clip), ...(h.pos > 0 ? { offset: h.pos } : {}) }, resolve: () => {}, tries: 0, noGap: true });
       this._drain(); return { resumed: true, id: h.id, fromHold: true, offset: h.pos };
     }
     const cur = this.current; if (!this.paused || !cur) { this.paused = false; return { resumed: false, id: cur?.id ?? null }; }
@@ -50,7 +52,9 @@ export class AudioQueue {
   restartCurrent(now = Date.now()) {
     const cur = this.current; if (!cur) return Promise.resolve({ restarted: false });
     return new Promise((resolve) => {
-      this.q.splice(1, 0, { id: `replay:${now}`, clip: cur.clip, resolve, tries: 0, noGap: true });
+      // 0.9.9: Play always starts at 0: a line that was continued by Resume carries the resume offset, which must not be reused
+      this.heldClip = null;
+      this.q.splice(1, 0, { id: `replay:${now}`, clip: fromStart(cur.clip), resolve, tries: 0, noGap: true });
       cur.held = true; this.paused = false;
       try { this.stop?.(); } catch {}
     });
@@ -80,7 +84,7 @@ export class AudioQueue {
       while (this.q.length && !this.blocked) {
         const item = this.q[0];
         if (!String(item.id).startsWith("resume:")) this.heldClip = null; // a new line started: the stopped one is gone
-        try { await this.play(item.clip); this.paused = false; this.q.shift(); item.resolve(item.held ? { id: item.id, played: true, held: true } : { id: item.id, played: true }); }
+        try { await this.play(item.clip); this.paused = false; this.q.shift(); if (!item.held) this.heldClip = null; /* 0.9.9: a line that ended on its own leaves nothing to resume */ item.resolve(item.held ? { id: item.id, played: true, held: true } : { id: item.id, played: true }); }
         catch (e) {
           this.paused = false;
           if (item.held) { this.q.shift(); item.resolve({ id: item.id, played: false, held: true }); continue; }
