@@ -2,9 +2,9 @@
 // Keys and defaults stay the same so existing worlds keep working. Internal
 // state is never shown in the form.
 import { isLocalNetworkUrl, lnaFetchOptions, LOCAL_NETWORK_HINT } from "./localnet.mjs";
-export const HIDDEN_KEYS = ["dedupeState", "outboxState", "voiceCache", "turnClips", "contextJournals", "pushToTalkNoticeShown", "pttPosition", "linkProbe", "sessionSnapshot", "presenceSuspendUntil", "rollBonuses", "moodState"];
+export const HIDDEN_KEYS = ["dedupeState", "outboxState", "voiceCache", "turnClips", "contextJournals", "pushToTalkNoticeShown", "pttPosition", "gmStatusPosition", "gmPing", "linkProbe", "sessionSnapshot", "presenceSuspendUntil", "rollBonuses", "moodState"];
 // Shown on the Basic page (plus the bot-user dropdown and webhook secret).
-export const BASIC_KEYS = ["enabled", "botUserId", "delivery", "webhookUrl", "webhookSecret", "alwaysVoiceUsers", "ttsVoice", "voiceVolume", "voiceCaptions", "captionFont", "voiceOtherTurns", "pushToTalkKey", "combatEvents", "autoUnpause"];
+export const BASIC_KEYS = ["enabled", "botUserId", "delivery", "webhookUrl", "webhookSecret", "alwaysVoiceUsers", "ttsVoice", "voiceVolume", "voiceCaptions", "captionFont", "voiceOtherTurns", "pushToTalkKey", "combatEvents", "autoUnpause", "gmPingAllow", "gmPingShow"];
 export const BASIC_FIELDS = [
   ["enabled", "checkbox"],
   ["delivery", "select", ["relay", "direct"]],
@@ -66,7 +66,7 @@ export const ADVANCED_FIELDS = [
   ["offlineNotifyAfterMs", "number"],
 ];
 export const ADVANCED_KEYS = ADVANCED_FIELDS.map(f => f[0]);
-export const CLIENT_KEYS = ["pushToTalk", "pushToTalkKey", "pushToTalkNoticeShown", "pttPosition", "ttsVoice", "voiceVolume", "voiceCaptions", "captionFont", "voiceOtherTurns"];
+export const CLIENT_KEYS = ["pushToTalk", "pushToTalkKey", "pushToTalkNoticeShown", "pttPosition", "gmStatusPosition", "gmPingShow", "ttsVoice", "voiceVolume", "voiceCaptions", "captionFont", "voiceOtherTurns"];
 // Runtime control used by the GM panel; not listed in the settings form.
 export const PANEL_KEYS = ["aiPaused"];
 export const ALL_KNOWN_KEYS = [...new Set([...BASIC_KEYS, ...ADVANCED_KEYS, ...HIDDEN_KEYS, ...CLIENT_KEYS, ...PANEL_KEYS])];

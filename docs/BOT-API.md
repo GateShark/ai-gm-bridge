@@ -477,3 +477,6 @@ The audio queue id of a voiced line is its chat message id (`voice:<messageId>:<
 
 ## v0.9.7: beta fixes
 - Voice buttons only: **Resume** after **GM, wait** now really continues the stopped line from where it stopped (0.9.6 played nothing), including after Pause then **GM, wait**. No bot-visible change; the `hold` event is unchanged.
+
+## v0.9.8: AI GM status badge
+- Foundry shows a small badge (dot, webhook time, last reply time, last seen) so GMs can see how the bot is doing. It is passive: it adds no command, event or webhook traffic. Webhook time is how long your endpoint took to accept a batch POST (direct mode only); reply time is the first player chat line in a batch to your next `post`, `postVoice` or `whisper` (use `replyTo` so the right batch is matched); seen is your last poll, `ack` or command. Keep the reply low and answer `2xx` as soon as the batch arrives.

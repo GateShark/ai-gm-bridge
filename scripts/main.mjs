@@ -38,11 +38,13 @@ import { cleanupContextJournals } from "./gmstore.mjs";
 import { turnText, shouldWakeOnTurn, combatantIsNpc } from "./lib/turns.mjs";
 import { combatEvent, startedNow } from "./lib/combatevents.mjs";
 import { liveSetupCheck } from "./lib/setupcheck.mjs";
+import { copyText } from "./lib/setupprompt.mjs";
 import { worldInfo, deliveryHealth, setOutboxProvider, liveBotReceiving, createReceivingNotifier } from "./lib/botwake.mjs";
 import { rollBreakdown } from "./lib/rollreq.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
 import { PushToTalk, speechLang } from "./lib/ptt.mjs";
 import { GmStatusPill, deriveGmStatus, normalizeGmStatus } from "./lib/gmstatus.mjs";
+import { ReplyTimes, GmPingBadge, buildSnapshot, createPublisher, buildModel, shouldShow, REPLY_COMMANDS } from "./lib/gmping.mjs";
 import { makeGmPanel, collectHp, sceneTokens, installSidebarButton, makeControlEvent, resolveWakeEventIds, newestChatEventIds, formatClearedStuck, PANEL_LOGO_SRC } from "./lib/gmpanel.mjs";
 import { DEFAULT_HP_PATH, LEGACY_HP_PATH } from "./lib/hp.mjs";
 import { listTables } from "./lib/quickgm.mjs";
@@ -59,7 +61,7 @@ function fillCaptionFontChoices() {
   Object.assign(CAPTION_FONT_CHOICES, next);
   return CAPTION_FONT_CHOICES;
 }
-const S = { leader: null, dedupe: null, outbox: null, timers: [], lastBatch: null, batcher: null, voice: null, metrics: new Metrics(), ackedCtx: null, sent: new Map() };
+const S = { replyTimes: new ReplyTimes(), lastBotSeenAt: 0, webhookMs: null, leader: null, dedupe: null, outbox: null, timers: [], lastBatch: null, batcher: null, voice: null, metrics: new Metrics(), ackedCtx: null, sent: new Map() };
 const list = (k) => String(get(k) ?? "").split(",").map(s => s.trim()).filter(Boolean);
 const get = (k) => game.settings.get(ID, k);
 const enabled = () => !!get("enabled");
@@ -115,6 +117,50 @@ function currentOfflinePhase(link = linkState(), now = Date.now()) {
   let notifyAfterMs; try { notifyAfterMs = resolveNotifyAfterMs(get("offlineNotifyAfterMs")); } catch {}
   return offlinePhase({ fresh: link.fresh, lastSeen: link.lastSeen || 0, staleSince: offlineWatch.staleSince, now, notifyAfterMs });
 }
+// ---------- 0.9.8 AI GM status badge ----------
+let pingBadge = null, pingPublisher = null, lastPingState = "listening";
+const pingSeen = () => { S.lastBotSeenAt = Date.now(); publishPing(); };
+function pingSnapshot(now = Date.now()) {
+  const items = S.outbox?.items ?? [];
+  const live = items.filter(i => !S.outbox.isDead(i));
+  const oldest = live.length ? Math.min(...live.map(i => i.firstAt).filter(Number.isFinite)) : null;
+  let notReceiving = false; try { notReceiving = liveBotReceiving({ now }).state === "warn"; } catch {}
+  return buildSnapshot({ now, seenAt: S.lastBotSeenAt, webhookMs: S.webhookMs, replies: S.replyTimes.list(), queued: live.length, oldestWaitingAt: Number.isFinite(oldest) ? oldest : null,
+    mode: get("delivery"), notReceiving, lastError: deliveryHealth.failures ? (deliveryHealth.lastError || (deliveryHealth.lastStatus ? `HTTP ${deliveryHealth.lastStatus}` : "")) : "", version: game.modules.get(ID)?.version ?? "" });
+}
+// the leader (a GM) measures and shares; at most one world-setting write per 5 s and only when a number changed
+function publishPing() {
+  try {
+    if (!enabled() || !game.user?.isGM || !amLeader() || !S.outbox || !get("gmPingAllow")) return;
+    pingPublisher ??= createPublisher({ write: (snap) => { try { game.settings.set(ID, "gmPing", snap); } catch {} } });
+    pingPublisher.push(pingSnapshot());
+  } catch {}
+}
+function refreshPing(now = Date.now()) {
+  try {
+    if (!pingBadge) return;
+    const visible = shouldShow({ enabled: enabled(), allow: !!get("gmPingAllow"), show: !!get("gmPingShow"), isBot: isBot() });
+    if (!visible) { pingBadge.hide(); return; }
+    const snap = (amLeader() && S.outbox) ? pingSnapshot(now) : (get("gmPing") ?? {});
+    const link = linkState(now);
+    const seenAt = Math.max(Number(snap?.seenAt) || 0, Number(link.lastSeen) || 0);
+    pingBadge.set(buildModel({ snap, state: lastPingState, seenAt, now, enabled: enabled(), version: game.modules.get(ID)?.version ?? "" }));
+  } catch {}
+}
+function startPingBadge() {
+  if (pingBadge) return;
+  let position = null; try { position = get("gmStatusPosition"); } catch {}
+  pingBadge = new GmPingBadge({ doc: document, win: window, t: loc, isGM: !!game.user?.isGM, position,
+    onMove: (pos) => { try { game.settings.set(ID, "gmStatusPosition", pos); } catch {} },
+    onReset: () => { try { game.settings.set(ID, "gmStatusPosition", { x: null, y: null }); } catch {} },
+    onHide: () => { try { game.settings.set(ID, "gmPingShow", false); ui.notifications?.info?.(loc("AIGM.gmPing.hidden", "AI GM status hidden. Turn it back on in Settings > Configure Settings > AI GM Pirate Borg ('Show AI GM status').")); } catch {} },
+    onCopy: async (text) => { const okc = await copyText(text, {}); ui.notifications?.info?.(okc ? loc("AIGM.gmPing.copied", "AI GM diagnostics copied.") : loc("AIGM.gmPing.copyFailed", "Could not copy; the details are in the popup.")); },
+    playersRect: () => { try { return document.getElementById("players")?.getBoundingClientRect?.() ?? null; } catch { return null; } } });
+  pingBadge.mount();
+  try { window.addEventListener("resize", () => pingBadge?.place()); } catch {}
+  try { Hooks.on("renderPlayers", () => pingBadge?.place()); } catch {}
+  refreshPing();
+}
 function refreshStatus() {
   if (!statusPill) return;
   try {
@@ -124,6 +170,7 @@ function refreshStatus() {
     const phase = currentOfflinePhase(link, now);
     if (state === "offline" && enabled() && phase === "reconnecting") state = "reconnecting";
     statusPill.set(state, { lastReplyAt: S.lastReplyAt, lastSeen: link.lastSeen, now, since: thinking.visible ? thinking.since : null, note: thinking.visible ? thinking.note : null, notified: phase === "offline" });
+    lastPingState = state; refreshPing(now);
   } catch {}
 }
 function noticeIfOffline(msg) {
@@ -414,6 +461,14 @@ Hooks.once("init", () => {
   // 0.9.0 #5: unpause after a map build / combat start / turn during play (never on world load). Default on.
   game.settings.register(ID, "autoUnpause", { scope: "world", config: true, restricted: true, type: Boolean, default: true,
     name: "AIGM.settings.autoUnpause.name", hint: "AIGM.settings.autoUnpause.hint" });
+  // 0.9.8: the AI GM status badge (reply time, webhook time, seen). World switch for the GM, a personal switch for every user, the
+  // saved spot of the badge (per user), and the numbers the leader shares (hidden).
+  game.settings.register(ID, "gmPingAllow", { scope: "world", config: true, restricted: true, type: Boolean, default: true,
+    name: "AIGM.settings.gmPingAllow.name", hint: "AIGM.settings.gmPingAllow.hint", onChange: () => { try { refreshPing(); } catch {} } });
+  game.settings.register(ID, "gmPingShow", { scope: "client", config: true, type: Boolean, default: true,
+    name: "AIGM.settings.gmPingShow.name", hint: "AIGM.settings.gmPingShow.hint", onChange: () => { try { refreshPing(); } catch {} } });
+  game.settings.register(ID, "gmStatusPosition", { scope: "client", config: false, type: Object, default: { x: null, y: null } });
+  game.settings.register(ID, "gmPing", { scope: "world", config: false, type: Object, default: {} });
   reg("thinkingIndicator", Boolean, true); reg("thinkingTimeoutMs", Number, 90000);
   reg("aiPaused", Boolean, false, { config: false, onChange: (v) => { try { onAiPausedChange(v); } catch {} } });
   // v0.7 (GM-only: world setting, config menu is GM-only)
@@ -435,6 +490,7 @@ Hooks.once("ready", () => {
   try { fillCaptionFontChoices(); } catch {}
   try { loadMoodState(get("moodState")); } catch {}
   try { statusPill = new GmStatusPill({ t: loc, onClick: (tip) => ui.notifications?.info?.(tip) }); statusPill.mount(); } catch {}
+  try { startPingBadge(); } catch (e) { log("gm ping badge", e?.message); }
   const mod = game.modules.get(ID);
   const whenReady = mod.api?.whenReady ?? (() => Promise.resolve(mod.api));
   try { installAudioResume({ queue: audioQueue, beforeUnlock: async () => { await game.audio?.unlock; try { await game.audio?.context?.resume?.(); } catch {} } }); } catch {}
@@ -467,6 +523,7 @@ Hooks.once("ready", () => {
       if (connErr) return fail(503, connErr);
       if (!game.user.isGM || !isBot()) return fail(403, "commands only accepted from the bot GM user");
       if (cmd?.name !== "ping" && !amLeader()) return fail(421, "not leader", { leader: S.leader?.leaderId ?? null });
+      pingSeen(); // 0.9.8: any command the bot runs counts as "seen"
       const work = async () => {
         if (cmd?.commandId) { if (!S.dedupe.claim(`cmd:${cmd.commandId}`, Date.now())) { const e = S.dedupe.get(`cmd:${cmd.commandId}`); const done = e?.s === "acked";
             return fail(409, done ? "already done" : "in progress", { alreadyDone: done, prior: e?.res ?? null }); } await persistNow(); }
@@ -484,6 +541,7 @@ Hooks.once("ready", () => {
         const res = await runCommand(cmd, ctxFor());
         const rt = cmd?.args?.replyTo && game.messages?.get(String(cmd.args.replyTo).replace(/^chat:/, ""))?.timestamp;
         if (res.ok && rt) S.metrics.time("reply", Date.now() - rt);
+        if (res.ok && REPLY_COMMANDS.includes(cmd?.name)) { S.replyTimes.reply(Date.now(), cmd?.args?.replyTo); pingSeen(); } // 0.9.8: first player line in a batch -> this post
         if (cmd?.commandId) S.dedupe.mark(`cmd:${cmd.commandId}`, res.ok ? "acked" : "failed", Date.now(), { res }); persistSoon();
         return res;
       };
@@ -494,7 +552,7 @@ Hooks.once("ready", () => {
       if (!game.user?.isGM) return fail(403, "GM only");
       return runCommand({ name: "ping" }, ctxFor());
     },
-    ack: (eventIds) => { thinkingOff({ broadcast: true }); onAcked(eventIds); const n = S.outbox?.ack(eventIds) ?? 0; S.metrics.inc("acked", n); for (const id of eventIds) S.dedupe?.mark(id, "acked", Date.now()); persistSoon(); return { ok: true, result: { acked: n } }; },
+    ack: (eventIds) => { thinkingOff({ broadcast: true }); pingSeen(); onAcked(eventIds); const n = S.outbox?.ack(eventIds) ?? 0; S.metrics.inc("acked", n); for (const id of eventIds) S.dedupe?.mark(id, "acked", Date.now()); persistSoon(); return { ok: true, result: { acked: n } }; },
     // GM-only, returned to the caller only. Players get 403 and nothing is sent anywhere.
     context: (o = {}) => getContext(game, o),
     turnStatus: () => {
@@ -505,7 +563,7 @@ Hooks.once("ready", () => {
     startGame: () => doStart(), pauseGame: () => doPause(),
     saveSession: (o = {}) => runCommand({ name: "saveSession", args: o }, ctxFor()),
     loadSession: (o = {}) => runCommand({ name: "loadSession", args: o }, ctxFor()),
-    takeBatch: () => S.lastBatch, // relay stub can poll this on the headless client
+    takeBatch: () => { pingSeen(); return S.lastBatch; }, // relay stub can poll this on the headless client; a poll counts as seen
     // 0.8.20 #10: page scripts that build maps directly can join the same per-world write queue.
     withSceneLock: (fn) => withWorldLock(fn),
     paused: () => !!get("aiPaused"),
@@ -569,6 +627,7 @@ Hooks.once("ready", () => {
   Hooks.on("updateUser", () => { refreshStatus(); if (enabled()) refreshPanel(); });
   Hooks.on("updateSetting", (setting) => {
     const key = String(setting?.key ?? setting?.id ?? "");
+    if (key === `${ID}.gmPing`) refreshPing();
     if (key === `${ID}.linkProbe` || key === "linkProbe" || key.endsWith(".linkProbe")) {
       refreshStatus(); refreshPanel();
     }
@@ -587,7 +646,7 @@ Hooks.once("ready", () => {
       refreshPanel();
     }
   });
-  try { setInterval(() => { try { refreshStatus(); if (panelApp?.rendered) refreshPanel(); } catch {} }, 15000); } catch {}
+  try { setInterval(() => { try { refreshStatus(); publishPing(); if (panelApp?.rendered) refreshPanel(); } catch {} }, 15000); } catch {}
 });
 
 function ctxFor() {
@@ -921,6 +980,7 @@ function flush(opts = {}) {
       const firsts = S.outbox.items.filter(i => i.batchId === batch.batchId).map(i => i.firstAt);
       S.metrics.time("queue", now - Math.min(...firsts)); S.metrics.c.holdMaxMs = Math.max(S.metrics.c.holdMaxMs ?? 0, now - Math.min(...firsts));
       S.sent.set(batch.batchId, { at: now, ctx, ids: batch.events.map(e => e.eventId) });
+      try { S.replyTimes.openBatch(S.outbox.items.filter(i => i.batchId === batch.batchId).map(i => ({ ...i.event, firstAt: i.firstAt })), now); } catch {}
       while (S.sent.size > 50) S.sent.delete(S.sent.keys().next().value);
     } else S.metrics.inc("retries");
     S.metrics.inc("batches"); S.metrics.inc("bytes", JSON.stringify(payload).length);
@@ -934,7 +994,7 @@ function flush(opts = {}) {
       const api = game.modules.get(ID).api;
       deliverDirect(payload, { url: get("webhookUrl"), secret: get("webhookSecret"), header: get("webhookAuthHeader") || "Authorization",
         runCommand: (c) => api.run(c), ack: (ids) => api.ack(ids) })
-        .then(r => { if (r.ok) deliveryHealth.ok(); else { deliveryHealth.fail({ status: r.status, error: r.error }); log(`direct delivery ${payload.batchId} failed`, r.status ?? r.error); checkReceiving(); } }); // unacked → retried with backoff
+        .then(r => { if (Number.isFinite(r?.webhookMs)) { S.webhookMs = r.webhookMs; publishPing(); } if (r.ok) deliveryHealth.ok(); else { deliveryHealth.fail({ status: r.status, error: r.error }); log(`direct delivery ${payload.batchId} failed`, r.status ?? r.error); checkReceiving(); } }); // unacked → retried with backoff
     }
     const every = get("metricsLogEvery");
     log(`batch ${payload.batchId} events=${payload.events.length} bytes=${JSON.stringify(payload).length}${batch.attempt > 1 ? ` retry=${batch.attempt}` : ""}`);

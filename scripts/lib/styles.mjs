@@ -1,5 +1,18 @@
 // 0.8.8 injected stylesheet for the status pill, PTT button, roll cards, voice replay and GM panel.
 export const CSS = `
+#aigm-gm-ping{position:fixed;left:12px;top:60%;z-index:99;display:flex;align-items:center;gap:6px;padding:2px 8px;border-radius:4px;background:rgba(0,0,0,.55);color:#e8e8e8;font-size:12px;line-height:18px;cursor:grab;user-select:none;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+#aigm-gm-ping[data-dragging="1"]{cursor:grabbing;opacity:.85}
+#aigm-gm-ping[data-hidden="1"]{display:none}
+#aigm-gm-ping .aigm-ping-dot{width:8px;height:8px;border-radius:50%;background:#888;flex:none}
+#aigm-gm-ping[data-dot="green"] .aigm-ping-dot{background:#3ecf5e;box-shadow:0 0 5px #3ecf5e}
+#aigm-gm-ping[data-dot="yellow"] .aigm-ping-dot{background:#e6b422;box-shadow:0 0 5px #e6b422}
+#aigm-gm-ping[data-dot="red"] .aigm-ping-dot{background:#e5484d;box-shadow:0 0 5px #e5484d}
+#aigm-gm-ping .aigm-ping-eye{background:none;border:0;padding:0 2px;margin:0;color:inherit;opacity:.5;cursor:pointer;font-size:11px;line-height:1;width:auto;height:auto}
+#aigm-gm-ping .aigm-ping-eye:hover{opacity:1}
+#aigm-gm-ping .aigm-ping-pop{position:absolute;left:0;bottom:calc(100% + 4px);min-width:260px;padding:8px;border-radius:6px;background:rgba(0,0,0,.9);color:#eee;white-space:normal;cursor:default}
+#aigm-gm-ping .aigm-ping-pop[hidden]{display:none}
+#aigm-gm-ping .aigm-ping-lines{margin:0 0 6px;font:11px/15px monospace;white-space:pre-wrap;color:#eee}
+#aigm-gm-ping .aigm-ping-actions button{font-size:11px;padding:1px 6px;width:auto;height:auto;line-height:16px}
 #aigm-gm-status{position:fixed;right:16px;bottom:16px;z-index:10000;padding:6px 14px 6px 12px;border-radius:999px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.45);display:flex;align-items:center;gap:8px;pointer-events:auto;user-select:none}
 #aigm-gm-status::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor}
 #aigm-gm-status[data-state="listening"]{background:#1b7a3a}

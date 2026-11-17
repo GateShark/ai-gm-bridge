@@ -165,6 +165,8 @@ If it is wrong, HP commands can report success and change nothing.
 | **Send combat start/end** | On by default. Lets the bot stay aware of fights. |
 | **Local commands** (Advanced) | Handles chat commands such as `!roll`, `!music`, `!scene`, `!hp` and `!turn` inside Foundry with no bot call. |
 | **Always-voice users** | Names of players who always get voiced replies. |
+| **Show AI GM status in Players list** | On by default, per user. Shows or hides the small AI GM status badge for you only (see Troubleshooting). |
+| **Allow AI GM status row** (Game Master) | On by default. Turn it off to hide the AI GM status badge for everyone. |
 
 ---
 
@@ -269,6 +271,15 @@ The most common cause in a new world is that the add-on is not switched on or no
 - your bot or relay is running and logged in as that user,
 - it is the Game Master user you picked,
 - **Test connection** passes.
+
+**What does the AI GM status badge show, and how do I use it?**
+A small badge sits just above the Players list (like Foundry's own ping and FPS line), for everyone in the world. It reads, for example, `AI GM · 140 ms · reply 18 s · seen 2 s ago`:
+- **The dot.** Green: the bot was seen within the last minute and nothing has waited more than a minute. Yellow: the bot was last seen 1 to 5 minutes ago, or an event has waited a minute or more without being delivered. Red: the bot is offline, is not receiving (same test as the "Bot not receiving" warning), or has not been seen for over 5 minutes.
+- **`140 ms`** is how long your bot's webhook took to accept the last batch. It is measured on the delivery the add-on already makes, and is left out in relay mode. If it is high, answer `2xx` as soon as the batch arrives and do the work afterwards.
+- **`reply 18 s`** is how long the last reply took, from the player's first chat line in a batch to the next GM post, voiced line or whisper that answers it. The last five are in the Game Master's tooltip.
+- **`seen 2 s ago`** is the last time the bot polled, acknowledged or ran any command.
+Only the Game Master sees more: hover (or click) the badge for the connection mode, the number of undelivered events, the last five reply times, the last error and the add-on version, and press **Copy diagnostics** to paste into a bug report or your bot's support channel (no URLs or secrets are included).
+Moving and hiding it: drag the badge anywhere (it stays on screen when the window is resized and remembers its place on that computer); double-click it, or use **Reset position** in the click popup, to put it back above the Players list. The eye icon hides it for you; turn it back on with **Show AI GM status in Players list** in Configure Settings. The Game Master can hide it for everyone with the world setting **Allow AI GM status row**. The badge costs nothing: it calls nothing on your bot and adds no events or webhook traffic; the Game Master's numbers are shared through one small setting written at most every 5 seconds.
 
 **"Bot not receiving" appears.**
 See step 5d. The usual causes are an empty webhook URL in direct mode, a bot endpoint that is down or slow to answer, or a bot user that is not logged in.

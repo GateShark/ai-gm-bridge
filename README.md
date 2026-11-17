@@ -36,6 +36,7 @@ Created by Gate (GateShark).
 ## What's new in 0.9.8 (beta fixes)
 The current release is **0.9.8** (beta).
 - **Bot setup prompt teaches faster replies.** Speak the voiced line first and do sheet edits after, keep spoken lines short, and keep the work before the reply to a call or two (new Core rule 10). Documentation only; no code change.
+- **AI GM status badge.** A small draggable badge near the Players list shows whether the AI GM is alive: a green/yellow/red dot, the webhook time, the last reply time and when the bot was last seen (for example `AI GM · 140 ms · reply 18 s · seen 2 s ago`). Handy when troubleshooting a bot. Everyone sees it; the Game Master gets the details and **Copy diagnostics**. It is passive (no extra calls) and can be hidden per user (**Show AI GM status in Players list**) or for everyone (**Allow AI GM status row**).
 
 ## What's new in 0.9.7 (beta fixes)
 The 0.9.7 release (beta):

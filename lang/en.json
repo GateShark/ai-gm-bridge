@@ -237,6 +237,14 @@
       "autoUnpause": {
         "name": "Auto-unpause during play",
         "hint": "When on, the game unpauses after the AI GM builds or changes a map during play, and whenever a fight starts or a turn changes. It never unpauses when the world loads. Turn off to keep the game paused until you unpause it."
+      },
+      "gmPingAllow": {
+        "name": "Allow AI GM status row",
+        "hint": "When off, the small AI GM status badge (reply time, webhook time, last seen) is hidden for everyone. When on, each person can still hide it for themselves."
+      },
+      "gmPingShow": {
+        "name": "Show AI GM status in Players list",
+        "hint": "Shows the small draggable AI GM badge (a dot, webhook time, last reply time and last seen) near the Players list, on this computer only. Drag it to move it, double-click it to put it back. The GM can turn the badge off for everyone with 'Allow AI GM status row'."
       }
     },
     "audio": {
@@ -339,6 +347,11 @@
     "luck": {
       "label": "Devil's Luck",
       "spend": "Spend"
+    },
+    "gmPing": {
+      "hidden": "AI GM status hidden. Turn it back on in Settings > Configure Settings > AI GM Pirate Borg ('Show AI GM status in Players list').",
+      "copied": "AI GM diagnostics copied.",
+      "copyFailed": "Could not copy; the details are in the popup."
     }
   }
 }
