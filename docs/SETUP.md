@@ -114,6 +114,8 @@ The body has `batchId`, `world`, `seq`, `ctx` and `events`. **Every batch and ev
 
 A line that addresses the GM (a mention, a whisper, an ability roll) goes out at once as its own batch, so two players speaking in the same second can arrive as two batches. Plain chat can share a batch.
 
+**Plain chat does not wake the bot.** A chat line wakes the bot only when it names the GM (one of the **Bot names**, default `gm` and `ai gm`), is a whisper to the bot, contains a **Wake keyword**, contains a question mark, is spoken by a character (`speaker.actor` is set, so it counts as in character), or is an ability roll. A plain line with none of those, for example a player typing `ok` as themselves, never wakes the bot and is not sent.
+
 Your bot must answer `2xx` as soon as it has the batch, before any slow work. Until it does, the add-on retries (after 2 s, 5 s, 15 s, then every 60 s) with the same batch, so your bot should handle each `batchId` once.
 
 ### 5c. Test connection
@@ -237,6 +239,7 @@ The add-on **plays** voice. It does not **make** it.
 | **GM voice volume** | 0 to 100%, separate from Foundry's music volume. |
 | **Big captions** and **Caption font** | A large caption of the line being spoken. |
 | **Hear ally and enemy turns** | A short "<name> is up" clip on ally and enemy turns. |
+| **▶ Play, Pause, Resume** (on each voiced line, next to **GM, wait**) | **▶** plays the line; pressed again while it plays, it starts that line over. **Pause** holds the line that is playing, in the middle, and keeps everything queued behind it (turn clips included). **Resume** continues the line from exactly where it stopped, then the rest of the queue plays. They affect only your own browser. **GM, wait** still stops everything and clears the queue. |
 | **Push-to-talk** and **Push-to-talk key** | Hold a key or the on-screen logo button to speak. Your words are posted as chat. Chrome or Edge only, and the page must be HTTPS or localhost. |
 
 If your browser blocks sound, an **Enable sound** button appears. Click it (any click or key press also unlocks audio).
@@ -294,7 +297,7 @@ Make sure only one relay or one bot session handles the world, and that your bot
 Set the **HP data path** for your system (step 5e).
 
 **Pirate Borg system errors in the console.**
-The Pirate Borg game system itself can log class-item errors when an owned actor is created while a player who is not that actor's owner is online. This is a known issue on the system's side. The add-on is not involved and it does not affect play.
+The Pirate Borg game system itself can log class-item errors when an owned actor is created while a player who is not that actor's owner is online. These errors come from the game system, not from this add-on. The add-on is not involved and it does not affect play.
 
 **A player's character is treated like a monster.**
 Give that character a Player owner (step 6). Characters owned only by Game Master users count as monsters.

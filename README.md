@@ -2,7 +2,7 @@
   <img src="assets/logo-256.webp" alt="AI GM Pirate Borg" width="160" height="160" />
 </p>
 
-# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.4
+# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.5
 
 > ⚠️ **Beta:** this is a public beta. Please report bugs; some changes may still land.
 
@@ -32,6 +32,12 @@ Created by Gate (GateShark).
 - Voice lines have a ▶ replay button, and long lines can be expanded.
 - The GM has an in-game **AI GM Pirate Borg** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM Pirate Borg** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
+
+## What's new in 0.9.5 (beta fixes)
+The current release is **0.9.5** (beta).
+- **No morale card for a dead rat.** After a sweep that kills every enemy, morale no longer posts a late card for an already-dead creature.
+- **Voice buttons.** Next to **GM, wait** on each voiced line: **▶** plays (again from the start if pressed while playing), **Pause** holds the line mid-playback and keeps the queue, **Resume** continues from where it stopped. Recorded voices only.
+- **Docs ship with the module.** `docs/BOT-API.md` and the other files the docs name are in the zip. Plain chat with no mention, question or character never wakes the bot (now stated in the docs).
 
 ## What's new in 0.9.4 (beta fixes)
 0.9.x is the beta series; 1.0 will be the full release (with more game systems). The current release is **0.9.4** (beta).

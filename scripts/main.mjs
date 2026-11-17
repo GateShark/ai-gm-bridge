@@ -728,7 +728,8 @@ Hooks.on("createChatMessage", async (msg) => {
   handleChat(msg);
 });
 Hooks.on("updateChatMessage", (msg) => { if (enabled() && msg.flags?.[ID]?.rollRequest) refreshPanel(); });
-Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCard(msg, html); enhanceVoiceMessage(msg, html, { t: loc, cacheLookup: voiceCacheLookup, replay: (src, meta) => audioQueue.enqueue(`replay:${src}:${Date.now()}`, { src, text: meta?.text }), hold: isBot() ? null : sendHold }); } });
+Hooks.on("renderChatMessageHTML", (msg, html) => { if (enabled()) { F.bindRollCard(msg, html); enhanceVoiceMessage(msg, html, { t: loc, cacheLookup: voiceCacheLookup, replay: (src, meta) => audioQueue.enqueue(`replay:${src}:${Date.now()}`, { src, text: meta?.text }),
+  playLine: (src, meta) => audioQueue.playLine({ src, text: meta?.text }), pause: isBot() ? null : () => audioQueue.pause(), resume: isBot() ? null : () => audioQueue.resume(), hold: isBot() ? null : sendHold }); } });
 // 0.9.0 #2: Devil's Luck tracker on character sheets (v1 and v2 sheets). Spend = one setResource write + one chat line, no bot wake.
 function luckSheet(app, html) {
   if (!enabled()) return;

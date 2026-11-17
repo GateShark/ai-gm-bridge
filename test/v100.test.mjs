@@ -147,15 +147,15 @@ test("0.8.21 #5 replay button is disabled while its clip is queued or playing, t
 
 test("0.8.21 release metadata is beta", () => {
   const mod = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8"));
-  assert.equal(mod.version, "0.9.4");
+  assert.equal(mod.version, "0.9.5");
   assert.equal(mod.id, "ai-gm-bridge");
   assert.equal(mod.title, "AI GM Pirate Borg");
   assert.deepEqual(mod.authors.map(a => a.name), ["Gate (GateShark)"]);
   assert.match(mod.manifest, /releases\/latest\/download\/module\.json$/);
   assert.match(mod.download, /releases\/latest\/download\/module\.zip$/);
-  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.9.4");
+  assert.equal(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version, "0.9.5");
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
-  assert.match(readme, /v0\.9\.4/);
+  assert.match(readme, /v0\.9\.5/);
   assert.match(readme, /\*\*Beta:\*\*/);
   assert.match(readme, /\*\*beta\*\* build/);
   assert.doesNotMatch(readme, /\b[Aa]lpha\b/);

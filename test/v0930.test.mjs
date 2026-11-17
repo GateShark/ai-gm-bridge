@@ -568,7 +568,7 @@ test("0.9.3 #7 setup guide exists, is linked from the README, the settings and t
 
 test("0.9.3 #8 the bot setup prompt carries the version and documents the world fields and the not-receiving warning", () => {
   const p = src("docs/bot-setup-prompt.md");
-  assert.match(p, /0\.9\.4/); assert.doesNotMatch(p, /v0\.9\.1|0\.9\.2\)|v0\.9\.3/);
+  assert.match(p, /0\.9\.5/); assert.doesNotMatch(p, /v0\.9\.1|0\.9\.2\)|v0\.9\.[34]/);
   for (const w of ["worldId", "worldTitle", "systemId"]) assert.match(p, new RegExp(w));
   assert.match(p, /not receiving/i);
   const api = src("docs/BOT-API.md"); for (const w of ["worldId", "worldTitle", "systemId"]) assert.match(api, new RegExp(w));
@@ -576,12 +576,12 @@ test("0.9.3 #8 the bot setup prompt carries the version and documents the world 
 
 test("0.9.3 manifest, package, changelog, README", () => {
   const m = JSON.parse(src("module.json")), p = JSON.parse(src("package.json"));
-  assert.equal(m.version, "0.9.4"); assert.equal(p.version, "0.9.4");
+  assert.equal(m.version, "0.9.5"); assert.equal(p.version, "0.9.5");
   assert.equal(m.manifest, "https://github.com/GateShark/ai-gm-bridge/releases/latest/download/module.json");
   assert.equal(m.download, "https://github.com/GateShark/ai-gm-bridge/releases/latest/download/module.zip");
   assert.equal(m.authors[0].name, "Gate (GateShark)");
-  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.4/);
-  assert.match(src("README.md"), /v0\.9\.4/);
+  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.5/);
+  assert.match(src("README.md"), /v0\.9\.5/);
 });
 
 // ---------- 0.9.4 #2: the replyTo lock only holds while the card is open ----------
@@ -615,4 +615,80 @@ test("0.9.4 #2 a cancelled card also lets the same replyTo ask again, and an exp
   assert.equal(same.result.duplicate, true); assert.equal(same.result.requestId, "rr-keep"); assert.equal(same.result.status, "cancelled");
   await run("cancelRoll", { user: "Pat" });
   assert.match(src("docs/BOT-API.md"), /same `replyTo` \*\*while that card is still open/); assert.match(src("docs/bot-setup-prompt.md"), /only while it is open/);
+});
+
+// ---------- 0.9.5 #1: sweep morale race ----------
+import { isDown, creatureDown } from "../scripts/lib/morale.mjs";
+import { moraleStale, beginSweep, endSweep, sweepActive, waitSweepSettled, resetSweep } from "../scripts/lib/moraleguard.mjs";
+function fightWithStaleRows(hps = [4, 4, 4]) {
+  // the combatant's own actor is a stale copy (full hp); the token's actor is the one a sweep really updates
+  const cbs = ratToks.map((t, i) => { t.actor.system.attributes.hp.value = hps[i]; const stale = mkActor("n1", "Bilge Rat", { hp: 4, max: 4 });
+    return { id: `cb${i}`, name: t.name, actor: stale, actorId: "n1", isNPC: true, tokenId: t.id, token: { id: t.id, actor: t.actor, disposition: -1 } }; });
+  const combat = { id: "mc1", started: true, round: 1, turn: 0, combatants: { contents: cbs }, turns: cbs };
+  combats.push(combat); game.combat = combat; return { combat, cbs };
+}
+test("0.9.5 #1 down is judged from the token's own actor too: a stale combatant row no longer makes a dead rat look alive", () => {
+  reset(); const f = fightWithStaleRows();
+  assert.equal(moraleStale({ combatId: "mc1" }), null, "all alive");
+  for (const t of ratToks) t.actor.system.attributes.hp.value = 0;
+  assert.equal(moraleStale({ combatId: "mc1" }), "noEnemiesLeft", "combat open, no defeated flag, stale rows: still no enemies left");
+  assert.equal(creatureDown(f.cbs[0].actor, null), false); assert.equal(creatureDown(f.cbs[0].actor, ratToks[0]), true);
+  assert.equal(isDown({ hp: 4, combatant: { actor: f.cbs[0].actor, token: { actor: ratToks[0].actor } } }), true);
+  ratToks[1].actor.system.attributes.hp.value = 3; ratToks[1].actor.statuses = { has: (s) => s === "dead" };
+  assert.equal(isDown({ hp: 3, combatant: { token: { actor: ratToks[1].actor } } }), true, "dead status counts");
+  assert.equal(isDown({ hp: 4, combatant: { isDefeated: true } }), true);
+});
+
+test("0.9.5 #1 the race: the sweep ends the fight while the morale roll is out, rows are stale, combat stays open: no card is posted", async () => {
+  reset(); const f = fightWithStaleRows();
+  hooksDuringRoll = async () => { for (const t of ratToks) t.actor.system.attributes.hp.value = 0; }; // all three die during the roll; nothing else changes
+  const r = await run("moraleCheck", { all: true, trigger: "moraleprompt:mc1:firstEnemyDown1", reason: "firstEnemyDown" });
+  hooksDuringRoll = async () => {};
+  assert.equal(r.ok, true, r.error); assert.equal(cards.length, 0, "no Stands firm card for a dead rat"); assert.equal(msgs.length, 0);
+  assert.ok(r.result.skipped === "noEnemiesLeft" || r.result.checked === 0);
+  assert.equal(game.combat.started, true, "the combat was not ended and nothing ends it");
+});
+
+test("0.9.5 #1 a rat that is already down gets no card while a survivor still does (judged when the card would post)", async () => {
+  reset(); fightWithStaleRows([0, 4, 4]); // rat 1 is dead on its token; the stale row says 4
+  const r = await run("moraleCheck", { all: true, trigger: "moraleprompt:mc1:firstEnemyDown2", reason: "firstEnemyDown" });
+  assert.equal(r.ok, true, r.error); assert.equal(cards.length, 2, "cards for the two living rats only");
+  // a rat that dies during the first rat's roll is dropped before its own card
+  reset(); fightWithStaleRows([4, 4, 4]); let n = 0;
+  hooksDuringRoll = async () => { if (n++ === 0) ratToks[2].actor.system.attributes.hp.value = 0; };
+  const r2 = await run("moraleCheck", { all: true, trigger: "moraleprompt:mc1:halfDown3", reason: "halfDown" });
+  hooksDuringRoll = async () => {};
+  assert.equal(r2.ok, true); assert.equal(cards.length, 2, "rats 1 and 2 only; rat 3 died before its card");
+  // a manual call (no trigger) is unchanged
+  reset(); fightWithStaleRows([4, 4, 4]); const m = await run("moraleCheck", { all: true, force: true }); assert.equal(m.result.checked, 3);
+});
+
+test("0.9.5 #1 sweep gate: a sweep that kills every enemy starts no morale run at all; a sweep with a survivor rolls for the survivor once, after it settled", async () => {
+  reset(); resetSweep(); fightWithStaleRows(); let runs = 0;
+  F.initFeatures({ emit: (ev) => emitted.push(ev), get: (k) => ({ moraleAuto: true })[k], log: () => {}, runMorale: (p) => { runs++; return run("moraleCheck", { all: true, trigger: p.eventId, reason: p.reason }); } });
+  const prompt = { eventId: "moraleprompt:mc1:firstEnemyDown4", type: "moralePrompt", combatId: "mc1" };
+  let pending = null;
+  const first = ratToks[0].actor, orig = first.update.bind(first);
+  first.update = async (d) => { await orig(d); pending = F.handleMoralePrompt(prompt); }; // the first death fires the prompt while the others still stand
+  const ids = ratToks.map(t => t.id);
+  const r = await run("applyDamage", { amount: 4, tokenIds: ids, sceneId: "s1" });
+  assert.equal(r.ok, true, r.error); assert.equal(r.result.updated.length, 3);
+  const out = await pending;
+  assert.ok(out?.skipped, "skipped after the sweep settled"); assert.equal(runs, 0, "morale was never started"); assert.equal(cards.length, 0); assert.equal(emitted.filter(e => e.type === "moralePrompt").length, 0);
+  assert.equal(sweepActive(Date.now() + 5000), false);
+  // survivor case
+  reset(); resetSweep(); fightWithStaleRows(); runs = 0; pending = null;
+  const f2 = ratToks[0].actor, o2 = f2.update.bind(f2); f2.update = async (d) => { await o2(d); pending = F.handleMoralePrompt(prompt); };
+  const r2 = await run("applyDamage", { amount: 4, tokenIds: [ratToks[0].id, ratToks[1].id], sceneId: "s1" });
+  assert.equal(r2.ok, true, r2.error); await pending;
+  assert.equal(runs, 1); assert.equal(cards.length, 1, "one card, for the rat that is still alive");
+  assert.equal(emitted.filter(e => e.type === "moralePrompt").length, 1);
+});
+
+test("0.9.5 #1 sweep markers: active while sweeping, settle after a short quiet time, never wait forever, and single hits are not delayed", async () => {
+  resetSweep(); assert.equal(sweepActive(), false);
+  beginSweep(); assert.equal(sweepActive(), true); endSweep(1000); assert.equal(sweepActive(1200), true); assert.equal(sweepActive(1700), false);
+  resetSweep(); beginSweep(); let t = 0; await waitSweepSettled({ now: () => t, sleep: async (ms) => { t += ms; }, capMs: 1000 }); assert.ok(t >= 1000 && t <= 1200, "capped"); resetSweep();
+  const t0 = Date.now(); await waitSweepSettled(); assert.ok(Date.now() - t0 < 50, "no sweep, no wait");
+  assert.match(src("scripts/commands.mjs"), /const sweeping = next\.updates\.length > 1; if \(sweeping\) beginSweep\(\)/);
 });

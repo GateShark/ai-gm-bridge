@@ -199,7 +199,7 @@ test("0.9.1 #4 voice default is still Ryan; Sonia only by a player's own (client
 
 test("0.9.1 version, changelog, credit", () => {
   const mod = JSON.parse(src("module.json"));
-  assert.equal(mod.version, "0.9.4"); assert.equal(JSON.parse(src("package.json")).version, "0.9.4");
+  assert.equal(mod.version, "0.9.5"); assert.equal(JSON.parse(src("package.json")).version, "0.9.5");
   assert.deepEqual(mod.authors.map(a => a.name), ["Gate (GateShark)"]);
   assert.match(src("CHANGELOG.md"), /## 0\.9\.1/);
   assert.match(src("README.md"), /0\.9\.1/);

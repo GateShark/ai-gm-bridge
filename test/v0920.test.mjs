@@ -317,12 +317,12 @@ test("0.9.2 #3 the setup prompt ships in the module, is GM-only, and carries no 
 // ---------- release ----------
 test("0.9.2 version, beta label, credit, manifest pattern, Ryan default", async () => {
   const mod = JSON.parse(src("module.json"));
-  assert.equal(mod.version, "0.9.4"); assert.equal(mod.id, "ai-gm-bridge");
-  assert.equal(JSON.parse(src("package.json")).version, "0.9.4");
+  assert.equal(mod.version, "0.9.5"); assert.equal(mod.id, "ai-gm-bridge");
+  assert.equal(JSON.parse(src("package.json")).version, "0.9.5");
   assert.equal(mod.authors[0].name, "Gate (GateShark)");
   assert.match(mod.manifest, /\/releases\/latest\/download\/module\.json$/); assert.match(mod.download, /\/releases\/latest\/download\/module\.zip$/);
-  assert.match(src("CHANGELOG.md"), /^# Changelog\n\n## 0\.9\.4\n/);
-  assert.match(src("README.md"), /v0\.9\.4/);
+  assert.match(src("CHANGELOG.md"), /^# Changelog\n\n## 0\.9\.5\n/);
+  assert.match(src("README.md"), /v0\.9\.5/);
   const { DEFAULT_TTS_VOICE } = await import("../scripts/lib/voices.mjs");
   assert.equal(DEFAULT_TTS_VOICE, "en-GB-RyanNeural");
 });

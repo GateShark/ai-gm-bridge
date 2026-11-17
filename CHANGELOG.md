@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.5
+Beta fix release. Credit: Gate (GateShark).
+
+- Sweep morale race: after a sweep that kills every enemy, an automatic morale run could still post one "Stands firm" card for a rat that was already dead (about 3 in 7 test fights). An automatic run now (a) waits for an `applyDamage` sweep to finish writing every creature and settle, then looks again, so a sweep that kills every enemy starts no morale run; (b) judges "down" fresh from the combatant's actor, the token's own actor, the token on the scene, the defeated flag and the dead status, so hp 0 counts before the defeated flag is set; and (c) skips a creature that is already down right before its card would post, even if the fight goes on. Single hits are not delayed. The combat is still not ended automatically (use `endCombat`).
+- `docs/BOT-API.md`, `relay/RUN.md` and `examples/echo-gm.mjs` are now in the module zip next to `docs/SETUP.md` and `docs/bot-setup-prompt.md`, so every file the in-game docs name is installed. A test checks that each file the docs point at is in the zip (`tools/package-files.mjs` is the one list).
+- Docs: a plain chat line with no mention, whisper, wake keyword, question or character speaker (`speaker.actor`) never wakes the bot, said clearly in `docs/SETUP.md` and `docs/BOT-API.md`. The Pirate Borg system's class-item console errors are stated as coming from the game system, not the add-on (these errors come from the game system, not from this add-on).
+- Voice buttons on every voiced line, next to **GM, wait**, per browser and on the shared audio queue: **▶** plays the line and, pressed again while it plays or is paused, starts it over; **Pause** holds the playing line mid-playback and keeps the queue (turn clips included); **Resume** continues that line from exactly where it paused, then the rest of the queue plays. **GM, wait** still stops the playing line and clears the queue, a paused line included. Recorded voices only, no browser speech, Ryan stays the default.
+
 ## 0.9.4
 Beta fix release. Credit: Gate (GateShark).
 

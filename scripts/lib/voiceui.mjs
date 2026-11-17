@@ -64,7 +64,16 @@ export function addHoldButton(doc, after, { msg, hold, t = (k, f) => f || k, coo
   if (after?.parentNode) after.parentNode.insertBefore(b, after.nextSibling ?? null);
   return b;
 }
-export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, hold = null, holdCooldownMs = HOLD_COOLDOWN_MS, collapseAt = VOICE_COLLAPSE_CHARS, esc = defaultEsc, cacheLookup = null, slug = null } = {}) {
+// 0.9.5: Pause and Resume buttons, per client, next to ▶ and "GM, wait". They act on the clip playing on this client now.
+export function addVoiceButton(doc, after, { cls, label, hint, msg, action, t = (k, f) => f || k, key }) {
+  const b = doc.createElement("button");
+  b.type = "button"; b.className = `aigm-voice-hold ${cls}`; b.dataset[cls === "aigm-voice-pause" ? "aigmPause" : "aigmResume"] = msg?.id ?? "";
+  b.textContent = t(key, label); b.title = t(`${key}Hint`, hint); b.setAttribute("aria-label", b.title);
+  b.addEventListener("click", (ev) => { ev.preventDefault?.(); ev.stopPropagation?.(); try { action({ messageId: msg?.id ?? null }); } catch {} });
+  if (after?.parentNode) after.parentNode.insertBefore(b, after.nextSibling ?? null);
+  return b;
+}
+export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, playLine = null, pause = null, resume = null, hold = null, holdCooldownMs = HOLD_COOLDOWN_MS, collapseAt = VOICE_COLLAPSE_CHARS, esc = defaultEsc, cacheLookup = null, slug = null } = {}) {
   const root = html?.[0] ?? html;
   if (!root?.querySelector) return false;
   const audio = root.querySelector("audio[src]");
@@ -84,6 +93,9 @@ export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, h
   // 0.8.21: grey the ▶ button out while this line is queued or playing, so extra clicks cannot stack.
   btn.addEventListener("click", (ev) => {
     ev.preventDefault(); ev.stopPropagation();
+    // 0.9.5 (playLine given): Play is never greyed out. It plays the line; pressed again while that line is playing or paused,
+    // it plays it again from the start; while the line is already waiting in the queue it does nothing.
+    if (typeof playLine === "function") { try { playLine(pick() || src, { text: spoken, messageId: msg?.id }); } catch {} return; }
     if (btn.disabled) return;
     btn.disabled = true;
     const done = () => { try { btn.disabled = false; } catch {} };
@@ -93,14 +105,16 @@ export function enhanceVoiceMessage(msg, html, { t = (k, f) => f || k, replay, h
     } catch { done(); }
   });
   audio.parentNode?.insertBefore(btn, audio);
-  let holdBtn = null;
-  if (typeof hold === "function") holdBtn = addHoldButton(doc, btn, { msg, hold, t, cooldownMs: holdCooldownMs });
+  let holdBtn = null, last = btn; const extra = [];
+  if (typeof pause === "function") { last = addVoiceButton(doc, last, { cls: "aigm-voice-pause", label: "Pause", hint: "Pause the voice line that is playing (the queue waits)", msg, action: pause, t, key: "AIGM.voice.pause" }); extra.push(last); }
+  if (typeof resume === "function") { last = addVoiceButton(doc, last, { cls: "aigm-voice-resume", label: "Resume", hint: "Continue the paused line from where it stopped", msg, action: resume, t, key: "AIGM.voice.resume" }); extra.push(last); }
+  if (typeof hold === "function") holdBtn = addHoldButton(doc, last, { msg, hold, t, cooldownMs: holdCooldownMs });
   const text = plainVoiceText(msg?.content ?? root.textContent);
   const parts = collapseParts(text, collapseAt);
   if (parts.collapsed) {
     const walker = [];
     for (const node of Array.from(audio.parentNode?.childNodes ?? [])) {
-      if (node === audio || node === btn || node === holdBtn) continue;
+      if (node === audio || node === btn || node === holdBtn || extra.includes(node)) continue;
       if (node.nodeType === 3 || node.nodeName === "#text") walker.push(node);
     }
     const target = walker[0];

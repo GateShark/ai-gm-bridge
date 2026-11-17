@@ -273,6 +273,10 @@
       "replay": "Replay",
       "more": "Show more",
       "less": "Show less",
+      "pause": "Pause",
+      "pauseHint": "Pause the voice line that is playing (the queue waits)",
+      "resume": "Resume",
+      "resumeHint": "Continue the paused line from where it stopped",
       "hold": "GM, wait",
       "holdHint": "Stop the GM's voice and ask the GM to wait"
     },

@@ -11,7 +11,8 @@ import { showVoiceCaption, hideVoiceCaption, captionText } from "./lib/captions.
 import { applyMood, parseMoodPlaylists, moodState, clampFadeMs, noteMood, moodSnapshot, moodOfPlaylist } from "./lib/mood.mjs";
 import { livingEnemies } from "./lib/morale.mjs";
 import { moraleKey, moraleKeys } from "./lib/moralelock.mjs";
-import { moraleStale } from "./lib/moraleguard.mjs";
+import { moraleStale, beginSweep, endSweep } from "./lib/moraleguard.mjs";
+import { creatureDown } from "./lib/morale.mjs";
 import { parseTurnClipName, parseClipName, turnClipSlug, turnClipFile, upClipFile, UP_PREFIX, TurnClipStore } from "./lib/turnclips.mjs";
 import { unwrapText } from "./lib/v081.mjs";
 import { AudioQueue, voiceOrText, showAudioUnlockPrompt } from "./lib/audioqueue.mjs";
@@ -101,8 +102,26 @@ function extraLabel(actor) {
 }
 // 0.9.0 #3: the clip playing now, so "GM, wait" can stop it partway.
 let currentClip = null;
+// 0.9.5: pause/resume the clip that is playing, in place (Foundry's Sound#pause keeps the position; play() with no offset
+// continues from it). While paused the clip's own end-timer is off, so it cannot "finish" early.
+const clipMs = (sound) => (sound?.duration && isFinite(sound.duration) ? sound.duration * 1000 : 30000);
+export function pauseCurrentClip() {
+  const c = currentClip; if (!c || c.paused) return false;
+  c.paused = true; // before pausing: an "end" event caused by the pause must not finish the clip
+  clearTimeout(c.timer);
+  const pos = Number(c.sound?.currentTime); c.leftMs = Math.max(0, clipMs(c.sound) - (Number.isFinite(pos) ? pos * 1000 : 0));
+  try { c.sound.pause(); } catch { c.paused = false; c.arm(clipMs(c.sound) + 500); return false; }
+  return true;
+}
+export function resumeCurrentClip() {
+  const c = currentClip; if (!c || !c.paused) return false;
+  c.paused = false;
+  c.arm(c.leftMs + 500);
+  try { return Promise.resolve(c.sound.play()).catch(() => {}); } catch { return false; }
+}
 export function stopCurrentClip() {
   const c = currentClip; if (!c) return false;
+  c.paused = false;
   try { c.sound?.stop?.(); } catch {}
   try { c.fin(); } catch {}
   return true;
@@ -116,15 +135,16 @@ function playClip({ src, volume, text }) {
       if (spoken) showVoiceCaption(spoken);
       const sound = await foundry.audio.AudioHelper.play({ src, volume: vol, autoplay: true, loop: false }, false); // local only: each client plays via its own queue (#12)
       if (!sound) throw new Error("clip did not start");
-      let done = false; const fin = () => { if (!done) { done = true; if (currentClip?.sound === sound) currentClip = null; if (spoken) hideVoiceCaption(); resolve(); } };
-      currentClip = { sound, fin };
-      sound?.addEventListener?.("end", fin);
-      const ms = (sound?.duration && isFinite(sound.duration) ? sound.duration * 1000 : 30000) + 500;
-      setTimeout(fin, Math.min(ms, 180000));
+      let done = false; const fin = () => { if (!done) { done = true; clearTimeout(currentClip?.sound === sound ? currentClip.timer : undefined); if (currentClip?.sound === sound) currentClip = null; if (spoken) hideVoiceCaption(); resolve(); } };
+      const c = { sound, fin, paused: false, timer: null, leftMs: 0 };
+      c.arm = (ms) => { clearTimeout(c.timer); c.timer = setTimeout(fin, Math.min(ms, 180000)); };
+      currentClip = c;
+      sound?.addEventListener?.("end", () => { if (!c.paused) fin(); });
+      c.arm(clipMs(sound) + 500);
     } catch (e) { if (text) hideVoiceCaption(); reject(e); }
   });
 }
-export const audioQueue = new AudioQueue({ play: playClip, stop: () => stopCurrentClip(), onBlocked: () => showAudioUnlockPrompt({
+export const audioQueue = new AudioQueue({ play: playClip, stop: () => stopCurrentClip(), pauseClip: () => pauseCurrentClip(), resumeClip: () => resumeCurrentClip(), onBlocked: () => showAudioUnlockPrompt({
   queue: audioQueue, label: game.i18n?.localize?.("AIGM.audio.enableSound") || game.i18n?.localize?.("AIGM.audio.unlock") || "Enable sound",
   beforeUnlock: async () => { await game.audio?.unlock; try { await game.audio?.context?.resume?.(); } catch {} } }) });
 // #12: the core AudioHelper broadcast (play(data, true)) did not reach player clients in v14 and bypassed their
@@ -812,12 +832,16 @@ export const COMMANDS = {
       // 0.9.3: an automatic run (trigger "moraleprompt:...") re-checks before every card: if a sweep ended the fight meanwhile,
       // no morale card is posted for creatures that are already dead.
       const auto = combat?.id && String(a.trigger ?? "").startsWith("moraleprompt:");
-      const skipIf = auto ? () => moraleStale({ combatId: combat.id }) : null;
+      // 0.9.5: and a creature that is already down (hp 0, defeated or dead, read fresh from its own token) gets no card even if
+      // the rest of the fight is still going; the state is read again right before the card would post.
       let skipped = null;
       for (const tg of targets.list) {
-        if (skipIf && (skipped = skipIf())) break;
-        const actor = tg.tokenId ? (findToken({ tokenId: tg.tokenId, sceneId: a.sceneId })?.actor ?? tg.actor) : tg.actor;
+        const tokDoc = tg.tokenId ? findToken({ tokenId: tg.tokenId, sceneId: a.sceneId }) : null;
+        const actor = tokDoc?.actor ?? tg.actor;
+        const skipIf = auto ? () => moraleStale({ combatId: combat.id }) || (creatureDown(actor, tokDoc) ? "targetDown" : null) : null;
+        if (skipIf) { const why = skipIf(); if (why === "targetDown") continue; if (why) { skipped = why; break; } }
         const r = await SHIP.moraleCheck(actor, { ...a, morale: a.morale }, { skipIf });
+        if (r.ok && r.result?.skipped === "targetDown") continue;
         if (r.ok && r.result?.skipped) { skipped = r.result.skipped; break; }
         if (!r.ok) results.push({ ok: false, actorId: actor?.id ?? null, name: tg.name ?? actor?.name, error: r.error });
         else results.push({ ...r.result, name: tg.name ?? r.result.name, tokenId: tg.tokenId ?? r.result.tokenId ?? null });
@@ -1022,6 +1046,8 @@ export const COMMANDS = {
     if (!targets.length) return fail(400, "select tokens or pass tokenId/tokenName/tokenIds/actorId/actorName/actorIds");
     const next = planDamage(targets, a.amount);
     const updated = [];
+    const sweeping = next.updates.length > 1; if (sweeping) beginSweep(); // 0.9.5: morale waits until the whole sweep has landed
+    try {
     for (const u of next.updates) {
       const t = targets.find(x => x.id === u.id);
       if (!t?.actor || u.after == null) continue;
@@ -1030,6 +1056,7 @@ export const COMMANDS = {
       if (t.mirror) { try { if (t.mirror.updateHp) await t.mirror.updateHp({ value: u.after }); else await t.mirror.update({ "system.attributes.hp.value": u.after }); } catch {} } // 0.9.2
       updated.push({ ...u, id: t.actorId, ...(t.tokenId ? { tokenId: t.tokenId } : {}) });
     }
+    } finally { if (sweeping) endSweep(); }
     return ok({ amount: next.amount, updated });
   } },
   startShipCombat: { schema: { tokenIds: "array?" }, async run(a) {

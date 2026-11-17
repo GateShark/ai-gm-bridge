@@ -4,9 +4,9 @@
 // unlock() resumes and replays it.
 export const isAutoplayBlocked = (e) => e?.name === "NotAllowedError" || e?.blocked === true || /autoplay|user (gesture|interaction)|not allowed/i.test(String(e?.message ?? e));
 export class AudioQueue {
-  constructor({ play, gapMs = 250, maxSeen = 500, retries = 2, retryDelayMs = 600, isBlocked = isAutoplayBlocked, onBlocked = () => {}, sleep = (ms) => new Promise(r => setTimeout(r, ms)), onStart = null, onIdle = null, stop = null }) {
-    Object.assign(this, { play, gapMs, maxSeen, retries, retryDelayMs, isBlocked, onBlocked, sleep, onStart, onIdle, stop });
-    this.q = []; this.seen = new Set(); this.running = false; this.blocked = false;
+  constructor({ play, gapMs = 250, maxSeen = 500, retries = 2, retryDelayMs = 600, isBlocked = isAutoplayBlocked, onBlocked = () => {}, sleep = (ms) => new Promise(r => setTimeout(r, ms)), onStart = null, onIdle = null, stop = null, pauseClip = null, resumeClip = null }) {
+    Object.assign(this, { play, gapMs, maxSeen, retries, retryDelayMs, isBlocked, onBlocked, sleep, onStart, onIdle, stop, pauseClip, resumeClip });
+    this.q = []; this.seen = new Set(); this.running = false; this.blocked = false; this.paused = false;
   }
   // Returns a promise resolving to {id, played:true} when the clip finished, or {duplicate:true} immediately.
   enqueue(id, clip) {
@@ -23,7 +23,40 @@ export class AudioQueue {
   }
   // 0.9.0 #3 "GM, wait": stop the clip that is playing now and drop the clips still waiting. Every dropped id stays in
   // seen, so a late socket copy of the same line cannot play it again; replays waiting on it resolve (▶ comes back).
+  // 0.9.5 voice buttons (per client, on the shared queue).
+  // pause(): hold the clip that is playing now, mid-line. Its play() stays pending, so everything queued behind it (turn clips
+  // included) simply waits. resume(): continue that same clip from where it stopped, then the rest of the queue plays.
+  get current() { return this.running && !this.blocked && this.q.length ? this.q[0] : null; }
+  get isPaused() { return this.paused; }
+  pause() {
+    const cur = this.current; if (!cur || this.paused) return { paused: false, id: cur?.id ?? null };
+    let ok = false; try { ok = this.pauseClip?.() !== false; } catch { ok = false; }
+    this.paused = ok; return { paused: ok, id: cur.id };
+  }
+  resume() {
+    const cur = this.current; if (!this.paused || !cur) { this.paused = false; return { resumed: false, id: cur?.id ?? null }; }
+    this.paused = false; let ok = true; try { const r = this.resumeClip?.(); if (r && typeof r.catch === "function") r.catch(() => {}); ok = r !== false; } catch { ok = false; }
+    return { resumed: ok, id: cur.id };
+  }
+  // restartCurrent(): play the line that is current again from the start, then carry on with the queue (no extra gap).
+  restartCurrent(now = Date.now()) {
+    const cur = this.current; if (!cur) return Promise.resolve({ restarted: false });
+    return new Promise((resolve) => {
+      this.q.splice(1, 0, { id: `replay:${now}`, clip: cur.clip, resolve, tries: 0, noGap: true });
+      cur.held = true; this.paused = false;
+      try { this.stop?.(); } catch {}
+    });
+  }
+  // Play button: this line is the one playing (or paused) -> start it again from the beginning; already waiting in the queue
+  // -> leave it; otherwise queue it behind whatever is playing.
+  playLine(clip, now = Date.now()) {
+    const cur = this.current;
+    if (cur && cur.clip?.src === clip?.src) return this.restartCurrent(now);
+    if (this.q.some(i => i !== cur && i.clip?.src === clip?.src)) return Promise.resolve({ queued: true, already: true });
+    return this.replay(clip, now);
+  }
   hold() {
+    this.paused = false;
     const playing = this.running && !this.blocked && this.q.length ? this.q[0] : null;
     const dropped = playing ? this.q.splice(1) : this.q.splice(0);
     for (const it of dropped) { try { it.resolve({ id: it.id, played: false, held: true }); } catch {} }
@@ -37,15 +70,16 @@ export class AudioQueue {
       if (this.q.length) try { this.onStart?.(); } catch {}
       while (this.q.length && !this.blocked) {
         const item = this.q[0];
-        try { await this.play(item.clip); this.q.shift(); item.resolve(item.held ? { id: item.id, played: true, held: true } : { id: item.id, played: true }); }
+        try { await this.play(item.clip); this.paused = false; this.q.shift(); item.resolve(item.held ? { id: item.id, played: true, held: true } : { id: item.id, played: true }); }
         catch (e) {
+          this.paused = false;
           if (item.held) { this.q.shift(); item.resolve({ id: item.id, played: false, held: true }); continue; }
           if (this.isBlocked(e)) { this.blocked = true; try { this.onBlocked(item); } catch {} break; }
           if (item.tries++ < this.retries) { await this.sleep(this.retryDelayMs * item.tries); continue; }
           this.q.shift(); this.seen.delete(item.id); item.resolve({ id: item.id, played: false, error: String(e?.message ?? e) });
         }
         // 0.9.4: no pause on either side of a turn prompt ("Your turn", "<name> is up"): it starts the moment the line before it ends.
-        if (this.q.length) { const gap = (item.clip?.prompt || this.q[0]?.clip?.prompt) ? 0 : this.gapMs; if (gap > 0) await this.sleep(gap); }
+        if (this.q.length) { const gap = (item.clip?.prompt || item.noGap || this.q[0]?.clip?.prompt || this.q[0]?.noGap) ? 0 : this.gapMs; if (gap > 0) await this.sleep(gap); }
       }
     } finally { this.running = false; if (!this.q.length && !this.blocked) try { this.onIdle?.(); } catch {} }
   }

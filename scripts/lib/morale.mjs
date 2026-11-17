@@ -66,7 +66,32 @@ export function enemyCombatants(combat, users = []) {
   }
   return out;
 }
-const isDown = (h) => (h.hp != null && Number(h.hp) <= 0) || h.combatant?.isDefeated === true || h.combatant?.defeated === true;
+// 0.9.5: "down" is judged from every place that can already know: the combatant's actor, the token's own actor (an unlinked
+// token's copy, which a sweep updates), the token found again on the combat's scene, the defeated flag and the dead status.
+// A sweep writes tokens one at a time and the defeated flag follows later, so hp 0 on any of them counts.
+const hpNum = (a) => { try { const v = readActorHp(a)?.value; return v == null || v === "" ? null : Number(v); } catch { return null; } };
+export function downActors(cb) {
+  const out = [cb?.actor, cb?.token?.actor, cb?.token?.object?.actor];
+  try { const sc = cb?.combat?.scene ?? cb?.parent?.scene ?? null; const t = sc?.tokens?.get?.(cb?.tokenId ?? cb?.token?.id); if (t) out.push(t.actor); } catch {}
+  return out.filter(Boolean);
+}
+export function isDown(h) {
+  if (h.hp != null && Number(h.hp) <= 0) return true;
+  if (h.combatant?.isDefeated === true || h.combatant?.defeated === true) return true;
+  for (const a of downActors(h.combatant)) {
+    const v = hpNum(a); if (v != null && v <= 0) return true;
+    try { if (a.statuses?.has?.("dead") || a.statuses?.has?.("defeated")) return true; } catch {}
+  }
+  return false;
+}
+// 0.9.5: is this one creature down right now (an actor, and optionally its token), read fresh?
+export function creatureDown(actor, tokenDoc = null) {
+  for (const a of [actor, tokenDoc?.actor, tokenDoc?.object?.actor]) {
+    if (!a) continue; const v = hpNum(a); if (v != null && v <= 0) return true;
+    try { if (a.statuses?.has?.("dead") || a.statuses?.has?.("defeated")) return true; } catch {}
+  }
+  return false;
+}
 export function livingEnemies(combat, users = []) {
   return enemyCombatants(combat, users).filter(h => !isDown(h));
 }

@@ -13,7 +13,7 @@ import { createMoralePromptTracker } from "./lib/moraleprompt.mjs";
 import { combatantSide } from "./lib/morale.mjs";
 import { upSpoken } from "./lib/turnclips.mjs";
 import { blockingRolls, waitUntilClear, PROMPT_HOLD_MS, POLL_MS } from "./lib/turnguard.mjs";
-import { moraleStale } from "./lib/moraleguard.mjs";
+import { moraleStale, sweepActive, waitSweepSettled } from "./lib/moraleguard.mjs";
 
 const ID = "ai-gm-bridge"; const SOCKET = `module.${ID}`;
 const D = { emit: () => {}, get: () => undefined, voice: () => null, turnClip: () => null, turnAudio: () => ({}), upAudio: () => ({}), amLeader: () => true, log: () => {} };
@@ -337,7 +337,11 @@ export function handleMoralePrompt(prompt) {
   if (early) { try { D.log("moralePrompt skipped", early); } catch {} return { ok: true, skipped: early }; }
   if (D.get("moraleAuto") === false || typeof D.runMorale !== "function") { D.emit(prompt, { urgent: true }); return null; }
   let job;
-  try { job = Promise.resolve(D.runMorale(prompt)); } catch (e) { job = Promise.resolve({ ok: false, error: e?.message }); }
+  // 0.9.5: during a sweep (several creatures damaged in one call) wait until it has settled, then look again: if the sweep
+  // killed every enemy, nothing is rolled. Outside a sweep this is immediate, as before.
+  const start = () => { try { return Promise.resolve(D.runMorale(prompt)); } catch (e) { return Promise.resolve({ ok: false, error: e?.message }); } };
+  if (sweepActive()) job = waitSweepSettled().then(() => { const why = moraleStale(prompt); return why ? { ok: true, result: { results: [], skipped: why } } : start(); });
+  else job = start();
   const late = () => { const why = moraleStale(prompt); if (why) { try { D.log("moralePrompt skipped", why); } catch {} } return why; };
   return job.then((r) => {
     const why = late(); if (why) return { ok: true, skipped: why };
