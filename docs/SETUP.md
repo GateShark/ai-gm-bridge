@@ -239,7 +239,7 @@ The add-on **plays** voice. It does not **make** it.
 | **GM voice volume** | 0 to 100%, separate from Foundry's music volume. |
 | **Big captions** and **Caption font** | A large caption of the line being spoken. |
 | **Hear ally and enemy turns** | A short "<name> is up" clip on ally and enemy turns. |
-| **▶ Play, Pause, Resume** (on each voiced line, next to **GM, wait**) | **▶** plays the line; pressed again while it plays, it starts that line over. **Pause** holds the line that is playing, in the middle, and keeps everything queued behind it (turn clips included). **Resume** continues the line from exactly where it stopped, then the rest of the queue plays. They affect only your own browser. **GM, wait** still stops everything and clears the queue. |
+| **▶ Play, Pause, Resume** (on each voiced line, next to **GM, wait**) | **▶** plays the line; pressed again while it plays, it starts that line over. **Pause** holds the line that is playing, in the middle, and keeps everything queued behind it (turn clips included). **Resume** continues the line from exactly where it stopped, then the rest of the queue plays. They affect only your own browser. **GM, wait** still stops everything and clears the queue; **Resume** afterwards continues the line that was stopped, from where it stopped (anything that was queued behind it stays cleared, and once a new line starts the old one cannot be resumed), while **▶** plays it again from the start. |
 | **Push-to-talk** and **Push-to-talk key** | Hold a key or the on-screen logo button to speak. Your words are posted as chat. Chrome or Edge only, and the page must be HTTPS or localhost. |
 
 If your browser blocks sound, an **Enable sound** button appears. Click it (any click or key press also unlocks audio).

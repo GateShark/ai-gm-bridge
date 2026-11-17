@@ -2,7 +2,7 @@
 import { BASIC_FIELDS, ADVANCED_FIELDS, testConnection } from "./lib/settingsui.mjs";
 import { liveSetupCheck, formatConnectionWithSetup } from "./lib/setupcheck.mjs";
 import { worldInfo } from "./lib/botwake.mjs";
-import { SETUP_GUIDE_URL } from "./lib/setupprompt.mjs";
+import { guideHref, bindSetupGuideLinks } from "./lib/setupprompt.mjs";
 import { runLinkProbe, formatLinkCheckLine, presenceSnapshot } from "./lib/presence.mjs";
 import { TTS_VOICES, resolveTtsVoice, playVoicePreview } from "./lib/voices.mjs";
 import { availableCaptionFonts, captionFontChoices, attachCaptionFontPreview } from "./lib/captions.mjs";
@@ -41,7 +41,7 @@ export function makeConfigApp() {
       const hasSecret = !!g("webhookSecret");
       return `<section class="standard-form aigm-config" style="padding:8px">
         <h3>${esc(t("AIGM.config.basic", "Basic"))}</h3>
-        <p class="hint"><a href="${esc(SETUP_GUIDE_URL)}" target="_blank" rel="noopener noreferrer">${esc(t("AIGM.config.setupGuide", "Setup guide (install, bot user, webhook, test)"))}</a></p>
+        <p class="hint"><a href="${esc(guideHref())}" data-aigm-guide target="_blank" rel="noopener noreferrer">${esc(t("AIGM.config.setupGuide", "Setup guide (install, bot user, webhook, test)"))}</a></p>
         <div class="form-group"><label>${esc(labelFor("enabled"))}</label><div class="form-fields"><input type="checkbox" name="enabled" ${g("enabled") ? "checked" : ""}></div></div>
         <div class="form-group"><label>${esc(t("AIGM.config.botUser", "Bot GM user (preferred leader, runs commands)"))}</label><div class="form-fields"><select name="botUserId">
           <option value="">(none)</option>${gms.map(u => `<option value="${u.id}" ${u.id === g("botUserId") ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select></div></div>
@@ -63,6 +63,7 @@ export function makeConfigApp() {
     }
     _replaceHTML(html, content) {
       content.innerHTML = html;
+      bindSetupGuideLinks(content);
       try { attachCaptionFontPreview(content, { selector: "select[name=captionFont]" }); } catch {}
       content.querySelector("[data-aigm-voice-preview]")?.addEventListener("click", (ev) => {
         ev.preventDefault();

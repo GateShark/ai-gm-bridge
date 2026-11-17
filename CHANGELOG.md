@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.6
+Beta fix release. Credit: Gate (GateShark).
+
+- **Resume after "GM, wait":** the **Resume** button continues the line that **GM, wait** stopped, from where it stopped (the position is read before the stop and the clip is played again from there). Whatever was queued behind it (other lines, turn clips) stays cleared, and once any new line starts the old one can no longer be resumed. **▶** still plays the line again from the start; **Pause** then **Resume** is unchanged. Recorded voices only; Ryan stays the default.
+- **`moraleCheck` replies fast:** the creatures roll at the same time instead of one after another (about 9 s a card, so three outran the command timeout and the bot saw a 504). A call from the bot answers within about 10 s (`waitMs`, 0 to 60000, 0 waits for the whole run); if the rolls are still running it returns `{pending: true, started, checked: 0, results: []}` and the cards post as they finish. Asking again for the same fight returns the finished run with `duplicate: true` and posts nothing. The module's own automatic run (`moraleAuto`) still waits for the full result before it sends `moralePrompt`. Results keep the target order; each creature still re-checks right before its own card posts.
+- **Setup guide link:** the settings link (and the link in the setup prompt window) opens the `docs/SETUP.md` bundled in the module, shown as plain text in a new tab, instead of a GitHub `main` address that returned 404 until the repository was pushed.
+- **Audio clean-up:** a stopped voice line is removed from `game.audio.playing`. A paused Sound used to stay there (not playing, position 0) after Pause then ▶, or Pause then **GM, wait**, and piled up over a long session. Only the add-on's own sound is removed.
+
 ## 0.9.5
 Beta fix release. Credit: Gate (GateShark).
 

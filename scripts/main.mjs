@@ -358,7 +358,7 @@ Hooks.once("init", () => {
   reg("webhookUrl", String, "", { config: false }); reg("webhookAuthHeader", String, "Authorization", { config: false });
   game.settings.register(ID, "webhookSecret", { scope: "world", config: false, restricted: true, type: String, default: "" });
   game.settings.registerMenu(ID, "config", { name: "AI GM Pirate Borg", label: "Configure AI GM Pirate Borg", icon: "fas fa-robot", type: makeConfigApp(), restricted: true });
-  game.settings.registerMenu(ID, "setupPrompt", { name: "Bot setup prompt", label: "Copy bot setup prompt", hint: "Copies a ready-made prompt you paste into your AI bot so it knows how to run games with this add-on. Setup guide: https://github.com/GateShark/ai-gm-bridge/blob/main/docs/SETUP.md", icon: "fas fa-copy", type: makeSetupPromptApp(), restricted: true }); // 0.9.2, GM only
+  game.settings.registerMenu(ID, "setupPrompt", { name: "Bot setup prompt", label: "Copy bot setup prompt", hint: "Copies a ready-made prompt you paste into your AI bot so it knows how to run games with this add-on. Setup guide: docs/SETUP.md in this module (also linked in the settings)", icon: "fas fa-copy", type: makeSetupPromptApp(), restricted: true }); // 0.9.2, GM only
   reg("heartbeatMs", Number, 10000); reg("heartbeatTimeoutMs", Number, 45000); reg("offlineAfterMs", Number, 60000); reg("batchMs", Number, 3500);
   reg("keywords", String, ""); reg("hpPath", String, "system.attributes.hp.value");
   reg("alwaysVoiceUsers", String, ""); reg("unpauseOnStart", Boolean, true);

@@ -555,10 +555,10 @@ test("0.9.3 #6 leader election with a bot GM, a human GM and two players: exactl
 test("0.9.3 #7 setup guide exists, is linked from the README, the settings and the setup prompt window, and stays generic", () => {
   assert.equal(existsSync(new URL("../docs/SETUP.md", import.meta.url)), true);
   const guide = src("docs/SETUP.md");
-  assert.match(SETUP_GUIDE_URL, /github\.com\/GateShark\/ai-gm-bridge\/blob\/main\/docs\/SETUP\.md$/);
+  assert.match(SETUP_GUIDE_URL, /docs\/SETUP\.md$/); // 0.9.6: the copy bundled in the module
   assert.match(src("README.md"), /docs\/SETUP\.md/);
-  assert.match(src("scripts/main.mjs"), /Setup guide: https:\/\/github\.com\/GateShark\/ai-gm-bridge\/blob\/main\/docs\/SETUP\.md/);
-  assert.match(src("scripts/setup-prompt-app.mjs"), /SETUP_GUIDE_URL/); assert.match(src("scripts/config-app.mjs"), /SETUP_GUIDE_URL/);
+  assert.match(src("scripts/main.mjs"), /Setup guide: docs\/SETUP\.md in this module/);
+  assert.match(src("scripts/setup-prompt-app.mjs"), /guideHref/); assert.match(src("scripts/config-app.mjs"), /guideHref/);
   assert.doesNotMatch(guide, /\(check/i, "no unresolved (check) marks");
   assert.doesNotMatch(guide, /Kev|Tempus|Lantern|dark-caribbean|pb-?test|PB Test|C&C Test|cc-test|192\.168\.|10\.\d+\.\d+\.\d+|Unraid|Pirate Borg GM|Helper/i, "no personal, world, player or network names");
   assert.match(guide, /Gate \(GateShark\)/); assert.match(guide, /1\.0/); assert.match(guide, /releases\/latest\/download\/module\.json/);
@@ -568,7 +568,7 @@ test("0.9.3 #7 setup guide exists, is linked from the README, the settings and t
 
 test("0.9.3 #8 the bot setup prompt carries the version and documents the world fields and the not-receiving warning", () => {
   const p = src("docs/bot-setup-prompt.md");
-  assert.match(p, /0\.9\.5/); assert.doesNotMatch(p, /v0\.9\.1|0\.9\.2\)|v0\.9\.[34]/);
+  assert.match(p, /0\.9\.6/); assert.doesNotMatch(p, /v0\.9\.1|0\.9\.2\)|v0\.9\.[34]/);
   for (const w of ["worldId", "worldTitle", "systemId"]) assert.match(p, new RegExp(w));
   assert.match(p, /not receiving/i);
   const api = src("docs/BOT-API.md"); for (const w of ["worldId", "worldTitle", "systemId"]) assert.match(api, new RegExp(w));
@@ -576,12 +576,12 @@ test("0.9.3 #8 the bot setup prompt carries the version and documents the world 
 
 test("0.9.3 manifest, package, changelog, README", () => {
   const m = JSON.parse(src("module.json")), p = JSON.parse(src("package.json"));
-  assert.equal(m.version, "0.9.5"); assert.equal(p.version, "0.9.5");
+  assert.equal(m.version, "0.9.6"); assert.equal(p.version, "0.9.6");
   assert.equal(m.manifest, "https://github.com/GateShark/ai-gm-bridge/releases/latest/download/module.json");
   assert.equal(m.download, "https://github.com/GateShark/ai-gm-bridge/releases/latest/download/module.zip");
   assert.equal(m.authors[0].name, "Gate (GateShark)");
-  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.5/);
-  assert.match(src("README.md"), /v0\.9\.5/);
+  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.6/);
+  assert.match(src("README.md"), /v0\.9\.6/);
 });
 
 // ---------- 0.9.4 #2: the replyTo lock only holds while the card is open ----------
@@ -691,4 +691,59 @@ test("0.9.5 #1 sweep markers: active while sweeping, settle after a short quiet 
   resetSweep(); beginSweep(); let t = 0; await waitSweepSettled({ now: () => t, sleep: async (ms) => { t += ms; }, capMs: 1000 }); assert.ok(t >= 1000 && t <= 1200, "capped"); resetSweep();
   const t0 = Date.now(); await waitSweepSettled(); assert.ok(Date.now() - t0 < 50, "no sweep, no wait");
   assert.match(src("scripts/commands.mjs"), /const sweeping = next\.updates\.length > 1; if \(sweeping\) beginSweep\(\)/);
+});
+
+// ---------- 0.9.6 #3: moraleCheck replies fast ----------
+test("0.9.6 #3 the creatures roll at the same time, results keep the target order, and every card still posts", async () => {
+  reset(); startFight().combat.id = "mc96x1";
+  let live = 0, peak = 0;
+  hooksDuringRoll = async () => { live++; peak = Math.max(peak, live); await sleep(120); live--; };
+  const t0 = Date.now();
+  const r = await run("moraleCheck", { all: true, force: true });
+  const took = Date.now() - t0; hooksDuringRoll = async () => {};
+  assert.equal(r.ok, true, r.error); assert.equal(r.result.checked, 3); assert.equal(cards.length, 3);
+  assert.equal(peak, 3, "all three rolls were out at once"); assert.ok(took < 330, `parallel, not 3 x 120 ms (took ${took})`);
+  assert.deepEqual(r.result.results.map(x => x.tokenId), ["tA", "tB", "tC"]);
+  assert.equal(r.result.pending, undefined);
+});
+
+test("0.9.6 #3 slow rolls: a bot's moraleCheck answers pending at once, the cards post when the rolls finish, and asking again returns the finished run with no new cards", async () => {
+  reset(); startFight().combat.id = "mc96x2";
+  hooksDuringRoll = async () => { await sleep(250); };
+  const t0 = Date.now();
+  const r = await run("moraleCheck", { all: true, waitMs: 50, trigger: "bot:slow1" });
+  assert.ok(Date.now() - t0 < 200, "answered long before the rolls finished");
+  assert.equal(r.ok, true); assert.equal(r.result.pending, true); assert.equal(r.result.started, 3); assert.equal(r.result.checked, 0); assert.deepEqual(r.result.results, []);
+  assert.match(r.result.note, /do not call moraleCheck again/i);
+  assert.equal(cards.length, 0, "cards are not there yet");
+  await sleep(450); hooksDuringRoll = async () => {};
+  assert.equal(cards.length, 3, "the cards posted after the answer");
+  const again = await run("moraleCheck", { all: true, waitMs: 5000, trigger: "bot:slow1" });
+  assert.equal(again.ok, true); assert.equal(again.result.duplicate, true); assert.equal(again.result.checked, 3); assert.equal(cards.length, 3, "no second set of cards");
+});
+
+test("0.9.6 #3 a repeat call while the rolls are still running does not roll again or hang: it answers pending and the cards stay at one set", async () => {
+  reset(); startFight().combat.id = "mc96x3";
+  hooksDuringRoll = async () => { await sleep(250); };
+  const first = await run("moraleCheck", { all: true, waitMs: 40, trigger: "bot:slow2" });
+  const second = await run("moraleCheck", { all: true, waitMs: 40, trigger: "bot:slow2" });
+  assert.equal(first.result.pending, true); assert.equal(second.result.pending, true);
+  await sleep(700); hooksDuringRoll = async () => {};
+  assert.equal(cards.length, 3, "one set of cards only");
+});
+
+test("0.9.6 #3 the automatic run (moraleprompt trigger) still waits for the full result", async () => {
+  reset(); startFight().combat.id = "mc96x4";
+  hooksDuringRoll = async () => { await sleep(80); };
+  const r = await run("moraleCheck", { all: true, trigger: "moraleprompt:mc96x4:firstEnemyDown96", reason: "firstEnemyDown", waitMs: 10 });
+  hooksDuringRoll = async () => {};
+  assert.equal(r.ok, true); assert.equal(r.result.pending, undefined); assert.equal(r.result.checked, 3); assert.equal(cards.length, 3);
+});
+
+test("0.9.6 #3 a fast run and waitMs:0 return the full result as before", async () => {
+  reset(); startFight().combat.id = "mc96x5";
+  const r = await run("moraleCheck", { all: true });
+  assert.equal(r.result.checked, 3); assert.equal(r.result.pending, undefined);
+  store.clear?.(); const z = await run("moraleCheck", { all: true, waitMs: 0, force: true });
+  assert.equal(z.result.checked, 3);
 });

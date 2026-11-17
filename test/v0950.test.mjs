@@ -157,7 +157,7 @@ test("0.9.5 #2 BOT-API.md is in the zip, and every file the in-game docs point a
   for (const r of refs) { if (/^(docs|relay|examples|scripts|lang|assets)\//.test(r) && /\*|<|>/.test(r)) continue; if (/^docs\/setup-prompt|up-<|voice-<|turn-<|up-/.test(r)) continue; assert.ok(zip.has(r) || /^(scripts|assets)\//.test(r) && [...zip].some(z => z === r), `${r} is named by the docs but not in the zip`); }
   // the files the add-on itself loads or links
   const prompt = src("scripts/lib/setupprompt.mjs"); assert.match(prompt, /PROMPT_FILE = "docs\/bot-setup-prompt\.md"/); assert.ok(zip.has("docs/bot-setup-prompt.md"));
-  assert.match(src("scripts/main.mjs"), /blob\/main\/docs\/SETUP\.md/);
+  assert.match(src("scripts/main.mjs"), /docs\/SETUP\.md in this module/);
 });
 
 test("0.9.5 #3/#4 docs: plain chat never wakes the bot; the class-item errors come from the game system", () => {
@@ -179,10 +179,10 @@ test("0.9.5 #3 the filter behaves as the docs say: a plain line with no mention,
 
 test("0.9.5 manifest, package, changelog, README, setup prompt", () => {
   const m = JSON.parse(src("module.json")), p = JSON.parse(src("package.json"));
-  assert.equal(m.version, "0.9.5"); assert.equal(p.version, "0.9.5"); assert.equal(m.id, "ai-gm-bridge"); assert.equal(m.title, "AI GM Pirate Borg");
+  assert.equal(m.version, "0.9.6"); assert.equal(p.version, "0.9.6"); assert.equal(m.id, "ai-gm-bridge"); assert.equal(m.title, "AI GM Pirate Borg");
   assert.match(m.manifest, /\/releases\/latest\/download\/module\.json$/); assert.match(m.download, /\/releases\/latest\/download\/module\.zip$/);
-  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.5/); assert.match(src("README.md"), /v0\.9\.5/);
-  assert.match(src("docs/bot-setup-prompt.md"), /ai-gm-bridge v0\.9\.5/); assert.doesNotMatch(src("docs/bot-setup-prompt.md"), /v0\.9\.4/);
+  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.6/); assert.match(src("README.md"), /v0\.9\.6/);
+  assert.match(src("docs/bot-setup-prompt.md"), /ai-gm-bridge v0\.9\.6/); assert.doesNotMatch(src("docs/bot-setup-prompt.md"), /v0\.9\.4/);
   assert.match(src("docs/SETUP.md"), /Pause, Resume/); assert.match(src("docs/BOT-API.md"), /## v0\.9\.5/);
   assert.doesNotMatch(src("docs/SETUP.md") + src("docs/BOT-API.md") + src("docs/bot-setup-prompt.md"), /Kevin|Allen|\bKev\b|@gmail\.com/);
 });

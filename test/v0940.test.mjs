@@ -79,11 +79,11 @@ test("0.9.4 docs: local-network note, batch wording, setBackground row, no named
   assert.match(setup, /more game systems|more game systems are planned/i); assert.match(setup, /planned for the 1\.0 release/);
   assert.doesNotMatch(setup, /Castles|Crusades|M[ÖO]RK|C&C/);
   for (const d of [setup, api]) assert.match(d, /class-item errors/);
-  assert.match(prompt, /ai-gm-bridge v0\.9\.5/);
+  assert.match(prompt, /ai-gm-bridge v0\.9\.6/);
   const m = JSON.parse(src("module.json")), p = JSON.parse(src("package.json"));
-  assert.equal(m.version, "0.9.5"); assert.equal(p.version, "0.9.5");
+  assert.equal(m.version, "0.9.6"); assert.equal(p.version, "0.9.6");
   assert.match(m.manifest, /\/releases\/latest\/download\/module\.json$/); assert.match(m.download, /\/releases\/latest\/download\/module\.zip$/);
-  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.5/); assert.match(src("README.md"), /v0\.9\.5/);
+  assert.match(src("CHANGELOG.md"), /^# Changelog\s+## 0\.9\.6/); assert.match(src("README.md"), /v0\.9\.6/);
   assert.doesNotMatch(setup + api + prompt, /Kevin|Allen|\bKev\b|@gmail\.com/);
 });
 

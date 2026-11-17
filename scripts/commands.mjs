@@ -119,32 +119,50 @@ export function resumeCurrentClip() {
   c.arm(c.leftMs + 500);
   try { return Promise.resolve(c.sound.play()).catch(() => {}); } catch { return false; }
 }
+// 0.9.6: a stopped sound must leave game.audio.playing. Foundry's Sound#stop on a paused sound leaves it in that map (playing:false,
+// currentTime 0), so a long session piled them up. Only our own sound is removed, by id and by identity.
+export function purgePlaying(sound, audio = globalThis.game?.audio) {
+  const map = audio?.playing; if (!sound || !map) return false;
+  let gone = false;
+  try { if (sound.id != null && map.delete?.(sound.id)) gone = true; } catch {}
+  try { for (const [k, v] of Array.from(map.entries?.() ?? [])) if (v === sound) { map.delete(k); gone = true; } } catch {}
+  return gone;
+}
+// 0.9.6: where the clip is now, in seconds (a paused sound keeps its position); used so Resume after "GM, wait" continues the line.
+export function currentClipPosition() {
+  const c = currentClip; if (!c) return null;
+  const pos = Number(c.sound?.currentTime); return Number.isFinite(pos) && pos > 0 ? pos : 0;
+}
 export function stopCurrentClip() {
   const c = currentClip; if (!c) return false;
   c.paused = false;
   try { c.sound?.stop?.(); } catch {}
+  purgePlaying(c.sound);
   try { c.fin(); } catch {}
   return true;
 }
-function playClip({ src, volume, text }) {
+function playClip({ src, volume, text, offset }) {
   return new Promise(async (resolve, reject) => {
     try {
       if (game.audio?.locked) { const e = new Error("autoplay blocked"); e.blocked = true; throw e; }
       const vol = typeof volume === "number" && Number.isFinite(volume) ? volume : readVoiceVolume();
       const spoken = captionText(text);
       if (spoken) showVoiceCaption(spoken);
-      const sound = await foundry.audio.AudioHelper.play({ src, volume: vol, autoplay: true, loop: false }, false); // local only: each client plays via its own queue (#12)
+      // 0.9.6: offset (seconds) = continue a line that "GM, wait" stopped, from where it stopped.
+      const from = Number.isFinite(Number(offset)) && Number(offset) > 0 ? Number(offset) : 0;
+      const sound = await foundry.audio.AudioHelper.play({ src, volume: vol, autoplay: !from, loop: false }, false); // local only: each client plays via its own queue (#12)
       if (!sound) throw new Error("clip did not start");
+      if (from) await sound.play({ offset: from, volume: vol, loop: false });
       let done = false; const fin = () => { if (!done) { done = true; clearTimeout(currentClip?.sound === sound ? currentClip.timer : undefined); if (currentClip?.sound === sound) currentClip = null; if (spoken) hideVoiceCaption(); resolve(); } };
       const c = { sound, fin, paused: false, timer: null, leftMs: 0 };
       c.arm = (ms) => { clearTimeout(c.timer); c.timer = setTimeout(fin, Math.min(ms, 180000)); };
       currentClip = c;
       sound?.addEventListener?.("end", () => { if (!c.paused) fin(); });
-      c.arm(clipMs(sound) + 500);
+      c.arm(Math.max(1000, clipMs(sound) - from * 1000) + 500);
     } catch (e) { if (text) hideVoiceCaption(); reject(e); }
   });
 }
-export const audioQueue = new AudioQueue({ play: playClip, stop: () => stopCurrentClip(), pauseClip: () => pauseCurrentClip(), resumeClip: () => resumeCurrentClip(), onBlocked: () => showAudioUnlockPrompt({
+export const audioQueue = new AudioQueue({ play: playClip, stop: () => stopCurrentClip(), position: () => currentClipPosition(), pauseClip: () => pauseCurrentClip(), resumeClip: () => resumeCurrentClip(), onBlocked: () => showAudioUnlockPrompt({
   queue: audioQueue, label: game.i18n?.localize?.("AIGM.audio.enableSound") || game.i18n?.localize?.("AIGM.audio.unlock") || "Enable sound",
   beforeUnlock: async () => { await game.audio?.unlock; try { await game.audio?.context?.resume?.(); } catch {} } }) });
 // #12: the core AudioHelper broadcast (play(data, true)) did not reach player clients in v14 and bypassed their
@@ -181,6 +199,13 @@ const combatLock = new KeyedMutex();
 // so a morale result always lands before the next enemy acts.
 const moraleLock = new KeyedMutex();
 export const moraleRuns = new Map();
+// 0.9.6: how long a bot's moraleCheck waits for its rolls before it answers { pending: true }. waitMs:0 waits for the whole run.
+export const MORALE_REPLY_MS = 10000;
+export function moraleReplyMs(a = {}) {
+  if (String(a.trigger ?? "").startsWith("moraleprompt:")) return 0; // the module's own automatic run needs the results
+  if (a.waitMs !== undefined && a.waitMs !== null && Number.isFinite(Number(a.waitMs))) return Math.min(Math.max(0, Number(a.waitMs)), 60000);
+  return MORALE_REPLY_MS;
+}
 // 0.8.21: wait for every pending morale job in this combat, not a fixed 8 s cap.
 export const MORALE_WAIT_MS = 30000;
 export async function awaitMorale(combatId, ms = MORALE_WAIT_MS) {
@@ -804,9 +829,10 @@ export const COMMANDS = {
   // v0.8 Pirate Borg morale + ships (system outcome builders, no dialogs). toChat:false = result only, no card.
   // 0.8.20 #2/#3: one card set per trigger. Calls with the same trigger (or, without one, the same combat turn and
   // targets) return the first run's results with duplicate:true and post nothing. force:true re-rolls.
-  moraleCheck: { schema: { actorId: "string?", actorName: "string?", tokenId: "string?", tokenName: "string?", tokenIds: "array?", actorIds: "array?", all: "boolean?", hostile: "boolean?", morale: "any?", reason: "string?", markStatus: "boolean?", toChat: "boolean?", sceneId: "string?", trigger: "string?", force: "boolean?" }, async run(a, ctx) {
+  moraleCheck: { schema: { waitMs: "number?", actorId: "string?", actorName: "string?", tokenId: "string?", tokenName: "string?", tokenIds: "array?", actorIds: "array?", all: "boolean?", hostile: "boolean?", morale: "any?", reason: "string?", markStatus: "boolean?", toChat: "boolean?", sceneId: "string?", trigger: "string?", force: "boolean?" }, async run(a, ctx) {
     const combat = game.combat?.started ? game.combat : null;
     const lockKey = combat?.id ?? "nocombat";
+    const meta = { started: 0 };
     const job = moraleLock.run(lockKey, async () => {
       const targets = collectMoraleTargets(a);
       if (targets.error) return targets.error;
@@ -835,17 +861,22 @@ export const COMMANDS = {
       // 0.9.5: and a creature that is already down (hp 0, defeated or dead, read fresh from its own token) gets no card even if
       // the rest of the fight is still going; the state is read again right before the card would post.
       let skipped = null;
-      for (const tg of targets.list) {
+      meta.started = targets.list.length;
+      // 0.9.6: every creature rolls at the same time (a roll can take several seconds to animate, so one after another a group of
+      // three outran the command timeout). Each one still re-checks right before its own card posts. Results keep the target order.
+      const one = async (tg) => {
         const tokDoc = tg.tokenId ? findToken({ tokenId: tg.tokenId, sceneId: a.sceneId }) : null;
         const actor = tokDoc?.actor ?? tg.actor;
         const skipIf = auto ? () => moraleStale({ combatId: combat.id }) || (creatureDown(actor, tokDoc) ? "targetDown" : null) : null;
-        if (skipIf) { const why = skipIf(); if (why === "targetDown") continue; if (why) { skipped = why; break; } }
+        if (skipIf) { const why = skipIf(); if (why === "targetDown") return { skip: true }; if (why) return { skipped: why }; }
         const r = await SHIP.moraleCheck(actor, { ...a, morale: a.morale }, { skipIf });
-        if (r.ok && r.result?.skipped === "targetDown") continue;
-        if (r.ok && r.result?.skipped) { skipped = r.result.skipped; break; }
-        if (!r.ok) results.push({ ok: false, actorId: actor?.id ?? null, name: tg.name ?? actor?.name, error: r.error });
-        else results.push({ ...r.result, name: tg.name ?? r.result.name, tokenId: tg.tokenId ?? r.result.tokenId ?? null });
-      }
+        if (r.ok && r.result?.skipped === "targetDown") return { skip: true };
+        if (r.ok && r.result?.skipped) return { skipped: r.result.skipped };
+        if (!r.ok) return { entry: { ok: false, actorId: actor?.id ?? null, name: tg.name ?? actor?.name, error: r.error } };
+        return { entry: { ...r.result, name: tg.name ?? r.result.name, tokenId: tg.tokenId ?? r.result.tokenId ?? null } };
+      };
+      const outs = await Promise.all(targets.list.map((tg) => one(tg).catch((e) => ({ entry: { ok: false, name: tg.name ?? tg.actor?.name ?? null, error: String(e?.message ?? e) } }))));
+      for (const o of outs) { if (o.skipped && !skipped) skipped = o.skipped; if (o.entry) results.push(o.entry); }
       if (skipped) return ok({ results, reason: a.reason ?? null, checked: results.length, skipped }); // not cached: the fight is over
       const payload = { results, reason: a.reason ?? null, checked: results.length, ...(key ? { key } : {}) };
       if (results.length === 1) Object.assign(payload, results[0]);
@@ -854,7 +885,18 @@ export const COMMANDS = {
       return ok(payload);
     });
     moraleRuns.set(lockKey, job.catch(() => null));
-    return job;
+    // 0.9.6: a command from the bot answers within MORALE_REPLY_MS. If the rolls are still running by then it replies
+    // { pending: true } at once and the cards post when they finish (the same trigger or turn, asked again, returns the finished
+    // run with duplicate:true and posts nothing). The module's own automatic run (a "moraleprompt:" trigger) waits for the result.
+    const waitMs = moraleReplyMs(a);
+    if (!waitMs) return job;
+    let timer; const late = Symbol("pending");
+    const first = await Promise.race([job, new Promise((r) => { timer = setTimeout(() => r(late), waitMs); })]);
+    clearTimeout(timer);
+    if (first !== late) return first;
+    job.catch(() => {});
+    return ok({ pending: true, started: meta.started, checked: 0, results: [], reason: a.reason ?? null,
+      note: "The morale rolls are still running and the cards post as they finish. Do not call moraleCheck again for this fight: asking again returns the finished run with duplicate:true." });
   } },
   // 0.8.20 #4: mark a token (or actor) as an ally or enemy of the PCs for morale/loot. side "auto" clears it.
   setSide: { schema: { tokenId: "string?", tokenName: "string?", tokenIds: "array?", actorId: "string?", actorName: "string?", sceneId: "string?", side: "string" }, async run(a) {

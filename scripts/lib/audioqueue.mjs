@@ -4,9 +4,9 @@
 // unlock() resumes and replays it.
 export const isAutoplayBlocked = (e) => e?.name === "NotAllowedError" || e?.blocked === true || /autoplay|user (gesture|interaction)|not allowed/i.test(String(e?.message ?? e));
 export class AudioQueue {
-  constructor({ play, gapMs = 250, maxSeen = 500, retries = 2, retryDelayMs = 600, isBlocked = isAutoplayBlocked, onBlocked = () => {}, sleep = (ms) => new Promise(r => setTimeout(r, ms)), onStart = null, onIdle = null, stop = null, pauseClip = null, resumeClip = null }) {
-    Object.assign(this, { play, gapMs, maxSeen, retries, retryDelayMs, isBlocked, onBlocked, sleep, onStart, onIdle, stop, pauseClip, resumeClip });
-    this.q = []; this.seen = new Set(); this.running = false; this.blocked = false; this.paused = false;
+  constructor({ play, gapMs = 250, maxSeen = 500, retries = 2, retryDelayMs = 600, isBlocked = isAutoplayBlocked, onBlocked = () => {}, sleep = (ms) => new Promise(r => setTimeout(r, ms)), onStart = null, onIdle = null, stop = null, pauseClip = null, resumeClip = null, position = null }) {
+    Object.assign(this, { play, gapMs, maxSeen, retries, retryDelayMs, isBlocked, onBlocked, sleep, onStart, onIdle, stop, pauseClip, resumeClip, position });
+    this.q = []; this.seen = new Set(); this.running = false; this.blocked = false; this.paused = false; this.heldClip = null;
   }
   // Returns a promise resolving to {id, played:true} when the clip finished, or {duplicate:true} immediately.
   enqueue(id, clip) {
@@ -33,7 +33,15 @@ export class AudioQueue {
     let ok = false; try { ok = this.pauseClip?.() !== false; } catch { ok = false; }
     this.paused = ok; return { paused: ok, id: cur.id };
   }
-  resume() {
+  // 0.9.6: Resume after "GM, wait": the line that was stopped continues from where it stopped (the queue behind it stays cleared).
+  // Once any new line starts, the old one can no longer be resumed.
+  resume(now = Date.now()) {
+    const cur0 = this.current;
+    if (!this.paused && !cur0 && this.heldClip) {
+      const h = this.heldClip; this.heldClip = null;
+      this.q.push({ id: `resume:${now}`, clip: { ...h.clip, ...(h.pos > 0 ? { offset: h.pos } : {}) }, resolve: () => {}, tries: 0, noGap: true });
+      this._drain(); return { resumed: true, id: h.id, fromHold: true, offset: h.pos };
+    }
     const cur = this.current; if (!this.paused || !cur) { this.paused = false; return { resumed: false, id: cur?.id ?? null }; }
     this.paused = false; let ok = true; try { const r = this.resumeClip?.(); if (r && typeof r.catch === "function") r.catch(() => {}); ok = r !== false; } catch { ok = false; }
     return { resumed: ok, id: cur.id };
@@ -61,6 +69,7 @@ export class AudioQueue {
     const dropped = playing ? this.q.splice(1) : this.q.splice(0);
     for (const it of dropped) { try { it.resolve({ id: it.id, played: false, held: true }); } catch {} }
     let stopped = false;
+    if (playing && !playing.held) { let pos = null; try { pos = this.position?.() ?? null; } catch {} this.heldClip = { id: playing.id, clip: playing.clip, pos: Number.isFinite(pos) ? pos : 0 }; }
     if (playing) { playing.held = true; try { stopped = this.stop?.() !== false; } catch { stopped = false; } }
     return { stopped: !!playing && stopped, dropped: dropped.length, id: playing?.id ?? null };
   }
@@ -70,6 +79,7 @@ export class AudioQueue {
       if (this.q.length) try { this.onStart?.(); } catch {}
       while (this.q.length && !this.blocked) {
         const item = this.q[0];
+        if (!String(item.id).startsWith("resume:")) this.heldClip = null; // a new line started: the stopped one is gone
         try { await this.play(item.clip); this.paused = false; this.q.shift(); item.resolve(item.held ? { id: item.id, played: true, held: true } : { id: item.id, played: true }); }
         catch (e) {
           this.paused = false;
