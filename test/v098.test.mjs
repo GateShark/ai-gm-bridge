@@ -156,7 +156,8 @@ test("0.8.19 morale uses system.attributes.morale; dash/none never breaks; promp
   assert.equal(buildMoralePrompt({ id: "C9", round: 2 }, hostiles, st), null);
   const tracker = createMoralePromptTracker();
   const a = { id: "e1", name: "Skeleton", system: { attributes: { hp: { value: 4, max: 4 } } } };
-  const cbt = { id: "C1", started: true, round: 1, combatants: { contents: [{ name: "Skeleton", actor: a, isNPC: true }] } };
+  const a2 = { id: "e2", name: "Skeleton B", system: { attributes: { hp: { value: 4, max: 4 } } } }; // 0.9.2: a prompt needs a survivor
+  const cbt = { id: "C1", started: true, round: 1, combatants: { contents: [{ name: "Skeleton", actor: a, isNPC: true }, { name: "Skeleton B", actor: a2, isNPC: true }] } };
   tracker.seed(a);
   a.system.attributes.hp.value = 0;
   const prompt = tracker.observe(a, { combat: cbt, users: [], enabled: true });
@@ -211,9 +212,9 @@ test("0.8.19 rollLoot finds Treasure-style tables and awards items or silver", a
 
 test("0.8.19 version, docs, settings and no browser speech", () => {
   const mj = JSON.parse(readFileSync(new URL("../module.json", import.meta.url), "utf8"));
-  assert.equal(mj.version, "0.9.1");
+  assert.equal(mj.version, "0.9.2");
   assert.equal(mj.title, "AI GM Pirate Borg");
-  assert.match(readFileSync(new URL("../package.json", import.meta.url), "utf8"), /"version": "0\.9\.1"/);
+  assert.match(readFileSync(new URL("../package.json", import.meta.url), "utf8"), /"version": "0\.9\.2"/);
   const log = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
   assert.match(log, /## 0\.8\.19/);
   assert.match(log, /setMood/);
@@ -234,7 +235,7 @@ test("0.8.19 version, docs, settings and no browser speech", () => {
   assert.match(main, /reg\("moodFollowsCombat", Boolean, true\)/);
   assert.match(main, /reg\("moralePrompts", Boolean, true\)/);
   assert.doesNotMatch(main, /speechSynthesis/);
-  assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /v0\.9\.1/);
+  assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /v0\.9\.2/);
   assert.match(readFileSync(new URL("../README.md", import.meta.url), "utf8"), /Beta/);
   const scripts = ["scripts/commands.mjs", "scripts/features.mjs", "scripts/main.mjs", "scripts/lib/voices.mjs"];
   for (const f of scripts) assert.doesNotMatch(readFileSync(new URL("../" + f, import.meta.url), "utf8"), /speechSynthesis/, f);

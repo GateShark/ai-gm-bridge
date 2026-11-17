@@ -2,7 +2,7 @@
   <img src="assets/logo-256.webp" alt="AI GM Pirate Borg" width="160" height="160" />
 </p>
 
-# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.1
+# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.2
 
 > ⚠️ **Beta:** this is a public beta. Please report bugs; some changes may still land.
 
@@ -31,8 +31,15 @@ Created by Gate (GateShark).
 - The GM has an in-game **AI GM Pirate Borg** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM Pirate Borg** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
+## What's new in 0.9.2 (beta fixes)
+0.9.x is the beta series; 1.0 will be the full release. The current release is **0.9.2** (beta).
+- **Turns wait for open rolls.** `nextTurn` holds the turn while a roll request for that combat is still open (a defend roll, for example), then answers `409 rollPending` with the open rolls. `force: true` skips the guard; `waitMs` changes how long it waits (default 15 s). The "Your turn" and "is up" clips wait for a roll left over from the previous turn too.
+- **No morale prompt after the fight.** If one sweep kills every enemy and the combat ends, no `moralePrompt` is sent.
+- **Player characters match their tokens.** End-of-fight loot goes on the character sheet (not an unlinked token), a PC's HP changes are written to the sheet and its unlinked token together, and tokens the add-on makes for player characters are linked. A GM-only `linkPlayerTokens` (try `dryRun: true` first) relinks existing PC tokens on one scene, and **Check setup** warns about unlinked PC tokens.
+- **Copy bot setup prompt.** A GM-only button in the module settings copies a ready-made prompt you paste into your own AI bot so it knows how to run games with this add-on.
+
 ## What's new in 0.9.1 (beta fixes)
-0.9.x is the beta series; 1.0 will be the full release. The current release is **0.9.1** (beta).
+0.9.x is the beta series; 1.0 will be the full release.
 - **Loot and luck hit the character sheet.** `giveItem`, `spendLuck`, `!spendluck`, table loot and the sheet's **Spend** button now write the world character (the sheet in the Actors sidebar) when they name a character, even if that character has an unlinked token on the scene being viewed. Only a call that targets a token (`tokenId`/`tokenName`, or a token's own sheet) writes that token's copy.
 - **Devil's Luck row** is a single compact row under the sheet header (above the tabs) and no longer takes over half the character sheet.
 - **`testFight` result** reports `unpaused: true` when the game ended up unpaused, and `mood` is the music actually playing (Combat when **Mood follows combat** is on), with `moodRequested` and `music` alongside.

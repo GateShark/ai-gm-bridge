@@ -2,6 +2,7 @@
 // non-GM owner would be treated as monsters. Warn only — never change the world.
 import { combatantOwners } from "./turns.mjs";
 import { sceneTokens } from "./gmpanel.mjs";
+import { isUnlinkedPcToken } from "./pclink.mjs";
 
 function itemsOf(actor) {
   const items = actor?.items;
@@ -60,12 +61,28 @@ function uniqueUnowned(list) {
   }
   return out;
 }
+// 0.9.2: player characters whose token is unlinked (the sheet and the token can drift apart). Warn only.
+export function findUnlinkedPcTokens(tokens = [], users = []) {
+  const out = [];
+  for (const t of tokens ?? []) {
+    if (!t || t.actorLink !== false || !t.name) continue;
+    if (!isUnlinkedPcToken(t, { users })) continue;
+    out.push({ name: t.name, tokenId: t.id ?? null, actorId: t.actorId ?? t.actor?.id ?? null });
+  }
+  return out;
+}
+export function formatUnlinkedWarning(unlinked) {
+  if (!unlinked?.length) return null;
+  const names = unlinked.map(u => u.name).join(", ");
+  return `${unlinked.length === 1 ? "A player character's token is" : `${unlinked.length} player character tokens are`} not linked to the character sheet: ${names}. HP and loot can drift apart. Ask the AI GM to run linkPlayerTokens (dry run first).`;
+}
 export function runSetupCheck({ tokens = [], combatants = [], users = [], scene = null } = {}) {
   const subjects = [...(combatants ?? []).map(subjectFromCombatant), ...(tokens ?? []).map(subjectFromToken)].filter(Boolean);
   const unowned = uniqueUnowned(findUnownedPirates(subjects, users));
-  const warning = formatOwnerWarning(unowned);
-  return { ok: !unowned.length, scene: scene ?? null, checked: subjects.length, unowned, warning,
-    text: warning || "All player-looking pirates here have a player owner." };
+  const unlinked = findUnlinkedPcTokens(tokens, users);
+  const warning = [formatOwnerWarning(unowned), formatUnlinkedWarning(unlinked)].filter(Boolean).join(" ") || null;
+  return { ok: !unowned.length && !unlinked.length, scene: scene ?? null, checked: subjects.length, unowned, unlinked, warning,
+    text: warning || "All player-looking pirates here have a player owner and a linked token." };
 }
 export function combatantsOf(combat) {
   const raw = combat?.combatants;

@@ -18,11 +18,13 @@ import { planUpload, DEFAULT_LIMITS, UPLOAD_ROOT } from "./lib/uploads.mjs";
 import { buildSpawn, LOCK_SCOPES } from "./lib/spawn.mjs";
 import { withWorldLock, findBuiltScene, existingActorToken } from "./lib/worldlock.mjs";
 import * as F from "./features.mjs";
+import { waitUntilClear, describeBlockers, clampWait, ROLL_WAIT_MS } from "./lib/turnguard.mjs";
 import { getContext } from "./context.mjs";
 import * as SHIP from "./ship.mjs";
 import { targetActor, targetInfo, sceneTokenForActor } from "./lib/target.mjs";
 import { combatExpect } from "./lib/turns.mjs";
 import { liveSetupCheck } from "./lib/setupcheck.mjs";
+import { isPlayerOwned, isUnlinkedPcToken, mirrorActor, worldActorOf, diffActors } from "./lib/pclink.mjs";
 import { splitLootText, addLootItems } from "./lib/lootitems.mjs";
 import { luckOf, spendLuckLine } from "./lib/devilsluck.mjs";
 import { autoUnpause } from "./lib/autounpause.mjs";
@@ -173,6 +175,13 @@ export async function awaitMorale(combatId, ms = MORALE_WAIT_MS) {
     if (moraleRuns.get(combatId) === p) return true;
   }
 }
+// 0.9.2: nextTurn refused because a roll request is still open in this combat.
+function rollPendingFail(blockers, c) {
+  const first = blockers[0];
+  const who = [first.actorName, first.label || first.formula || first.stat].filter(Boolean).join(" ");
+  return fail(409, `roll pending: ${who || first.id} is still open (${blockers.length} open); wait for its rollResult, cancelRoll it, or pass force:true`,
+    { reason: "rollPending", pending: describeBlockers(blockers), live: liveCombat(c) });
+}
 const liveCombat = (c) => c ? { combatId: c.id, round: c.round, turn: c.turn } : null;
 const findActor = (a) => game.actors.get(a.actorId) ?? game.actors.getName?.(a.actorName) ?? null;
 // #13: tokenId/tokenName target that token; unlinked tokens are written through token.actor, not the base actor.
@@ -182,14 +191,35 @@ const TARGET = { ...TOK, tokenIds: "array?", tokenNames: "array?", actorId: "str
 // (the character sheet) first; a scene token is only used when the name matches no world actor. tokenId/tokenName
 // still target that token (an unlinked token writes its own copy).
 function findTarget(a, opts = {}) {
+  const users = game.users?.contents ?? game.users ?? [];
+  // 0.9.2: a write that lands on an unlinked PC token also reaches the world actor (tg.mirror); with opts.pcWorld (loot) a
+  // PC's token resolves to the world actor itself. Monsters and NPCs keep the token-first behaviour.
+  const viaToken = (t, base) => {
+    const r = targetActor({ token: t, baseActor: base }); if (!r) return null;
+    if (r.via !== "token") return r;
+    const mirror = mirrorActor(t, { users });
+    if (!mirror) return r;
+    return opts.pcWorld ? { actor: mirror, via: "actor", tokenId: null } : { ...r, mirror };
+  };
   if (a.tokenId || a.tokenName) { const t = findToken(a); if (!t) return { error: fail(404, "token not found") };
-    const base = (a.actorId || a.actorName) ? findActor(a) : null; const r = targetActor({ token: t, baseActor: base }); return r ?? { error: fail(404, "actor not found") }; }
+    const base = (a.actorId || a.actorName) ? findActor(a) : null; const r = viaToken(t, base); return r ?? { error: fail(404, "actor not found") }; }
   const base = (a.actorId || a.actorName) ? findActor(a) : null;
   if (opts.world && base) return targetActor({ baseActor: base });
   const scene = a.sceneId ? game.scenes.get(a.sceneId) : globalThis.canvas?.scene ?? game.scenes?.viewed ?? game.scenes?.active;
   const tok = sceneTokenForActor(scene?.tokens, { actor: base, actorId: a.actorId, actorName: a.actorName });
-  if (tok) { const r = targetActor({ token: tok, baseActor: base }); if (r) return r; }
+  if (tok) { const r = viaToken(tok, base); if (r) return r; }
   const r = targetActor({ baseActor: base }); return r ?? { error: fail(404, "actor not found") };
+}
+// 0.9.2: keep an unlinked PC token and its world sheet equal: write the same value to the mirror actor.
+async function mirrorUpdate(tg, data) {
+  if (!tg?.mirror) return;
+  try { await tg.mirror.update(data); } catch (e) { console.warn("ai-gm-bridge | mirror write failed", e?.message); }
+}
+// 0.9.2: a token created for a player-owned actor is linked, and the actor's prototype token is linked too.
+async function pcLinkPrep(actor) {
+  if (!isPlayerOwned(actor, { users: game.users?.contents ?? game.users ?? [] })) return false;
+  if (actor.prototypeToken && actor.prototypeToken.actorLink !== true) { try { await actor.update({ "prototypeToken.actorLink": true }); } catch {} }
+  return true;
 }
 // 0.9.1 #3: wait (briefly) for a hook-driven change; resolves true as soon as check() holds, false after ms.
 async function settle(check, ms = 1000, step = 50) {
@@ -213,6 +243,7 @@ async function writeResource(tg, a) {
   const r = resolveResource(actor.type, a.resource, extraLabel(actor)); if (r.error) return fail(400, r.error);
   const cur = foundry.utils.getProperty(actor, r.base); const after = nextValue(cur, a);
   await actor.update({ [r.base + ".value"]: after });
+  if (r.key === "hp") await mirrorUpdate(tg, { [r.base + ".value"]: after }); // 0.9.2
   return ok({ actorId: actor.id, ...targetInfo(tg), resource: r.label ?? r.key, path: r.base + ".value", before: cur?.value, after: foundry.utils.getProperty(actor, r.base + ".value") });
 }
 function findToken(a) {
@@ -288,7 +319,7 @@ function resolveLootActors(a) {
       const tg = findTarget({
         tokenId: refs.tokenIds[i], tokenName: refs.tokenNames[i],
         actorId: refs.actorIds[i], actorName: refs.actorNames[i], sceneId: refs.sceneId
-      }, { world: true }); // 0.9.1 #1: loot by actor name lands on the character sheet
+      }, { world: true, pcWorld: true }); // 0.9.1 #1: loot by actor name lands on the character sheet; 0.9.2: a PC token resolves to the sheet too
       if (tg.error && pairs === 1) return { error: tg.error };
       if (!tg.error) add(tg.actor);
     }
@@ -403,7 +434,8 @@ async function placePetsOnSceneNow(scene) {
       const actor = game.actors?.get?.(step.actorId);
       if (!actor) continue;
       const proto = actor.prototypeToken?.toObject?.() ?? {};
-      const created = await scene.createEmbeddedDocuments?.("Token", [{ ...proto, actorId: actor.id, x: step.x, y: step.y, name: actor.name }]);
+      const pc = await pcLinkPrep(actor); // 0.9.2: a player-owned pet gets a linked token
+      const created = await scene.createEmbeddedDocuments?.("Token", [{ ...proto, ...(pc ? { actorLink: true } : {}), actorId: actor.id, x: step.x, y: step.y, name: actor.name }]);
       done.push({ ...step, tokenId: created?.[0]?.id ?? null });
     } else done.push(step);
   }
@@ -429,7 +461,8 @@ export const COMMANDS = {
     const parent = path.endsWith(".value") ? foundry.utils.getProperty(actor, path.slice(0, -6)) : null;
     const after = nextValue(parent && typeof parent === "object" ? parent : { value: before }, amt);
     await actor.update({ [path]: after });
-    return ok({ actorId: actor.id, ...targetInfo(tg), path, before, after: foundry.utils.getProperty(actor, path) });
+    await mirrorUpdate(tg, { [path]: after }); // 0.9.2: a PC's sheet never splits from its unlinked token
+    return ok({ actorId: actor.id, ...targetInfo(tg), ...(tg.mirror ? { mirrored: true } : {}), path, before, after: foundry.utils.getProperty(actor, path) });
   }},
   move: { schema: { tokenId: "string?", tokenName: "string?", sceneId: "string?", x: "number", y: "number" }, async run(a) {
     const t = findToken(a); if (!t) return fail(404, "token not found");
@@ -437,7 +470,7 @@ export const COMMANDS = {
     if (!r.reached) return fail(504, "token did not reach the requested position", { tokenId: t.id, x: r.x, y: r.y, requested: { x: a.x, y: a.y }, via: r.via });
     return ok({ tokenId: t.id, x: r.x, y: r.y, ...(r.via === "displace" ? { via: "displace" } : {}) });
   }},
-  nextTurn: { schema: { expect: "object?" }, async run(a) {
+  nextTurn: { schema: { expect: "object?", force: "boolean?", waitMs: "number?" }, async run(a) {
     // 0.8.21: reject a missing expect immediately; do not wait for morale first.
     const preCombat = (a.expect?.combatId ? game.combats.get(a.expect.combatId) : null) ?? game.combat;
     const preLive = preCombat?.started ? { ...liveCombat(preCombat), combatant: preCombat.combatant?.name ?? null } : null;
@@ -445,16 +478,28 @@ export const COMMANDS = {
     if (pre && pre.code === 400) return pre;
     const key = a.expect?.combatId ?? game.combat?.id ?? "none";
     await awaitMorale(key);
+    // 0.9.2 turn guard: an open requestRoll in this combat (e.g. the defend roll just asked of a player) holds the turn.
+    // Wait up to waitMs (default 15 s) for it to be rolled, cancelled or to time out; then reject with 409 and the open
+    // rolls so the GM can wait for the rollResult, cancelRoll, or pass force:true. A stale expect is reported first.
+    let waitedForRoll = false;
+    if (!pre && a.force !== true && preCombat?.started) {
+      const r = await waitUntilClear(() => F.openCombatRolls(preCombat), { ms: clampWait(a.waitMs, ROLL_WAIT_MS), stop: () => !game.combats.get(preCombat.id) });
+      waitedForRoll = r.waited;
+      if (r.blockers.length && !r.aborted) return rollPendingFail(r.blockers, preCombat);
+    }
     return combatLock.run(key, async () => {
       const c = (a.expect?.combatId ? game.combats.get(a.expect.combatId) : null) ?? game.combat;
       const live = c?.started ? { ...liveCombat(c), combatant: c.combatant?.name ?? null } : null;
       const stale = checkExpect(live, a.expect); if (stale) return stale;
+      // a roll asked while we waited for the lock still counts (no extra wait: reject now)
+      const late = a.force === true ? [] : F.openCombatRolls(c);
+      if (late.length) return rollPendingFail(late, c);
       const wasPaused = !!game.paused;
       await c.nextTurn();
       const up = autoUnpause("combatTurn"); // 0.9.0 #5
       // 0.9.1 #3: the updateCombat hook may unpause first; report what actually happened.
       const unpaused = up.unpaused || (wasPaused && await settle(() => !game.paused));
-      return ok({ ...liveCombat(c), combatant: c.combatant?.name ?? null, expect: combatExpect(c), ...(unpaused ? { unpaused: true } : {}) });
+      return ok({ ...liveCombat(c), combatant: c.combatant?.name ?? null, expect: combatExpect(c), ...(unpaused ? { unpaused: true } : {}), ...(waitedForRoll ? { waitedForRoll: true } : {}), ...(a.force === true ? { forced: true } : {}) });
     });
   }},
   endCombat: { schema: { expect: "object?" }, async run(a) {
@@ -721,8 +766,9 @@ export const COMMANDS = {
       if (a.unique) { const ex = existingActorToken(scene.tokens, actor.id); if (ex) return ok({ tokenId: ex.id, sceneId: scene.id, duplicate: true, unique: true }); }
       if (a.spawnKey) { const ex = scene.tokens.find(t => t.getFlag?.("ai-gm-bridge", "spawnKey") === a.spawnKey || t.flags?.["ai-gm-bridge"]?.spawnKey === a.spawnKey);
         if (ex) return ok({ tokenId: ex.id, sceneId: scene.id, duplicate: true }); }
-      const td = await actor.getTokenDocument(d);
-      const [t] = await scene.createEmbeddedDocuments("Token", [td.toObject()]);
+      const pcOwned = await pcLinkPrep(actor); // 0.9.2: player-owned actors get a linked token
+      const td = await actor.getTokenDocument(pcOwned ? { ...d, actorLink: true } : d);
+      const [t] = await scene.createEmbeddedDocuments("Token", [pcOwned ? { ...td.toObject(), actorLink: true } : td.toObject()]);
       return ok({ tokenId: t.id, sceneId: scene.id, x: t.x, y: t.y, sight: t.sight?.enabled ?? null, light: t.light ? { dim: t.light.dim, bright: t.light.bright } : null });
     }));
   }},
@@ -937,14 +983,14 @@ export const COMMANDS = {
     const refs = normalizeTargetArgs(a);
     const targets = [];
     const seen = new Set();
-    const addActor = (actor, name) => {
+    const addActor = (actor, name, mirror = null) => {
       if (!actor || seen.has(actor.id)) return;
       seen.add(actor.id);
-      targets.push({ id: actor.id, name: name || actor.name, actor, hp: readActorHp(actor) });
+      targets.push({ id: actor.id, name: name || actor.name, actor, hp: readActorHp(actor), mirror });
     };
     const addFrom = (args) => {
       const tg = findTarget(args);
-      if (!tg.error) addActor(tg.actor, tg.actor?.name);
+      if (!tg.error) addActor(tg.actor, tg.actor?.name, tg.mirror ?? null);
     };
     if (refs.hasExplicit) {
       for (const id of refs.tokenIds) addFrom({ tokenId: id, sceneId: refs.sceneId });
@@ -964,6 +1010,7 @@ export const COMMANDS = {
       if (!t?.actor || u.after == null) continue;
       if (t.actor.updateHp) await t.actor.updateHp({ value: u.after });
       else await t.actor.update({ "system.attributes.hp.value": u.after });
+      if (t.mirror) { try { if (t.mirror.updateHp) await t.mirror.updateHp({ value: u.after }); else await t.mirror.update({ "system.attributes.hp.value": u.after }); } catch {} } // 0.9.2
       updated.push(u);
     }
     return ok({ amount: next.amount, updated });
@@ -991,6 +1038,33 @@ export const COMMANDS = {
   shipStatus: { schema: {}, async run() {
     const ships = collectShips(sceneTokens(currentScene())).map(s => ({ ...s, crewActionsThisRound: crewTracker.count(s.actorId) }));
     return ok({ ships, tracker: crewTracker.snapshot() });
+  } },
+  // 0.9.2 (GM only, never automatic): relink unlinked tokens of player-owned actors on ONE scene to their world actor.
+  // The world sheet's values win; token-only differences (HP, silver, items) are reported so the GM can merge them by hand.
+  linkPlayerTokens: { schema: { sceneId: "string?", dryRun: "boolean?" }, async run(a) {
+    if (!game.user?.isGM) return fail(403, "linkPlayerTokens is GM-only");
+    const scene = a.sceneId ? game.scenes.get(a.sceneId) : (globalThis.canvas?.scene ?? game.scenes?.viewed ?? game.scenes?.active);
+    if (!scene) return fail(404, a.sceneId ? "scene not found" : "no current scene (pass sceneId)");
+    const users = game.users?.contents ?? game.users ?? [];
+    const dryRun = a.dryRun === true;
+    const toks = [...(scene.tokens?.contents ?? scene.tokens ?? [])];
+    const linked = [], skipped = [], protos = new Map();
+    for (const t of toks) {
+      if (!t || t.actorLink !== false) continue;
+      const base = worldActorOf(t);
+      if (!isUnlinkedPcToken(t, { users })) continue;
+      if (!base || base === t.actor) { skipped.push({ tokenId: t.id, name: t.name, reason: "no world actor to link to" }); continue; }
+      const differences = diffActors(t.actor, base);
+      const row = { tokenId: t.id, name: t.name, actorId: base.id, differences, hasDifferences: Object.keys(differences).length > 0 };
+      if (!dryRun) {
+        await withWorldLock(() => t.update({ actorLink: true }));
+        row.linked = true;
+        if (base.prototypeToken && base.prototypeToken.actorLink !== true && !protos.has(base.id)) { try { await base.update({ "prototypeToken.actorLink": true }); protos.set(base.id, true); } catch { protos.set(base.id, false); } }
+      }
+      linked.push(row);
+    }
+    return ok({ sceneId: scene.id, scene: scene.name, dryRun, found: linked.length, ...(dryRun ? { wouldLink: linked.length } : { linked: linked.length, prototypesLinked: [...protos].filter(([, v]) => v).map(([k]) => k) }),
+      tokens: linked, skipped, note: dryRun ? "dry run: nothing changed. The world sheet wins when linking; merge any token-only differences by hand first." : "linked to the world sheet (its values win); token-only differences listed above were not copied." });
   } },
   setupCheck: { schema: {}, async run() {
     return ok(liveSetupCheck({ scene: globalThis.canvas?.scene ?? game.scenes?.viewed ?? game.scenes?.active, combat: game.combat, users: game.users?.contents ?? [] }));

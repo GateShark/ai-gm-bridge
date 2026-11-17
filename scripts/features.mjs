@@ -12,6 +12,8 @@ import { pickAudioSrc, localVoiceSlug, playLocalVoice } from "./lib/voices.mjs";
 import { createMoralePromptTracker } from "./lib/moraleprompt.mjs";
 import { combatantSide } from "./lib/morale.mjs";
 import { upSpoken } from "./lib/turnclips.mjs";
+import { blockingRolls, waitUntilClear, PROMPT_HOLD_MS, POLL_MS } from "./lib/turnguard.mjs";
+import { moraleStale } from "./lib/moraleguard.mjs";
 
 const ID = "ai-gm-bridge"; const SOCKET = `module.${ID}`;
 const D = { emit: () => {}, get: () => undefined, voice: () => null, turnClip: () => null, turnAudio: () => ({}), upAudio: () => ({}), amLeader: () => true, log: () => {} };
@@ -215,7 +217,24 @@ export function bindRollCard(msg, html) {
 // ---------- combat turn prompts (zero wakes) ----------
 const lastPrompt = new Map();
 export function turnStatus(combat = game.combat) { return turnInfo(combat, game.users.contents); }
-export async function turnPrompt(combat) {
+// 0.9.2: open rolls (pending, not timed out) tied to this combat. mode "advance" = any (nextTurn guard);
+// mode "prompt" = only rolls from an earlier turn (hold the prompt for them).
+export function openCombatRolls(combat, { mode = "advance" } = {}) {
+  if (!combat?.id) return [];
+  const actorIds = [...(combat.combatants?.contents ?? combat.combatants ?? [])].map(cb => cb?.actorId ?? cb?.actor?.id);
+  let pending = []; try { pending = pendingRequests(); } catch {}
+  return blockingRolls(pending, { combatId: combat.id, round: combat.round, turn: combat.turn, actorIds, mode });
+}
+// 0.9.2: the turn / "is up" prompt fires only after the turn has moved (it runs from updateCombat) and, if a roll from an
+// earlier turn is still open (for example a defend roll), waits until that roll is done, cancelled or expired.
+// It gives up after PROMPT_HOLD_MS and fires anyway; it drops the prompt if the turn moved on again or the combat ended.
+export async function turnPrompt(combat, { holdMs = PROMPT_HOLD_MS, step = POLL_MS } = {}) {
+  const at = `${combat?.round}.${combat?.turn}`;
+  if (openCombatRolls(combat, { mode: "prompt" }).length) {
+    const r = await waitUntilClear(() => openCombatRolls(combat, { mode: "prompt" }), { ms: holdMs, step,
+      stop: () => !game.combats?.get?.(combat.id) || `${combat.round}.${combat.turn}` !== at });
+    if (r.aborted) return null;
+  }
   const t = turnStatus(combat); if (!t) return null;
   const key = `${t.round}.${t.turn}`; if (lastPrompt.get(combat.id) === key) return null; lastPrompt.set(combat.id, key);
   await ChatMessage.create({ content: turnText(t), speaker: { alias: D.get("speakerAlias") || "AI GM" }, flags: { [ID]: { local: true, turnPrompt: key } } });
@@ -298,14 +317,19 @@ export function onActorUpdate(actor, change) {
 // is on the table before the next enemy turn. The moralePrompt event then carries resolved:true and the results;
 // the bot should narrate them and not roll again (a repeat moraleCheck returns duplicate:true and posts nothing).
 export function handleMoralePrompt(prompt) {
+  // 0.9.2: a prompt for a finished fight (combat deleted, or no enemy left alive) is dropped, not rolled or sent.
+  const early = moraleStale(prompt);
+  if (early) { try { D.log("moralePrompt skipped", early); } catch {} return { ok: true, skipped: early }; }
   if (D.get("moraleAuto") === false || typeof D.runMorale !== "function") { D.emit(prompt, { urgent: true }); return null; }
   let job;
   try { job = Promise.resolve(D.runMorale(prompt)); } catch (e) { job = Promise.resolve({ ok: false, error: e?.message }); }
+  const late = () => { const why = moraleStale(prompt); if (why) { try { D.log("moralePrompt skipped", why); } catch {} } return why; };
   return job.then((r) => {
+    const why = late(); if (why) return { ok: true, skipped: why };
     const results = r?.ok ? (r.result?.results ?? []).map(x => ({ name: x.name ?? null, tokenId: x.tokenId ?? null, result: x.result ?? null, total: x.total ?? null, morale: x.morale ?? null, status: x.status ?? null, ...(x.ok === false ? { error: x.error } : {}) })) : [];
     D.emit({ ...prompt, resolved: !!r?.ok, ...(r?.ok ? { results, duplicate: !!r.result?.duplicate } : { error: r?.error ?? "morale check failed" }) }, { urgent: true });
     return r;
-  }).catch(() => { D.emit(prompt, { urgent: true }); return null; });
+  }).catch(() => { if (!late()) D.emit(prompt, { urgent: true }); return null; });
 }
 export function onItemCreate(item) { const a = item.parent; if (a?.documentName === "Actor" && item.type !== "class") logLine("item", `${a.name} gained ${item.name}`); }
 export function onCombatUpdate(c, change) {

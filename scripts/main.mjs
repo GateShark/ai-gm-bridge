@@ -17,6 +17,7 @@ import { applyMood, parseMoodPlaylists, moodState, rememberMood, restoreMoodKey,
 import { Metrics } from "./lib/metrics.mjs";
 import { deliverDirect } from "./lib/direct.mjs";
 import { makeConfigApp } from "./config-app.mjs";
+import { makeSetupPromptApp } from "./setup-prompt-app.mjs";
 import { fail } from "./lib/result.mjs";
 import {
   callerConnectionError, withTimeout, commandTimeoutMs, COMMAND_TIMEOUT_ERROR,
@@ -356,6 +357,7 @@ Hooks.once("init", () => {
   reg("webhookUrl", String, "", { config: false }); reg("webhookAuthHeader", String, "Authorization", { config: false });
   game.settings.register(ID, "webhookSecret", { scope: "world", config: false, restricted: true, type: String, default: "" });
   game.settings.registerMenu(ID, "config", { name: "AI GM Pirate Borg", label: "Configure AI GM Pirate Borg", icon: "fas fa-robot", type: makeConfigApp(), restricted: true });
+  game.settings.registerMenu(ID, "setupPrompt", { name: "Bot setup prompt", label: "Copy bot setup prompt", hint: "Copies a ready-made prompt you paste into your AI bot so it knows how to run games with this add-on.", icon: "fas fa-copy", type: makeSetupPromptApp(), restricted: true }); // 0.9.2, GM only
   reg("heartbeatMs", Number, 10000); reg("heartbeatTimeoutMs", Number, 45000); reg("offlineAfterMs", Number, 60000); reg("batchMs", Number, 3500);
   reg("keywords", String, ""); reg("hpPath", String, "system.attributes.hp.value");
   reg("alwaysVoiceUsers", String, ""); reg("unpauseOnStart", Boolean, true);
@@ -744,7 +746,11 @@ Hooks.on("createToken", () => { if (enabled()) refreshPanel(); });
 Hooks.on("updateToken", () => { if (enabled()) refreshPanel(); });
 Hooks.on("deleteToken", () => { if (enabled()) refreshPanel(); });
 Hooks.on("createItem", (i) => { if (enabled() && amLeader()) F.onItemCreate(i); });
-Hooks.on("deleteCombat", (c) => { if (enabled()) thinking.hide(); if (enabled()) refreshStatus(); if (enabled() && amLeader()) { F.onCombatDelete(c); F.cancelCombatRolls(c).catch(e => log("cancelCombatRolls", e?.message)); combatState(c, "end"); } }); // v0.8.6: hide runs on every client
+// 0.9.2: the combat is over, so a moralePrompt still waiting in the outbox for it is dropped before it reaches the bot.
+function dropMoralePrompts(c) {
+  try { if (S.outbox?.dropWhere(e => e.type === "moralePrompt" && e.combatId === c?.id).length) { S.metrics?.inc?.("dropMoraleEnded"); persistNow(); } } catch (e) { log("dropMoralePrompts", e?.message); }
+}
+Hooks.on("deleteCombat", (c) => { if (enabled()) thinking.hide(); if (enabled()) refreshStatus(); if (enabled() && amLeader()) { F.onCombatDelete(c); dropMoralePrompts(c); F.cancelCombatRolls(c).catch(e => log("cancelCombatRolls", e?.message)); combatState(c, "end"); } }); // v0.8.6: hide runs on every client
 // v0.8.3: only the leader (bot user, else active GM) sends; eventId dedupe means one start/end per combat.
 async function applyStoredMood(mood) {
   const mapping = parseMoodPlaylists(get("moodPlaylists"));

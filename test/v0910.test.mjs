@@ -65,9 +65,9 @@ test("0.9.1 #1 giveItem by actorName lands on the world sheet even with an unlin
   assert.equal(r2.ok, true, r2.error); assert.equal(world.made.at(-1)?.name, "Rusty hook"); assert.equal(tokActor.made.length, 0);
 });
 
-test("0.9.1 #1 giveItem by tokenName/tokenId still writes that unlinked token (NPC loot, explicit token)", async () => {
+test("0.9.1 #1 giveItem by tokenName/tokenId still writes that unlinked token for NPCs (0.9.2: a PC token resolves to the sheet)", async () => {
   const r = await runCommand({ name: "giveItem", args: { name: "a gold tooth", tokenName: "Tempus" } }, ctx);
-  assert.equal(r.ok, true, r.error); assert.equal(tokActor.made.at(-1)?.name, "Gold tooth");
+  assert.equal(r.ok, true, r.error); assert.equal(world.made.at(-1)?.name, "Gold tooth"); assert.equal(tokActor.made.length, 0); // 0.9.2: PC token -> world sheet
   const n = world.made.length;
   const r2 = await runCommand({ name: "giveItem", args: { name: "an old map", tokenId: "tR" } }, ctx);
   assert.equal(r2.ok, true, r2.error); assert.equal(npcActor.made.at(-1)?.name, "Old map"); assert.equal(world.made.length, n);
@@ -93,10 +93,10 @@ test("0.9.1 #1 spendLuck / !spendluck / world-sheet Spend change the world sheet
 
 test("0.9.1 #1 rollLoot/giveLoot resolve actor names to the world actor; HP by actorName still follows the scene token", async () => {
   const c = src("scripts/commands.mjs");
-  assert.match(c, /function resolveLootActors[^]*?\}, \{ world: true \}\);/);
+  assert.match(c, /function resolveLootActors[^]*?\}, \{ world: true, pcWorld: true \}\);/);
   assert.match(c, /if \(opts\.world && base\) return targetActor\(\{ baseActor: base \}\);/);
   const r = await runCommand({ name: "setHP", args: { actorName: "Tempus", delta: -1 } }, ctx); // unchanged since #13
-  assert.equal(r.ok, true, r.error); assert.equal(tokActor.system.attributes.hp.value, 4); assert.equal(world.system.attributes.hp.value, 10);
+  assert.equal(r.ok, true, r.error); assert.equal(tokActor.system.attributes.hp.value, 4); assert.equal(world.system.attributes.hp.value, 4); // 0.9.2: PC token and sheet written together
 });
 
 test("0.9.1 #3 testFight reports unpaused:true and the music actually playing after the combatStart hooks", async () => {
@@ -199,7 +199,7 @@ test("0.9.1 #4 voice default is still Ryan; Sonia only by a player's own (client
 
 test("0.9.1 version, changelog, credit", () => {
   const mod = JSON.parse(src("module.json"));
-  assert.equal(mod.version, "0.9.1"); assert.equal(JSON.parse(src("package.json")).version, "0.9.1");
+  assert.equal(mod.version, "0.9.2"); assert.equal(JSON.parse(src("package.json")).version, "0.9.2");
   assert.deepEqual(mod.authors.map(a => a.name), ["Gate (GateShark)"]);
   assert.match(src("CHANGELOG.md"), /## 0\.9\.1/);
   assert.match(src("README.md"), /0\.9\.1/);

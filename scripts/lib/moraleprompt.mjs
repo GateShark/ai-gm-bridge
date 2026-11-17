@@ -1,7 +1,7 @@
 // Optional wake when the first enemy dies or half the enemies are down.
 // Emits an event only — it never rolls morale itself.
 import { hpDroppedToZero } from "./pcdown.mjs";
-import { hostileCombatants } from "./morale.mjs";
+import { hostileCombatants, livingEnemies } from "./morale.mjs";
 import { readActorHp } from "./hp.mjs";
 
 export function buildMoralePrompt(combat, hostiles, st) {
@@ -59,6 +59,8 @@ export function createMoralePromptTracker() {
       const tokId = actor.token?.id ?? null;
       if (!hostiles.some(h => tokId ? h.tokenId === tokId : (h.actor === actor || h.actorId === actor.id))) return null;
       if (!hpDroppedToZero(prev, hp?.value)) return null;
+      // 0.9.2: nobody left to check (the last enemy just fell, e.g. one sweep killed them all): no prompt.
+      if (!livingEnemies(combat, users).length) return null;
       let st = flags.get(combat.id);
       if (!st) { st = { first: false, half: false }; flags.set(combat.id, st); }
       return buildMoralePrompt(combat, hostiles, st);

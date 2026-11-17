@@ -36,7 +36,7 @@ test("relay AIGM_CONTEXT_JOURNALS fills getContext journals only when the bot di
 test("no world setting or form field holds the list; module never writes it", () => {
   const src = readFileSync("scripts/main.mjs", "utf8"); const regs = []; const game = { settings: { register: (m, k, o) => regs.push({ k, ...o }), registerMenu() {} } };
   const fn = src.slice(src.indexOf('Hooks.once("init"'), src.indexOf('Hooks.once("ready"'));
-  new Function("game", "ID", "makeConfigApp", "log", fn.slice(fn.indexOf("{") + 1, fn.lastIndexOf("}")))(game, "ai-gm-bridge", () => class {}, () => {});
+  new Function("game", "ID", "makeConfigApp", "makeSetupPromptApp", "log", fn.slice(fn.indexOf("{") + 1, fn.lastIndexOf("}")))(game, "ai-gm-bridge", () => class {}, () => class {}, () => {});
   const cj = regs.filter(r => r.k === "contextJournals"); assert.equal(cj.length, 1); assert.equal(cj[0].config, false); assert.equal(cj[0].default, "");
   assert.doesNotMatch(readFileSync("scripts/config-app.mjs", "utf8"), /contextJournals/);
   for (const f of readdirSync("scripts").filter(f => f.endsWith(".mjs")).map(f => "scripts/" + f))

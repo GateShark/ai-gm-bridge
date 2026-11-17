@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.2
+Beta fix release. Credit: Gate (GateShark).
+
+- Turn guard: `nextTurn` no longer moves the turn while a `requestRoll` for that combat is still open (for example the defend roll just asked of a player). It waits up to 15 s (`waitMs`, 0 to 60000), then fails with `409`, `reason: "rollPending"` and a `pending` list so the bot can wait for the `rollResult`, `cancelRoll` it, or pass `force: true`. Only a roll that is genuinely open blocks: a card that has timed out, expired, been cancelled or answered, or is past its own timeout, never blocks, so nothing waits forever. A stale or missing `expect` is still reported first and at once.
+- The "Your turn" and "[name] is up" prompts still fire only from the tracker's turn change (after the turn really moved). If a roll from an earlier turn is still open, they now wait for it (at most 20 s), and are dropped if the turn moves on again or the combat ends.
+- Morale after combat: no `moralePrompt` is sent when the last enemy has fallen (one sweep that kills everyone) or when the combat has already ended. A prompt already queued, or a morale run that finishes after the combat ended, is dropped. Prompts without a combat (manual) behave as before.
+- **Copy bot setup prompt** (GM only, under Settings > Configure Settings > AI GM Pirate Borg): opens a box with a ready-made prompt for any AI bot, copies it to the clipboard, and leaves the text selected in case the browser blocks copying. The text is the packaged file `docs/bot-setup-prompt.md` (read only when the button is clicked), so it can be replaced as a one-file swap.
+- Player characters stay in step with their tokens:
+  - End-of-fight loot: `rollLoot`, `giveLoot` and `giveItem` put a player character's items and silver on the world character sheet even when the call names that PC's unlinked token (`tokenName`/`tokenId`). Before, a `tokenName` call wrote only the token. Monsters and NPCs with unlinked tokens still get loot on the token.
+  - HP: for an actor with a player owner, `setHP`, `applyDamage` and `setResource` (hp) that land on an unlinked token also write the world actor, with the same value (`mirrored: true` in the `setHP` result). Monsters and NPCs stay token-only. Nothing syncs an existing mismatch automatically.
+  - Tokens the add-on creates for a player-owned actor (`spawnAndVision`, pet placement) are linked, and that actor's prototype token is set to linked.
+  - New GM-only `linkPlayerTokens {sceneId?, dryRun?}`: relinks unlinked player-character tokens on one scene (default the current scene) to the world actor; the world sheet wins and token-only differences (HP, silver, items) are listed in the result. Never runs by itself.
+  - Check setup (the panel button, Test connection and `setupCheck`) warns when a player character's token is unlinked.
+- Voice default unchanged: Ryan (en-GB-RyanNeural). Recorded voices only.
+
 ## 0.9.1
 Beta fix release. Credit: Gate (GateShark).
 
