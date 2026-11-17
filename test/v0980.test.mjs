@@ -207,3 +207,12 @@ test("0.9.8 ping: docs mention the badge (setup prompt line, SETUP troubleshooti
   assert.match(src("README.md"), /AI GM status badge/); assert.match(src("CHANGELOG.md"), /AI GM status badge/);
   assert.doesNotMatch(prompt + setup, /Kev\b|Kevin/);
 });
+
+test("0.9.8 prompt: every voice starts at once and the player's chosen voice is never dropped for speed; duplicates are skipped by id", () => {
+  const p = src("docs/bot-setup-prompt.md");
+  assert.match(p, /start every voice at once/); assert.match(p, /wait for each player's chosen voice/); assert.match(p, /Never drop a player's chosen voice just to post faster/);
+  assert.doesNotMatch(p, /post when the default-voice clip is ready|rather than waiting for every player/i, "the old advice contradicts the new rule");
+  assert.match(p, /Skip events you already answered/); assert.match(p, /Dedupe by that id/); assert.match(p, /two runs never answer the same line twice/);
+  for (const f of ["docs/bot-setup-prompt.md", "docs/SETUP.md", "README.md"]) assert.doesNotMatch(src(f), /post without (all|every|waiting)|drop (a|the) (player's )?(chosen )?voice to (post|reply)|skip (the )?voices/i, `${f} promises nothing that skips voices`);
+  assert.doesNotMatch(p, /Kev\b|Kevin|live\.js|pbtest|pb-test/i, "generic wording only");
+});
