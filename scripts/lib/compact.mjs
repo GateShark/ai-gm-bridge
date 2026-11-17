@@ -12,11 +12,13 @@ export function diff(prev = {}, next = {}) {
   const d = {}; for (const k of new Set([...Object.keys(prev ?? {}), ...Object.keys(next ?? {})])) if (JSON.stringify(prev?.[k]) !== JSON.stringify(next?.[k])) d[k] = next?.[k] ?? null;
   return Object.keys(d).length ? d : null;
 }
-export function compactEvent(ev, { maxChars = 400 } = {}) {
+export function compactEvent(ev, { maxChars = 400, worldInfo } = {}) {
   const { combat, ...rest } = ev; // combat moves to batch-level ctx diff
-  return prune({ ...rest, text: ev.text !== undefined ? trimText(ev.text, maxChars) : undefined, whisper: ev.whisper?.length ? ev.whisper : undefined });
+  return prune({ ...rest, ...(worldInfo ?? {}), text: ev.text !== undefined ? trimText(ev.text, maxChars) : undefined, whisper: ev.whisper?.length ? ev.whisper : undefined });
 }
-export function buildPayload(batch, { ctx, prevCtx, maxChars, hints } = {}) {
-  return prune({ batchId: batch.batchId, world: batch.world, seq: batch.seq, attempt: batch.attempt > 1 ? batch.attempt : undefined,
-    ctx: diff(prevCtx, ctx), hints, events: batch.events.map(e => compactEvent(e, { maxChars })) });
+// 0.9.3: worldInfo = { worldId, worldTitle, systemId } goes on the batch and on every event, so one bot or routine can serve
+// several worlds and tell them apart (batch.world is the same id, kept for older bots).
+export function buildPayload(batch, { ctx, prevCtx, maxChars, hints, worldInfo } = {}) {
+  return prune({ batchId: batch.batchId, world: batch.world, ...(worldInfo ?? {}), seq: batch.seq, attempt: batch.attempt > 1 ? batch.attempt : undefined,
+    ctx: diff(prevCtx, ctx), hints, events: batch.events.map(e => compactEvent(e, { maxChars, worldInfo })) });
 }

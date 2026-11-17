@@ -11,6 +11,7 @@ import { showVoiceCaption, hideVoiceCaption, captionText } from "./lib/captions.
 import { applyMood, parseMoodPlaylists, moodState, clampFadeMs, noteMood, moodSnapshot, moodOfPlaylist } from "./lib/mood.mjs";
 import { livingEnemies } from "./lib/morale.mjs";
 import { moraleKey, moraleKeys } from "./lib/moralelock.mjs";
+import { moraleStale } from "./lib/moraleguard.mjs";
 import { parseTurnClipName, parseClipName, turnClipSlug, turnClipFile, upClipFile, UP_PREFIX, TurnClipStore } from "./lib/turnclips.mjs";
 import { unwrapText } from "./lib/v081.mjs";
 import { AudioQueue, voiceOrText, showAudioUnlockPrompt } from "./lib/audioqueue.mjs";
@@ -212,8 +213,8 @@ function findTarget(a, opts = {}) {
 }
 // 0.9.2: keep an unlinked PC token and its world sheet equal: write the same value to the mirror actor.
 async function mirrorUpdate(tg, data) {
-  if (!tg?.mirror) return;
-  try { await tg.mirror.update(data); } catch (e) { console.warn("ai-gm-bridge | mirror write failed", e?.message); }
+  if (!tg?.mirror) return false;
+  try { await tg.mirror.update(data); return true; } catch (e) { console.warn("ai-gm-bridge | mirror write failed", e?.message); return false; }
 }
 // 0.9.2: a token created for a player-owned actor is linked, and the actor's prototype token is linked too.
 async function pcLinkPrep(actor) {
@@ -243,8 +244,8 @@ async function writeResource(tg, a) {
   const r = resolveResource(actor.type, a.resource, extraLabel(actor)); if (r.error) return fail(400, r.error);
   const cur = foundry.utils.getProperty(actor, r.base); const after = nextValue(cur, a);
   await actor.update({ [r.base + ".value"]: after });
-  if (r.key === "hp") await mirrorUpdate(tg, { [r.base + ".value"]: after }); // 0.9.2
-  return ok({ actorId: actor.id, ...targetInfo(tg), resource: r.label ?? r.key, path: r.base + ".value", before: cur?.value, after: foundry.utils.getProperty(actor, r.base + ".value") });
+  const mirrored = r.key === "hp" ? await mirrorUpdate(tg, { [r.base + ".value"]: after }) : false; // 0.9.2; 0.9.3: reported like setHP
+  return ok({ actorId: actor.id, ...targetInfo(tg), ...(mirrored ? { mirrored: true } : {}), resource: r.label ?? r.key, path: r.base + ".value", before: cur?.value, after: foundry.utils.getProperty(actor, r.base + ".value") });
 }
 function findToken(a) {
   const scene = a.sceneId ? game.scenes.get(a.sceneId) : canvas?.scene ?? game.scenes.active;
@@ -808,12 +809,20 @@ export const COMMANDS = {
       const prior = a.force === true ? null : (moraleKeys({ trigger: a.trigger, combat, targets: targets.list }).map(k => store?.get?.(k)).find(e => e?.payload) ?? null);
       if (prior?.payload) return ok({ ...prior.payload, duplicate: true });
       const results = [];
+      // 0.9.3: an automatic run (trigger "moraleprompt:...") re-checks before every card: if a sweep ended the fight meanwhile,
+      // no morale card is posted for creatures that are already dead.
+      const auto = combat?.id && String(a.trigger ?? "").startsWith("moraleprompt:");
+      const skipIf = auto ? () => moraleStale({ combatId: combat.id }) : null;
+      let skipped = null;
       for (const tg of targets.list) {
+        if (skipIf && (skipped = skipIf())) break;
         const actor = tg.tokenId ? (findToken({ tokenId: tg.tokenId, sceneId: a.sceneId })?.actor ?? tg.actor) : tg.actor;
-        const r = await SHIP.moraleCheck(actor, { ...a, morale: a.morale });
+        const r = await SHIP.moraleCheck(actor, { ...a, morale: a.morale }, { skipIf });
+        if (r.ok && r.result?.skipped) { skipped = r.result.skipped; break; }
         if (!r.ok) results.push({ ok: false, actorId: actor?.id ?? null, name: tg.name ?? actor?.name, error: r.error });
         else results.push({ ...r.result, name: tg.name ?? r.result.name, tokenId: tg.tokenId ?? r.result.tokenId ?? null });
       }
+      if (skipped) return ok({ results, reason: a.reason ?? null, checked: results.length, skipped }); // not cached: the fight is over
       const payload = { results, reason: a.reason ?? null, checked: results.length, ...(key ? { key } : {}) };
       if (results.length === 1) Object.assign(payload, results[0]);
       const keys = moraleKeys({ trigger: a.trigger, combat, targets: targets.list });
@@ -983,14 +992,18 @@ export const COMMANDS = {
     const refs = normalizeTargetArgs(a);
     const targets = [];
     const seen = new Set();
-    const addActor = (actor, name, mirror = null) => {
-      if (!actor || seen.has(actor.id)) return;
-      seen.add(actor.id);
-      targets.push({ id: actor.id, name: name || actor.name, actor, hp: readActorHp(actor), mirror });
+    // 0.9.3: one entry per unlinked token (copies of one actor share actor.id, so a group of the same monster used to
+    // collapse to its first token). Linked tokens, and targets named by actor, still count once per actor.
+    const addActor = (actor, name, mirror = null, tokenId = null) => {
+      if (!actor) return;
+      const key = tokenId ? `tok:${tokenId}` : `act:${actor.id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      targets.push({ id: key, actorId: actor.id, tokenId: tokenId ?? null, name: name || actor.name, actor, hp: readActorHp(actor), mirror });
     };
     const addFrom = (args) => {
       const tg = findTarget(args);
-      if (!tg.error) addActor(tg.actor, tg.actor?.name, tg.mirror ?? null);
+      if (!tg.error) addActor(tg.actor, tg.actor?.name, tg.mirror ?? null, tg.via === "token" ? tg.tokenId : null);
     };
     if (refs.hasExplicit) {
       for (const id of refs.tokenIds) addFrom({ tokenId: id, sceneId: refs.sceneId });
@@ -999,7 +1012,11 @@ export const COMMANDS = {
       for (const name of refs.actorNames) addFrom({ actorName: name, sceneId: refs.sceneId });
     } else {
       for (const tok of (globalThis.canvas?.tokens?.controlled ?? [])) {
-        if (tok?.actor) addActor(tok.actor, tok.name);
+        if (!tok?.actor) continue;
+        const unlinked = (tok.document?.actorLink ?? tok.actorLink) === false;
+        const before = targets.length;
+        if (unlinked && tok.id) addFrom({ tokenId: tok.id, sceneId: globalThis.canvas?.scene?.id }); // PC dual-write applies to selected tokens too
+        if (targets.length === before) addActor(tok.actor, tok.name, null, unlinked ? tok.id : null);
       }
     }
     if (!targets.length) return fail(400, "select tokens or pass tokenId/tokenName/tokenIds/actorId/actorName/actorIds");
@@ -1011,7 +1028,7 @@ export const COMMANDS = {
       if (t.actor.updateHp) await t.actor.updateHp({ value: u.after });
       else await t.actor.update({ "system.attributes.hp.value": u.after });
       if (t.mirror) { try { if (t.mirror.updateHp) await t.mirror.updateHp({ value: u.after }); else await t.mirror.update({ "system.attributes.hp.value": u.after }); } catch {} } // 0.9.2
-      updated.push(u);
+      updated.push({ ...u, id: t.actorId, ...(t.tokenId ? { tokenId: t.tokenId } : {}) });
     }
     return ok({ amount: next.amount, updated });
   } },

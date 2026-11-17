@@ -21,13 +21,16 @@ export function resolveReplyTo(explicit, lastWake = null, now = Date.now(), wind
   if (id && Number(lastWake?.at || 0) > 0 && now - Number(lastWake.at) < windowMs) return String(id);
   return null;
 }
-export const rollReplyKey = (replyTo) => `roll:${replyTo}`;
-export function priorRollReply(store, replyTo) {
+// 0.9.3: the roll slot of one reply is per target (player + character). "Everyone test Agility", sent as several requestRoll
+// calls with the same replyTo, makes one card for each player instead of handing every player the first card.
+export const rollReplyKey = (replyTo, scope = "") => `roll:${replyTo}${scope ? `:${scope}` : ""}`;
+export const rollScope = ({ userId, actorId } = {}) => (userId || actorId ? `${userId ?? "-"}:${actorId ?? "-"}` : "");
+export function priorRollReply(store, replyTo, scope = "") {
   if (!replyTo || !store) return null;
-  return store.get(rollReplyKey(replyTo)) ?? null;
+  return store.get(rollReplyKey(replyTo, scope)) ?? null;
 }
-export function recordRollReply(store, replyTo, requestId, messageId, now) {
-  if (replyTo && store) store.mark(rollReplyKey(replyTo), "acked", now, { requestId, messageId });
+export function recordRollReply(store, replyTo, requestId, messageId, now, scope = "") {
+  if (replyTo && store) store.mark(rollReplyKey(replyTo, scope), "acked", now, { requestId, messageId });
 }
 
 // 0.8.20 #1/#9: the reply lock only applies to an explicit replyTo. A replyTo inferred from the last wake

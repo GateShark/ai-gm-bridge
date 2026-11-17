@@ -1,5 +1,5 @@
 // GM-only settings menu: shows the bot setup prompt in a selectable box and copies it to the clipboard.
-import { loadSetupPrompt, copyText } from "./lib/setupprompt.mjs";
+import { loadSetupPrompt, copyText, SETUP_GUIDE_URL } from "./lib/setupprompt.mjs";
 const ID = "ai-gm-bridge";
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const t = (k, f) => { const v = game.i18n?.localize?.(k); return v && v !== k ? v : f; };
@@ -14,6 +14,7 @@ export function makeSetupPromptApp() {
       try { p = await loadSetupPrompt(); } catch (e) { return `<section style="padding:8px"><p>${esc(e?.message ?? "load failed")}</p></section>`; }
       this._prompt = p;
       return `<section class="aigm-setup-prompt" style="padding:8px;display:flex;flex-direction:column;gap:6px;height:100%">
+        <p style="margin:0;font-size:12px">${esc(t("AIGM.setupPrompt.guide", "Need the full step-by-step setup?"))} <a href="${esc(SETUP_GUIDE_URL)}" target="_blank" rel="noopener noreferrer">${esc(t("AIGM.setupPrompt.guideLink", "Open the setup guide"))}</a></p>
         ${p.placeholder ? `<p><b>${esc(t("AIGM.setupPrompt.placeholder", "Placeholder text: the real prompt has not been packaged yet."))}</b></p>` : ""}
         ${p.intro ? `<div style="white-space:pre-wrap;font-size:12px;max-height:130px;overflow:auto">${esc(p.intro)}</div>` : ""}
         <textarea readonly data-aigm-prompt style="flex:1;min-height:240px;font-family:monospace;font-size:12px">${esc(p.body)}</textarea>

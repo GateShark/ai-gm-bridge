@@ -1,6 +1,8 @@
 // GM-only settings form: Basic page + collapsed Advanced. The secret is write-only here.
 import { BASIC_FIELDS, ADVANCED_FIELDS, testConnection } from "./lib/settingsui.mjs";
 import { liveSetupCheck, formatConnectionWithSetup } from "./lib/setupcheck.mjs";
+import { worldInfo } from "./lib/botwake.mjs";
+import { SETUP_GUIDE_URL } from "./lib/setupprompt.mjs";
 import { runLinkProbe, formatLinkCheckLine, presenceSnapshot } from "./lib/presence.mjs";
 import { TTS_VOICES, resolveTtsVoice, playVoicePreview } from "./lib/voices.mjs";
 import { availableCaptionFonts, captionFontChoices, attachCaptionFontPreview } from "./lib/captions.mjs";
@@ -39,6 +41,7 @@ export function makeConfigApp() {
       const hasSecret = !!g("webhookSecret");
       return `<section class="standard-form aigm-config" style="padding:8px">
         <h3>${esc(t("AIGM.config.basic", "Basic"))}</h3>
+        <p class="hint"><a href="${esc(SETUP_GUIDE_URL)}" target="_blank" rel="noopener noreferrer">${esc(t("AIGM.config.setupGuide", "Setup guide (install, bot user, webhook, test)"))}</a></p>
         <div class="form-group"><label>${esc(labelFor("enabled"))}</label><div class="form-fields"><input type="checkbox" name="enabled" ${g("enabled") ? "checked" : ""}></div></div>
         <div class="form-group"><label>${esc(t("AIGM.config.botUser", "Bot GM user (preferred leader, runs commands)"))}</label><div class="form-fields"><select name="botUserId">
           <option value="">(none)</option>${gms.map(u => `<option value="${u.id}" ${u.id === g("botUserId") ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select></div></div>
@@ -80,7 +83,8 @@ export function makeConfigApp() {
         const header = content.querySelector("[name=webhookAuthHeader]")?.value || game.settings.get(ID, "webhookAuthHeader") || "Authorization";
         const botId = content.querySelector("[name=botUserId]")?.value || game.settings.get(ID, "botUserId");
         const bot = game.users.get(botId) ?? game.users.find(u => u.isGM && botId && u.id === botId);
-        const r = await testConnection({ url, secret, header, botActive: bot ? !!bot.active : null });
+        const delivery = content.querySelector("[name=delivery]")?.value ?? game.settings.get(ID, "delivery");
+        const r = await testConnection({ url, secret, header, botActive: bot ? !!bot.active : null, delivery, worldInfo: worldInfo() });
         const setup = liveSetupCheck({ scene: globalThis.canvas?.scene ?? game.scenes?.viewed, combat: game.combat, users: game.users?.contents ?? [] });
         let linkLine = "";
         try {

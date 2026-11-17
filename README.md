@@ -2,7 +2,7 @@
   <img src="assets/logo-256.webp" alt="AI GM Pirate Borg" width="160" height="160" />
 </p>
 
-# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.2
+# AI GM Pirate Borg (module id `ai-gm-bridge`) v0.9.3
 
 > ⚠️ **Beta:** this is a public beta. Please report bugs; some changes may still land.
 
@@ -12,6 +12,8 @@ A Foundry VTT module (v13+, verified on v14 build 369) that lets any AI game-mas
 batched chat events to your bot's webhook, and your bot sends typed JSON commands back. It is off by default in every world.
 
 Created by Gate (GateShark).
+
+**New here? Read the step-by-step [setup guide](docs/SETUP.md)** (install, bot user, settings, connecting your bot, players, voice, first test). More game systems are planned for 1.0.
 
 ## Setup
 1. Install the module. Create a GM user for your bot, then enable the module in your world.
@@ -31,8 +33,17 @@ Created by Gate (GateShark).
 - The GM has an in-game **AI GM Pirate Borg** panel (sidebar robot button): pause or resume the AI, redo or skip the last reply, recap (newest first), see whose turn it is, cancel pending rolls, clear stuck events, check setup, a quick HP list, session save/resume, Start game / Pause game, and Quick GM buttons (roll a table, give loot, apply damage, start a ship fight).
 - **Configure AI GM Pirate Borg** opens a short Basic page (about six settings plus **Test connection**). Everything else is under a collapsed Advanced section. Test connection also reports any setup warnings (player-looking characters with no player owner).
 
+## What's new in 0.9.3 (beta fixes)
+0.9.x is the beta series; 1.0 will be the full release (with more game systems). The current release is **0.9.3** (beta).
+- **Group damage.** `applyDamage` hits every targeted unlinked token, even when several tokens share one actor (a pack of the same monster). A PC still gets the sheet and token write.
+- **No morale cards after a sweep.** If one sweep ends the fight, no morale cards are posted either.
+- **`setResource` reports `mirrored: true`** when a PC's HP is written to the sheet and the token, like `setHP`.
+- **Works for any world.** Every event and batch carries `worldId`, `worldTitle` and `systemId`. A GM-only **Bot not receiving** warning (panel, Check setup, Test connection and one notification) appears when the webhook URL is empty in direct mode, deliveries keep failing, or nothing acknowledges. Test connection now says exactly what it confirmed.
+- **Foundry v14 maps.** Background-setting commands write the scene level's background (`levels.<level>.background.src`) on v14 and `scene.background.src` on older cores, so maps no longer stay grey.
+- **Several players at once.** Two roll requests open at once, two players rolling together and two identical `requestRoll` calls no longer cross cards.
+- **Setup guide** at `docs/SETUP.md`, linked from the settings.
+
 ## What's new in 0.9.2 (beta fixes)
-0.9.x is the beta series; 1.0 will be the full release. The current release is **0.9.2** (beta).
 - **Turns wait for open rolls.** `nextTurn` holds the turn while a roll request for that combat is still open (a defend roll, for example), then answers `409 rollPending` with the open rolls. `force: true` skips the guard; `waitMs` changes how long it waits (default 15 s). The "Your turn" and "is up" clips wait for a roll left over from the previous turn too.
 - **No morale prompt after the fight.** If one sweep kills every enemy and the combat ends, no `moralePrompt` is sent.
 - **Player characters match their tokens.** End-of-fight loot goes on the character sheet (not an unlinked token), a PC's HP changes are written to the sheet and its unlinked token together, and tokens the add-on makes for player characters are linked. A GM-only `linkPlayerTokens` (try `dryRun: true` first) relinks existing PC tokens on one scene, and **Check setup** warns about unlinked PC tokens.

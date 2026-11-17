@@ -25,8 +25,11 @@ async function markMoraleStatus(actor, result) {
   return id;
 }
 
-export async function moraleCheck(actor, a = {}) {
+// 0.9.3: opts.skipIf() is asked again after the roll and before anything is posted (an automatic prompt run goes stale when
+// a sweep ends the fight): a truthy answer (the reason) posts no card, sets no status and returns { skipped }.
+export async function moraleCheck(actor, a = {}, opts = {}) {
   const no = pbOnly(); if (no) return no;
+  const stale = () => { try { return opts?.skipIf?.() || null; } catch { return null; } };
   const hasOverride = a.morale !== undefined && a.morale !== null && String(a.morale).trim() !== "";
   const raw = hasOverride ? a.morale : actor?.system?.attributes?.morale;
   const hasSource = !!actor || hasOverride;
@@ -34,6 +37,7 @@ export async function moraleCheck(actor, a = {}) {
   const morale = parseMorale(raw);
   if (morale === null) {
     const name = actor?.name ?? "Creature";
+    { const why = stale(); if (why) return ok({ actorId: actor?.id ?? null, name: actor?.name ?? null, skipped: why }); }
     if (a.toChat !== false) {
       await ChatMessage.create({
         content: `<b>${name}</b> does not break (morale —).`,
@@ -47,6 +51,7 @@ export async function moraleCheck(actor, a = {}) {
   const o = await createMoraleOutcome({ actor: { morale } }); // the builder only reads actor.morale
   const second = o.secondaryOutcome?.roll?.total ?? null;
   const result = o.isStandingFirm ? "stands" : o.isFleeing ? "flees" : o.isSurrendering ? "surrenders" : moraleResult(o.roll?.total, morale, second);
+  { const why = stale(); if (why) return ok({ actorId: actor?.id ?? null, name: actor?.name ?? null, skipped: why }); }
   if (a.toChat !== false) await card({ title: L("PB.Morale"), actor, outcomes: [o] });
   let status = null;
   if (a.markStatus !== false) status = await markMoraleStatus(actor, result);

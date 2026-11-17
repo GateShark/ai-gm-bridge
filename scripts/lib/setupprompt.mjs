@@ -1,6 +1,7 @@
 // 0.9.2: "Copy bot setup prompt". The text lives in docs/bot-setup-prompt.md inside the module (swap that one file to
 // change it). Everything above the first line that is only "---" is a note for the human; everything below is the block
 // to paste into the bot. Loaded on demand (GM clicks the button), never at startup, so it costs nothing during play.
+export const SETUP_GUIDE_URL = "https://github.com/GateShark/ai-gm-bridge/blob/main/docs/SETUP.md"; // 0.9.3: linked from the settings
 export const PROMPT_FILE = "docs/bot-setup-prompt.md";
 export const PLACEHOLDER_MARK = "AIGM-PLACEHOLDER";
 export const promptUrl = (id = "ai-gm-bridge", getRoute = globalThis.foundry?.utils?.getRoute) => {

@@ -38,6 +38,7 @@ import { cleanupContextJournals } from "./gmstore.mjs";
 import { turnText, shouldWakeOnTurn, combatantIsNpc } from "./lib/turns.mjs";
 import { combatEvent, startedNow } from "./lib/combatevents.mjs";
 import { liveSetupCheck } from "./lib/setupcheck.mjs";
+import { worldInfo, deliveryHealth, setOutboxProvider, liveBotReceiving, createReceivingNotifier } from "./lib/botwake.mjs";
 import { rollBreakdown } from "./lib/rollreq.mjs";
 import { ThinkingIndicator, shouldShowThinking } from "./lib/thinking.mjs";
 import { PushToTalk, speechLang } from "./lib/ptt.mjs";
@@ -357,7 +358,7 @@ Hooks.once("init", () => {
   reg("webhookUrl", String, "", { config: false }); reg("webhookAuthHeader", String, "Authorization", { config: false });
   game.settings.register(ID, "webhookSecret", { scope: "world", config: false, restricted: true, type: String, default: "" });
   game.settings.registerMenu(ID, "config", { name: "AI GM Pirate Borg", label: "Configure AI GM Pirate Borg", icon: "fas fa-robot", type: makeConfigApp(), restricted: true });
-  game.settings.registerMenu(ID, "setupPrompt", { name: "Bot setup prompt", label: "Copy bot setup prompt", hint: "Copies a ready-made prompt you paste into your AI bot so it knows how to run games with this add-on.", icon: "fas fa-copy", type: makeSetupPromptApp(), restricted: true }); // 0.9.2, GM only
+  game.settings.registerMenu(ID, "setupPrompt", { name: "Bot setup prompt", label: "Copy bot setup prompt", hint: "Copies a ready-made prompt you paste into your AI bot so it knows how to run games with this add-on. Setup guide: https://github.com/GateShark/ai-gm-bridge/blob/main/docs/SETUP.md", icon: "fas fa-copy", type: makeSetupPromptApp(), restricted: true }); // 0.9.2, GM only
   reg("heartbeatMs", Number, 10000); reg("heartbeatTimeoutMs", Number, 45000); reg("offlineAfterMs", Number, 60000); reg("batchMs", Number, 3500);
   reg("keywords", String, ""); reg("hpPath", String, "system.attributes.hp.value");
   reg("alwaysVoiceUsers", String, ""); reg("unpauseOnStart", Boolean, true);
@@ -642,8 +643,22 @@ function emitEvent(ev, { urgent = false, evenIfPaused = false } = {}) {
   S.outbox.enqueue(ev, now); S.dedupe.mark(ev.eventId, "sent", now); persistNow(); S.metrics.inc("woke"); S.batcher?.push({ urgent, at: now }); return true;
 }
 
+// 0.9.3: GM-only "bot not receiving" warning. Shown in the panel and Check setup (they ask liveBotReceiving themselves) and as one
+// notification per problem (again only after it cleared). Cheap and pure: runs on the heartbeat, no extra timer.
+const receivingNotifier = createReceivingNotifier({ notify: (text) => ui.notifications?.warn?.(`AI GM Pirate Borg: ${text}`) });
+let lastReceivingKey = "";
+setOutboxProvider(() => (amLeader() && S.outbox ? S.outbox.items : null)); // a non-leader GM reads the persisted copy instead
+function checkReceiving(now = Date.now()) {
+  try {
+    if (!game.user?.isGM) return;
+    const r = liveBotReceiving({ now });
+    const key = r.problems.map(p => p.code).join(",");
+    receivingNotifier.check(r);
+    if (key !== lastReceivingKey) { lastReceivingKey = key; refreshPanel(); }
+  } catch (e) { log("receiving check", e?.message); }
+}
 function tickLeader() {
-  const now = Date.now(); S.batcher?.check();
+  const now = Date.now(); S.batcher?.check(); checkReceiving(now);
   maybeProbeLink(now);
   const d = decideLeader({ now, selfId: game.user.id, selfIsBot: isBot(), selfIsGM: game.user.isGM, state: S.leader, timeoutMs: get("heartbeatTimeoutMs") });
   if (d.action === "passive") return;
@@ -900,7 +915,7 @@ function flush(opts = {}) {
   if (batch) {
     const ctx = liveCtx();
     const hints = get("ttsMinChars") > 0 ? { ttsMinChars: get("ttsMinChars") } : undefined;
-    const payload = buildPayload(batch, { ctx, prevCtx: S.ackedCtx, maxChars: get("maxTextChars"), hints });
+    const payload = buildPayload(batch, { ctx, prevCtx: S.ackedCtx, maxChars: get("maxTextChars"), hints, worldInfo: worldInfo() });
     if (batch.attempt === 1) {
       const firsts = S.outbox.items.filter(i => i.batchId === batch.batchId).map(i => i.firstAt);
       S.metrics.time("queue", now - Math.min(...firsts)); S.metrics.c.holdMaxMs = Math.max(S.metrics.c.holdMaxMs ?? 0, now - Math.min(...firsts));
@@ -918,7 +933,7 @@ function flush(opts = {}) {
       const api = game.modules.get(ID).api;
       deliverDirect(payload, { url: get("webhookUrl"), secret: get("webhookSecret"), header: get("webhookAuthHeader") || "Authorization",
         runCommand: (c) => api.run(c), ack: (ids) => api.ack(ids) })
-        .then(r => { if (!r.ok) log(`direct delivery ${payload.batchId} failed`, r.status ?? r.error); }); // unacked → retried with backoff
+        .then(r => { if (r.ok) deliveryHealth.ok(); else { deliveryHealth.fail({ status: r.status, error: r.error }); log(`direct delivery ${payload.batchId} failed`, r.status ?? r.error); checkReceiving(); } }); // unacked → retried with backoff
     }
     const every = get("metricsLogEvery");
     log(`batch ${payload.batchId} events=${payload.events.length} bytes=${JSON.stringify(payload).length}${batch.attempt > 1 ? ` retry=${batch.attempt}` : ""}`);

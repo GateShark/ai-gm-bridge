@@ -81,25 +81,34 @@ export function groupFor(key) {
 
 // POST a ping to the webhook (never logs the secret). No URL (typical relay
 // setup) falls back to whether the bot user is currently connected.
-export async function testConnection({ url, secret, header = "Authorization", fetchImpl = (...a) => globalThis.fetch(...a), timeoutMs = 5000, botActive = null } = {}) {
+// 0.9.3 what it confirms, said plainly in the result message:
+//  - with a URL: the webhook received the test event (it carries worldId/worldTitle/systemId) and answered 2xx. A 2xx is the
+//    acknowledgement real batches get (the add-on has no other ack on the wire), so this is a real request/answer round trip
+//    from THIS browser. It does not prove the bot will wake or reply, and real direct deliveries are sent by the bot user's browser.
+//  - without a URL: only that the bot user is logged in to Foundry. The relay's own webhook is not tested from here.
+export async function testConnection({ url, secret, header = "Authorization", fetchImpl = (...a) => globalThis.fetch(...a), timeoutMs = 5000, botActive = null, delivery = null, worldInfo = {} } = {}) {
   if (!url) {
-    if (botActive === true) return { ok: true, via: "botUser", message: "No webhook URL (relay mode). Bot user is connected." };
+    if (delivery === "direct") return { ok: false, via: "none", error: "Delivery is direct but the webhook URL is empty, so the bot will not receive anything. Enter the webhook URL, or switch Delivery to relay." };
+    if (botActive === true) return { ok: true, via: "botUser", message: "No webhook URL (relay mode). The bot user is connected to Foundry. This does not test the relay's webhook." };
     if (botActive === false) return { ok: false, via: "botUser", error: "No webhook URL (relay mode). Bot user is not connected." };
     return { ok: false, via: "none", error: "No webhook URL configured" };
   }
   const redact = (s) => secret ? String(s).split(secret).join("[redacted]") : String(s);
   let ctrl = null, timer = null;
+  const testId = `test:${Date.now().toString(36)}`;
   try { ctrl = new AbortController(); timer = setTimeout(() => ctrl.abort(), timeoutMs); } catch { ctrl = null; }
   try {
     const r = await fetchImpl(url, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(secret ? { [header]: secret } : {}) },
-      body: JSON.stringify({ type: "testConnection", ping: true }),
+      headers: { "content-type": "application/json", ...(secret ? { [header]: secret } : {}), "idempotency-key": testId },
+      body: JSON.stringify({ type: "testConnection", ping: true, testId, ...(worldInfo ?? {}) }),
       ...(ctrl ? { signal: ctrl.signal } : {})
     });
     const ok = r.status >= 200 && r.status < 300;
-    return { ok, status: r.status, via: "webhook", error: ok ? null : `HTTP ${r.status}`, message: ok ? `OK (HTTP ${r.status})` : null };
+    return { ok, status: r.status, via: "webhook", roundTrip: ok, error: ok ? null : `HTTP ${r.status}`,
+      message: ok ? `OK (HTTP ${r.status}). The webhook received the test event and answered 2xx, like it must for real events. This does not prove the bot will reply.` : null };
   } catch (e) {
-    return { ok: false, via: "webhook", error: redact(e?.message ?? e) };
+    const hint = e?.name === "AbortError" ? " (no answer in time)" : (e instanceof TypeError ? " (unreachable, or the webhook blocks browser requests: direct mode needs CORS)" : "");
+    return { ok: false, via: "webhook", error: redact(e?.message ?? e) + hint };
   } finally { if (timer) clearTimeout(timer); }
 }

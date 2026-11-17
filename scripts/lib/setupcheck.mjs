@@ -3,6 +3,7 @@
 import { combatantOwners } from "./turns.mjs";
 import { sceneTokens } from "./gmpanel.mjs";
 import { isUnlinkedPcToken } from "./pclink.mjs";
+import { liveBotReceiving } from "./botwake.mjs";
 
 function itemsOf(actor) {
   const items = actor?.items;
@@ -76,12 +77,14 @@ export function formatUnlinkedWarning(unlinked) {
   const names = unlinked.map(u => u.name).join(", ");
   return `${unlinked.length === 1 ? "A player character's token is" : `${unlinked.length} player character tokens are`} not linked to the character sheet: ${names}. HP and loot can drift apart. Ask the AI GM to run linkPlayerTokens (dry run first).`;
 }
-export function runSetupCheck({ tokens = [], combatants = [], users = [], scene = null } = {}) {
+export function runSetupCheck({ tokens = [], combatants = [], users = [], scene = null, receiving = null } = {}) {
   const subjects = [...(combatants ?? []).map(subjectFromCombatant), ...(tokens ?? []).map(subjectFromToken)].filter(Boolean);
   const unowned = uniqueUnowned(findUnownedPirates(subjects, users));
   const unlinked = findUnlinkedPcTokens(tokens, users);
-  const warning = [formatOwnerWarning(unowned), formatUnlinkedWarning(unlinked)].filter(Boolean).join(" ") || null;
-  return { ok: !unowned.length && !unlinked.length, scene: scene ?? null, checked: subjects.length, unowned, unlinked, warning,
+  const notReceiving = receiving?.state === "warn" ? receiving : null; // 0.9.3: GM-only "bot not receiving" warning
+  const warning = [formatOwnerWarning(unowned), formatUnlinkedWarning(unlinked), notReceiving?.text].filter(Boolean).join(" ") || null;
+  return { ok: !unowned.length && !unlinked.length && !notReceiving, scene: scene ?? null, checked: subjects.length, unowned, unlinked, warning,
+    ...(receiving && receiving.state !== "off" ? { botReceiving: { ok: !notReceiving, problems: receiving.problems.map(p => p.code), text: receiving.text || null } } : {}),
     text: warning || "All player-looking pirates here have a player owner and a linked token." };
 }
 export function combatantsOf(combat) {
@@ -91,8 +94,9 @@ export function combatantsOf(combat) {
   if (Array.isArray(raw.contents)) return raw.contents.filter(Boolean);
   try { return [...raw].filter(Boolean); } catch { return []; }
 }
-export function liveSetupCheck({ scene, combat, users = [], tokens } = {}) {
+export function liveSetupCheck({ scene, combat, users = [], tokens, receiving } = {}) {
   return runSetupCheck({
+    receiving: receiving !== undefined ? receiving : liveBotReceiving(),
     tokens: tokens ?? sceneTokens(scene),
     combatants: combatantsOf(combat),
     users,

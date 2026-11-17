@@ -3,7 +3,7 @@
 import { ok, fail } from "./lib/result.mjs";
 import { normStat, formulaFor, normalizeFormula, evaluate, evaluateFormula, reqFormula, canClick, reqIdFrom, cardHtml, matchRoll, naturalOf, d20Of, rollBreakdown, rollsOf, isOpen, judgeWithBonus, bonusText, standingBonus, normBonus, findNearDuplicate } from "./lib/rollreq.mjs";
 import { turnInfo, turnText, voiceUsersFrom, turnVoiceUserIds } from "./lib/turns.mjs";
-import { resolveReplyTo, priorRollReply, recordRollReply } from "./lib/replies.mjs";
+import { resolveReplyTo, priorRollReply, recordRollReply, rollScope } from "./lib/replies.mjs";
 import { actorChanges, lineHtml, parseLines, recap as recapLines, TRACKED, stamp } from "./lib/sessionlog.mjs";
 import { planRest, clampHp, diffReport, canRestoreResource } from "./lib/pbrest.mjs";
 import { createDownTracker } from "./lib/pcdown.mjs";
@@ -36,23 +36,19 @@ function sameRollTarget(a, b) {
 export function existingOpenRequest(pending, target) {
   return (pending ?? []).find(r => sameRollTarget(r, target)) ?? null;
 }
-export async function requestRoll(a) {
+// 0.9.3: roll requests and roll answers are handled one at a time. Two identical requests that arrive together (a bot retry)
+// used to both pass the duplicate check before either card existed, and two quick rolls by one player could both answer the
+// same open card.
+let requestChain = Promise.resolve(), answerChain = Promise.resolve();
+const inChain = (get, set, fn) => { const run = get().then(fn); set(run.then(() => {}, () => {})); return run; };
+export function requestRoll(a) { return inChain(() => requestChain, (p) => { requestChain = p; }, () => requestRollNow(a)); }
+async function requestRollNow(a) {
   const id = reqIdFrom(a.requestId, foundry.utils.randomID()); // idempotent: same requestId returns the existing card/result
   const prior = reqMessages().find(m => m.flags[ID].rollRequest.id === id);
   if (prior) { const r = prior.flags[ID].rollRequest; return ok({ requestId: id, messageId: prior.id, status: r.status, result: r.result ?? null, duplicate: true }); }
   // 0.8.20 #1/#9: only an explicit replyTo locks the roll slot; one guessed from the last wake does not.
   const replyTo = resolveReplyTo(a.replyTo);
   const lockable = replyTo && a._replyInferred !== true;
-  if (lockable) {
-    const locked = priorRollReply(dedupeStore(), replyTo);
-    if (locked && (locked.s === "acked" || locked.s === "sent")) {
-      const hit = reqMessages().find(m => m.flags[ID].rollRequest.id === locked.requestId) ?? reqMessages().find(m => m.id === locked.messageId);
-      if (hit) {
-        const r = hit.flags[ID].rollRequest;
-        return ok({ requestId: r.id, messageId: hit.id, status: r.status, result: r.result ?? null, duplicate: true, ...(r.timeoutAt ? { timeoutAt: r.timeoutAt } : {}), ...(r.combatId ? { combatId: r.combatId } : {}) });
-      }
-    }
-  }
   let formula = typeof a.formula === "string" && a.formula.trim() ? normalizeFormula(a.formula) : null;
   let rawStat = typeof a.stat === "string" ? a.stat.trim() : "";
   if (!formula && rawStat && /^\d*d\d/i.test(rawStat)) { formula = normalizeFormula(rawStat); rawStat = ""; }
@@ -64,6 +60,18 @@ export async function requestRoll(a) {
   const user = findUser(a.user); if (!user) return fail("NOT_FOUND", `user ${a.user} not found`);
   const actor = (a.actorId && game.actors.get(a.actorId)) || (a.actorName && game.actors.getName(a.actorName)) || user.character;
   if (!actor) return fail("NOT_FOUND", "no actor (pass actorId/actorName or give the user a character)");
+  // 0.9.3: the reply lock is per player+character (it used to hand every player the first card of the same replyTo).
+  const scope = rollScope({ userId: user.id, actorId: actor.id });
+  if (lockable) {
+    const locked = priorRollReply(dedupeStore(), replyTo, scope);
+    if (locked && (locked.s === "acked" || locked.s === "sent")) {
+      const hit = reqMessages().find(m => m.flags[ID].rollRequest.id === locked.requestId) ?? reqMessages().find(m => m.id === locked.messageId);
+      if (hit) {
+        const r = hit.flags[ID].rollRequest;
+        return ok({ requestId: r.id, messageId: hit.id, status: r.status, result: r.result ?? null, duplicate: true, ...(r.timeoutAt ? { timeoutAt: r.timeoutAt } : {}), ...(r.combatId ? { combatId: r.combatId } : {}) });
+      }
+    }
+  }
   const combatId = a.combatId || game.combat?.id || null;
   const live = combatId && game.combat?.id === combatId && game.combat?.started ? game.combat : null;
   const want = { userId: user.id, actorId: actor.id, formula, stat, label: a.label ?? "", dr: a.dr ?? null, ...(a.rollKey ? { rollKey: String(a.rollKey) } : {}),
@@ -81,7 +89,7 @@ export async function requestRoll(a) {
     ...(live ? { round: live.round, turn: live.turn } : {}), ...(want.rollKey ? { rollKey: want.rollKey } : {}), ...(bonus ? { bonus, ...(bonusLabel ? { bonusLabel } : {}) } : {}) };
   const msg = await ChatMessage.create({ content: cardHtml(req), speaker: { alias: D.get("speakerAlias") || "AI GM" }, flags: { [ID]: { local: true, rollRequest: req } } });
   armTimeout(req, msg.id);
-  if (lockable) recordRollReply(dedupeStore(), replyTo, id, msg.id, Date.now());
+  if (lockable) recordRollReply(dedupeStore(), replyTo, id, msg.id, Date.now(), scope);
   return ok({ requestId: id, messageId: msg.id, status: "pending", timeoutAt: req.timeoutAt, ...(combatId ? { combatId } : {}) });
 }
 // 0.8.20 #13: standing roll bonus per actor (or user). bonus 0 clears it. Stored in the world setting rollBonuses.
@@ -111,7 +119,8 @@ function armTimeout(req, messageId) {
 }
 export function rearmRollRequests() { for (const r of pendingRequests()) armTimeout(r, r.messageId); }
 // Leader: a new chat message may answer a pending request. Returns true when consumed (no normal chat event).
-export async function onRollMessage(msg) {
+export function onRollMessage(msg) { return inChain(() => answerChain, (p) => { answerChain = p; }, () => onRollMessageNow(msg)); }
+async function onRollMessageNow(msg) {
   if (!rollsOf(msg).length) return false;
   const req = matchRoll(msg, pendingRequests()); if (!req) return false;
   const by = msg.author ?? msg.user; if (!canClick(req, typeof by === "string" ? game.users.get(by) : by)) return false;

@@ -11,11 +11,56 @@ export async function moveWithFallback(t, x, y, wait) {
   r = await w; return { ...r, via: "displace" };
 }
 
-// v14 keeps the background on the scene's first level; older versions use scene.background.src.
-export async function setSceneBackground(scene, src) {
-  const lvl = scene.levels?.contents?.[0];
-  if (lvl && typeof lvl.update === "function") { await lvl.update({ "background.src": src }); return { via: "level", levelId: lvl.id ?? null, src: lvl.background?.src ?? src }; }
-  await scene.update({ "background.src": src }); return { via: "scene", levelId: null, src: scene.background?.src ?? src };
+// 0.9.3: which Foundry core generation is running (13, 14, ...). game.release.generation is the documented number; older
+// builds only have a version string like "14.369". Returns null when neither is there (tests, odd hosts).
+export function coreGeneration(g = globalThis.game) {
+  const gen = Number(g?.release?.generation);
+  if (Number.isFinite(gen) && gen > 0) return Math.floor(gen);
+  const m = String(g?.version ?? g?.data?.version ?? "").match(/^\s*(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+const levelList = (scene) => {
+  const raw = scene?.levels; if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  if (Array.isArray(raw.contents)) return raw.contents.filter(Boolean);
+  try { return [...raw].filter(Boolean); } catch { return []; }
+};
+// A scene keeps its background on a Level from Foundry v14 on. With a known core number that decides; with none, a scene that
+// has a levels collection counts.
+export function sceneUsesLevels(scene, g = globalThis.game) {
+  const gen = coreGeneration(g);
+  if (gen != null) return gen >= 14;
+  return !!scene?.levels && (levelList(scene).length > 0 || Array.isArray(scene.levels.contents));
+}
+export const DEFAULT_LEVEL_ID = "defaultLevel0000";
+// 0.9.3: v14 and later write the scene's initial level (levels.<id>.background.src; "defaultLevel0000" in a new scene). A v14
+// scene with no level yet gets one created. Older cores write scene.background.src. The saved value is read back, and a value
+// that did not stick is an error instead of a silent grey map. Result: { via: "level"|"scene", levelId, src }.
+export async function setSceneBackground(scene, src, g = globalThis.game) {
+  if (sceneUsesLevels(scene, g)) {
+    const levels = levelList(scene);
+    let lvl = scene.initialLevel ?? levels.find(l => l.id === DEFAULT_LEVEL_ID) ?? levels[0] ?? null;
+    let created = false;
+    if (!lvl) {
+      if (typeof scene.createEmbeddedDocuments !== "function") throw new Error("scene has no level to hold the background");
+      let made;
+      try { made = await scene.createEmbeddedDocuments("Level", [{ _id: DEFAULT_LEVEL_ID, name: "Default", background: { src } }], { keepId: true }); }
+      catch { made = await scene.createEmbeddedDocuments("Level", [{ name: "Default", background: { src } }]); }
+      lvl = made?.[0] ?? levelList(scene)[0] ?? null; created = true;
+      if (!lvl) throw new Error("could not create a level for the background");
+    } else if (typeof scene.updateEmbeddedDocuments === "function" && lvl.id) {
+      await scene.updateEmbeddedDocuments("Level", [{ _id: lvl.id, background: { src } }]);
+    } else if (typeof lvl.update === "function") {
+      await lvl.update({ "background.src": src });
+    } else throw new Error("level cannot be updated");
+    const saved = lvl.background?.src;
+    if (saved !== undefined && saved !== src) throw new Error(`level background did not save (${saved ?? "empty"})`);
+    return { via: "level", levelId: lvl.id ?? null, src: saved ?? src, ...(created ? { created: true } : {}) };
+  }
+  await scene.update({ "background.src": src });
+  const saved = scene.background?.src;
+  if (saved !== undefined && saved !== src) throw new Error(`scene background did not save (${saved ?? "empty"})`);
+  return { via: "scene", levelId: null, src: saved ?? src };
 }
 
 // Turn a command reply into one readable line, so a bot never posts raw JSON or "[object Object]".
@@ -42,5 +87,5 @@ export function unwrapText(v) {
 }
 // 0.8.7: background src for a scene on v14 (levels[0]) or older (scene.background).
 export function sceneBackgroundSrc(scene) {
-  return scene?.levels?.contents?.[0]?.background?.src || scene?.background?.src || scene?.img || null;
+  return scene?.initialLevel?.background?.src || scene?.levels?.contents?.[0]?.background?.src || scene?.background?.src || scene?.img || null;
 }

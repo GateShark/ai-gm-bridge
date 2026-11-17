@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.9.3
+Beta fix release. Credit: Gate (GateShark).
+
+- `applyDamage` hits every targeted token, not one per actor: several unlinked tokens that share one actor (a group of the same monster) each take the damage and keep their own HP. Controlled tokens work the same. Linked tokens and actor-only targets still count once per actor, and a PC keeps the 0.9.2 write to the sheet and the token. Each `updated` entry now carries `tokenId` when it was a token.
+- No morale cards after a sweep: an automatic morale run (`moraleAuto` / `moralePrompt`) checks again before each card and posts nothing when the fight has ended. The skipped run returns `{results, reason, checked, skipped}` and is not cached. A manual `moraleCheck` is unchanged.
+- `setResource` on a PC token that writes both the sheet and the token reports `mirrored: true` (hp), like `setHP`.
+- Bot wake for any world: every event and every batch payload carries `worldId`, `worldTitle` and `systemId` (`game.system.id`).
+- GM-only **Bot not receiving** warning in the panel, Check setup (`setupCheck.botReceiving`), Test connection and one notification. It appears when the add-on is enabled and no bot user is picked, the webhook URL is empty in direct mode, the last 3 direct deliveries failed, or an event went unacknowledged for 2 minutes. It clears by itself. In relay mode a stopped relay cannot be seen (chat is marked received when it is handed over).
+- Test connection sends a real round trip in direct mode (2xx from the webhook, with the world fields, a test id and an `idempotency-key`) and says what that confirms: the webhook answered, not that the bot will reply. With no URL (relay mode) it says it only checked the bot user. Failures explain themselves (status, timeout, CORS).
+- Foundry v14 maps: `setBackground`, and `createScene` with `src`, write the scene's level background (`levels.<level>.background.src`, `defaultLevel0000` in a new scene; a level is created when none exists) when the scene uses levels, and `scene.background.src` on older cores. The core version is read from `game.release.generation`, then `game.version`. A write that does not stick is an error, not a grey map.
+- Several players at once:
+  - The roll reply lock is per player and actor. Two players asked to roll for the same message each get their own card (before, the second got the first card).
+  - `requestRoll` and roll answers are handled one at a time, so two identical `requestRoll` calls at once make one card, and one player's quick double roll answers two cards instead of one twice.
+  - Reviewed and covered by tests: event batching, leader election, turn prompts (two owners on one combatant), per-user voice, the turn guard with two open rolls.
+- `docs/SETUP.md`: a generic setup guide, linked from the README, the settings (Copy bot setup prompt menu) and the setup prompt window.
+- Bot setup prompt (`docs/bot-setup-prompt.md`): version 0.9.3, the new payload fields, the Test connection body, the not-receiving warning and a rule for several players at once. `docs/BOT-API.md` is updated.
+- Voice default unchanged: Ryan (en-GB-RyanNeural). Recorded voices only.
+
 ## 0.9.2
 Beta fix release. Credit: Gate (GateShark).
 

@@ -21,6 +21,9 @@ carries the same `batchId` and exactly the same events. Most `4xx` answers are f
   "properties": {
     "batchId": { "type": "string", "description": "world:hash of the exact event set; same id = same events" },
     "world":   { "type": "string" },
+    "worldId": { "type": "string", "description": "v0.9.3: the Foundry world id (same value as world); also on every event" },
+    "worldTitle": { "type": "string", "description": "v0.9.3: the world's title; also on every event" },
+    "systemId": { "type": "string", "description": "v0.9.3: game.system.id, for example pirateborg; also on every event" },
     "seq":     { "type": "integer" },
     "attempt": { "type": "integer", "description": "present on retries (2, 3, ...)" },
     "ctx":     { "type": "object", "description": "only keys that changed since the last acked batch",
@@ -264,7 +267,7 @@ When the world GM pauses, resumes, redos or skips, the leader sends an urgent ev
 ```
 
 ### Test connection
-The settings **Test connection** button POSTs `{ "type": "testConnection", "ping": true }` to the webhook URL (same auth header, no `events` array and no `batchId`). Answer `2xx` if you can; any HTTP response is treated as "reached the server". In relay mode with no URL stored in Foundry, the button checks that the bot user is connected instead.
+The settings **Test connection** button POSTs `{ "type": "testConnection", "ping": true, "testId", "worldId", "worldTitle", "systemId" }` to the webhook URL (same auth header, an `idempotency-key: <testId>` header, no `events` array and no `batchId`). Answer `2xx`. Since 0.9.3 only a `2xx` counts as success (any other status is reported as failed, a network or CORS failure is explained). A `2xx` is the same acknowledgement real batches get, so it confirms the webhook received the test event and answered; it does not prove the bot will wake or reply. The request is sent from the GM's browser, while real direct deliveries are sent by the bot user's browser. In relay mode with no URL stored in Foundry, the button only checks that the bot user is connected to Foundry; it does not test the relay's own webhook.
 
 ### Status light
 The player-visible status pill (0.8.17) is derived automatically when it can be: event sent → **GM waking up**; relay claim/ack → **GM reading**; `requestRoll` → **GM requesting a roll**; `postVoice`/`voiceLookup` → **GM is sending a voice message…**; audio playing → **GM speaking**; no server-confirmed link → **AI GM offline**; otherwise **GM listening** (ready) or **GM paused**. Call `setGmStatus` for **GM thinking…**, **GM is sending a voice message…** (while you generate TTS, before `postVoice`), or **GM asleep**. A timeout (the thinking-indicator setting, default 90s) returns the pill to ready so it never sticks. One socket message per change; no extra polling.
@@ -440,3 +443,12 @@ The audio queue id of a voiced line is its chat message id (`voice:<messageId>:<
 - Tokens the add-on creates for a player-owned actor (`spawnAndVision`, pet placement) are linked (`actorLink: true`) and the actor's prototype token is set to linked.
 - `linkPlayerTokens {sceneId?, dryRun?}` (GM only, never automatic): on ONE scene (default the current scene) relinks unlinked tokens of player-owned actors to the world actor (`actorLink: true`; the world sheet wins, nothing is copied from the token) and sets the actor's prototype token to linked. Result: `{sceneId, scene, dryRun, found, wouldLink|linked, tokens: [{tokenId, name, actorId, differences: {hp?, silver?, items?: {onlyOnToken, onlyOnWorld}}, hasDifferences, linked?}], skipped, note}`. Run with `dryRun: true` first and merge token-only differences by hand.
 - `setupCheck` / the panel's Check setup / Test connection also warn about player character tokens that are not linked (`unlinked: [...]`; `ok` is false while any exist).
+
+## v0.9.3: beta fixes
+- Every batch and every event carries `worldId`, `worldTitle` and `systemId` (`game.world.id`, `game.world.title`, `game.system.id`). `world` stays for older bots. A single bot or routine can serve several worlds: route and keep state by `worldId`.
+- Bot not receiving (GM only): the add-on warns in the GM panel, in Check setup / `setupCheck` / Test connection (`botReceiving: { ok, problems, text }`, `ok` false while it applies) and once as a notification when it is enabled and (a) no bot user is picked, (b) delivery is `direct` and the webhook URL is empty, (c) the last 3 direct deliveries failed, or (d) an event went out and nothing acknowledged it within 120 s. It clears by itself. In relay mode chat events are marked received by the module as soon as they are handed to the relay, so the module cannot see a relay that stopped forwarding; there only (a) and (d) for control events apply.
+- `applyDamage` hits every targeted unlinked token even when they share one actor (a group of the same monster): `updated` has one entry per token (`id` is the actor id, `tokenId` the token). Linked tokens and actor-only targets still count once per actor.
+- `setResource` hp on a player character's unlinked token reports `mirrored: true` like `setHP`.
+- Automatic morale (`moralePrompt` runs) posts no chat card for creatures once the fight has ended (a sweep that kills everyone); the skipped run returns `skipped` and is not cached.
+- `setBackground` and `createScene {src}` write the scene's level on Foundry v14 (`levels.<id>.background.src`, `defaultLevel0000` in a new scene; a scene with no level gets one), and `scene.background.src` on older cores. The result is `{via: "level"|"scene", levelId, src}`; a value that did not save is an error.
+- `requestRoll`: the replyTo lock is per player and character, so several requests for different players with the same `replyTo` each get a card. Roll requests and roll answers are handled one at a time.
